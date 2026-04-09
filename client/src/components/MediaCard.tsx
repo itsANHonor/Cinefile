@@ -110,11 +110,26 @@ const MediaCard: React.FC<MediaCardProps> = ({
           ))}
         </div>
         
-        {/* Multi-disc indicator */}
+        {/* Multi-item indicator */}
         {physicalItem.media.length > 1 && (
           <div className="absolute bottom-2 left-2">
             <span className="bg-black bg-opacity-75 text-white text-xs font-medium px-2 py-1 rounded">
-              {physicalItem.media.length} movies
+              {(() => {
+                const tvCount = physicalItem.media.filter(m => m.media_type === 'tv_season').length;
+                const movieCount = physicalItem.media.length - tvCount;
+                if (tvCount > 0 && movieCount === 0) return `${tvCount} season${tvCount !== 1 ? 's' : ''}`;
+                if (movieCount > 0 && tvCount === 0) return `${movieCount} movie${movieCount !== 1 ? 's' : ''}`;
+                return `${physicalItem.media.length} items`;
+              })()}
+            </span>
+          </div>
+        )}
+
+        {/* TV type badge */}
+        {primaryMedia?.media_type === 'tv_season' && (
+          <div className="absolute bottom-2 right-2">
+            <span className="bg-purple-600 bg-opacity-90 text-white text-xs font-medium px-1.5 py-0.5 rounded">
+              TV
             </span>
           </div>
         )}
@@ -125,6 +140,12 @@ const MediaCard: React.FC<MediaCardProps> = ({
         <h3 className="font-semibold text-gray-900 dark:text-gray-100 line-clamp-2 mb-1">
           {physicalItem.name}
         </h3>
+        {primaryMedia?.media_type === 'tv_season' && primaryMedia.tv_show_name && (
+          <p className="text-xs text-purple-600 dark:text-purple-400 line-clamp-1">
+            {primaryMedia.tv_show_name}
+            {primaryMedia.season_number != null && ` - Season ${primaryMedia.season_number}`}
+          </p>
+        )}
         {primaryMedia?.release_date && (
           <p className="text-sm text-gray-500 dark:text-gray-400">
             {new Date(primaryMedia.release_date).getFullYear()}

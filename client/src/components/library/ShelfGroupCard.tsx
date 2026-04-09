@@ -1,4 +1,7 @@
 import React, { useState } from 'react';
+import { useSortable } from '@dnd-kit/sortable';
+import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import { ShelfGroup, Shelf } from '../../types';
 import ShelfView from './ShelfView';
 
@@ -15,6 +18,18 @@ interface ShelfGroupCardProps {
   onSpineColorEdit?: (physicalItemId: number) => void;
 }
 
+/** Grip/drag handle icon */
+const GripIcon: React.FC<{ className?: string }> = ({ className }) => (
+  <svg className={className || 'w-4 h-4'} viewBox="0 0 24 24" fill="currentColor">
+    <circle cx="9" cy="5" r="1.5" />
+    <circle cx="15" cy="5" r="1.5" />
+    <circle cx="9" cy="12" r="1.5" />
+    <circle cx="15" cy="12" r="1.5" />
+    <circle cx="9" cy="19" r="1.5" />
+    <circle cx="15" cy="19" r="1.5" />
+  </svg>
+);
+
 const ShelfGroupCard: React.FC<ShelfGroupCardProps> = ({
   group,
   isEditMode,
@@ -29,6 +44,26 @@ const ShelfGroupCard: React.FC<ShelfGroupCardProps> = ({
 }) => {
   const [isCollapsed, setIsCollapsed] = useState(false);
 
+  // Group-level sortable (for reordering groups)
+  const {
+    setNodeRef: setGroupRef,
+    attributes: groupAttributes,
+    listeners: groupListeners,
+    transform: groupTransform,
+    transition: groupTransition,
+    isDragging: isGroupDragging,
+  } = useSortable({
+    id: `group-${group.id}`,
+    data: { type: 'shelf-group', group },
+    disabled: !isEditMode,
+  });
+
+  const groupStyle = {
+    transform: CSS.Transform.toString(groupTransform),
+    transition: groupTransition,
+    opacity: isGroupDragging ? 0 : 1,
+  };
+
   const totalItems = group.shelves.reduce(
     (sum, shelf) => sum + shelf.placements.length,
     0
@@ -42,14 +77,33 @@ const ShelfGroupCard: React.FC<ShelfGroupCardProps> = ({
     0
   );
 
+  const shelfSortableIds = group.shelves.map((s) => `sortable-shelf-${s.id}`);
+
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
+    <div
+      ref={setGroupRef}
+      style={groupStyle}
+      className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden"
+    >
       {/* Group Header */}
       <div
         className="flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-750 transition-colors"
         onClick={() => setIsCollapsed(!isCollapsed)}
       >
         <div className="flex items-center gap-3">
+          {/* Drag handle for group reordering */}
+          {isEditMode && (
+            <div
+              {...groupAttributes}
+              {...groupListeners}
+              className="cursor-grab active:cursor-grabbing text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 -ml-1 p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+              onClick={(e) => e.stopPropagation()}
+              title="Drag to reorder group"
+            >
+              <GripIcon className="w-4 h-4" />
+            </div>
+          )}
+
           <svg
             className={`w-4 h-4 text-gray-500 dark:text-gray-400 transition-transform ${
               isCollapsed ? '' : 'rotate-90'
@@ -124,18 +178,20 @@ const ShelfGroupCard: React.FC<ShelfGroupCardProps> = ({
               )}
             </div>
           ) : (
-            group.shelves.map((shelf) => (
-              <ShelfView
-                key={shelf.id}
-                shelf={shelf}
-                isEditMode={isEditMode}
-                onEditShelf={onEditShelf}
-                onDeleteShelf={onDeleteShelf}
-                onRemovePlacement={onRemovePlacement}
-                onItemClick={onItemClick}
-                onSpineColorEdit={onSpineColorEdit}
-              />
-            ))
+            <SortableContext items={shelfSortableIds} strategy={verticalListSortingStrategy}>
+              {group.shelves.map((shelf) => (
+                <ShelfView
+                  key={shelf.id}
+                  shelf={shelf}
+                  isEditMode={isEditMode}
+                  onEditShelf={onEditShelf}
+                  onDeleteShelf={onDeleteShelf}
+                  onRemovePlacement={onRemovePlacement}
+                  onItemClick={onItemClick}
+                  onSpineColorEdit={onSpineColorEdit}
+                />
+              ))}
+            </SortableContext>
           )}
         </div>
       )}

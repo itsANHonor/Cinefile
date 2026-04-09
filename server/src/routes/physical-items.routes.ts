@@ -43,12 +43,31 @@ interface PhysicalItemWithMedia extends PhysicalItem {
  */
 router.get('/', async (req: Request, res: Response) => {
   try {
-    const { format, genres, decades, sort_by = 'created_at', sort_order = 'desc', search, page = '1', limit = '24' } = req.query;
+    const { format, genres, decades, sort_by = 'created_at', sort_order = 'desc', search, media_type, page = '1', limit = '24' } = req.query;
 
     // Start with base query - fetch physical items WITHOUT joins first
     // This ensures all items are returned, then we'll filter and attach media separately
     let query = db('physical_items')
       .select('physical_items.*');
+
+    // Filter by media_type if specified (include physical item if ANY linked media matches)
+    if (media_type && typeof media_type === 'string' && media_type !== 'all') {
+      if (media_type === 'movie') {
+        query = query.whereRaw(`EXISTS (
+          SELECT 1 FROM physical_item_media
+          JOIN media ON physical_item_media.media_id = media.id
+          WHERE physical_item_media.physical_item_id = physical_items.id
+          AND (media.media_type = 'movie' OR media.media_type IS NULL)
+        )`);
+      } else {
+        query = query.whereRaw(`EXISTS (
+          SELECT 1 FROM physical_item_media
+          JOIN media ON physical_item_media.media_id = media.id
+          WHERE physical_item_media.physical_item_id = physical_items.id
+          AND media.media_type = ?
+        )`, [media_type]);
+      }
+    }
 
     // Filter by format if specified (support multi-select: comma-separated)
     if (format && format !== 'all') {
@@ -879,8 +898,20 @@ router.post('/', authMiddleware, async (req: Request, res: Response) => {
             release_date: mediaItem.release_date,
             director: mediaItem.director,
             cast: mediaItem.cast ? JSON.stringify(mediaItem.cast) : null,
+            media_type: mediaItem.media_type || 'movie',
+            tv_show_tmdb_id: mediaItem.tv_show_tmdb_id || null,
+            tv_show_name: mediaItem.tv_show_name || null,
+            season_number: mediaItem.season_number != null ? mediaItem.season_number : null,
+            episode_count: mediaItem.episode_count != null ? mediaItem.episode_count : null,
           };
 
+          if (mediaItem.genres) {
+            mediaData.genres = typeof mediaItem.genres === 'string' ? mediaItem.genres : JSON.stringify(mediaItem.genres);
+          }
+
+          // #region agent log
+          console.log('[DEBUG-0162e4]', JSON.stringify({location:'physical-items.routes.ts:912',message:'media INSERT data',data:{mediaData,mediaItemKeys:Object.keys(mediaItem)}}));
+          // #endregion
           const [newMediaId] = await trx('media').insert(mediaData);
           mediaId = newMediaId;
         }
@@ -987,9 +1018,12 @@ router.post('/', authMiddleware, async (req: Request, res: Response) => {
     }
 
     res.status(201).json(result);
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error creating physical item:', error);
-    res.status(500).json({ error: 'Failed to create physical item' });
+    // #region agent log
+    console.log('[DEBUG-0162e4]', JSON.stringify({location:'physical-items.routes.ts:1018',message:'POST / catch error',data:{errorMessage:error?.message,errorCode:error?.code,reqBodyKeys:Object.keys(req.body||{}),mediaCount:Array.isArray(req.body?.media)?req.body.media.length:0,firstMedia:Array.isArray(req.body?.media)?req.body.media[0]:req.body?.media}}));
+    // #endregion
+    res.status(500).json({ error: 'Failed to create physical item', details: error?.message });
   }
 });
 
@@ -1268,7 +1302,16 @@ router.post('/:id/media', authMiddleware, async (req: Request, res: Response) =>
           release_date: media.release_date,
           director: media.director,
           cast: media.cast ? JSON.stringify(media.cast) : null,
+          media_type: media.media_type || 'movie',
+          tv_show_tmdb_id: media.tv_show_tmdb_id || null,
+          tv_show_name: media.tv_show_name || null,
+          season_number: media.season_number != null ? media.season_number : null,
+          episode_count: media.episode_count != null ? media.episode_count : null,
         };
+
+        if (media.genres) {
+          mediaData.genres = typeof media.genres === 'string' ? media.genres : JSON.stringify(media.genres);
+        }
 
         const [newMediaId] = await trx('media').insert(mediaData);
         mediaId = newMediaId;
@@ -1455,7 +1498,16 @@ router.post('/bulk', authMiddleware, async (req: Request, res: Response) => {
               release_date: item.media.release_date,
               director: item.media.director,
               cast: item.media.cast ? JSON.stringify(item.media.cast) : null,
+              media_type: item.media.media_type || 'movie',
+              tv_show_tmdb_id: item.media.tv_show_tmdb_id || null,
+              tv_show_name: item.media.tv_show_name || null,
+              season_number: item.media.season_number != null ? item.media.season_number : null,
+              episode_count: item.media.episode_count != null ? item.media.episode_count : null,
             };
+
+            if (item.media.genres) {
+              mediaData.genres = typeof item.media.genres === 'string' ? item.media.genres : JSON.stringify(item.media.genres);
+            }
 
             const [newMediaId] = await trx('media').insert(mediaData);
             mediaId = newMediaId;

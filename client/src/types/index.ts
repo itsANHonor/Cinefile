@@ -18,7 +18,7 @@ export interface MovieSeries {
   series?: Series;
 }
 
-// Media types (pure movie metadata, no physical ownership info)
+// Media types (pure movie/TV metadata, no physical ownership info)
 export interface Media {
   id: number;
   title: string;
@@ -31,6 +31,12 @@ export interface Media {
   genres?: { id: number; name: string }[];
   series?: Series[];
   primary_series_id?: number;
+  // TV show specific fields
+  media_type?: 'movie' | 'tv_season';
+  tv_show_tmdb_id?: number;
+  tv_show_name?: string;
+  season_number?: number;
+  episode_count?: number;
   created_at?: string;
   updated_at?: string;
   disc_number?: number; // For junction table data
@@ -45,6 +51,12 @@ export interface CreateMediaDto {
   release_date?: string;
   director?: string;
   cast?: string[];
+  media_type?: 'movie' | 'tv_season';
+  tv_show_tmdb_id?: number;
+  tv_show_name?: string;
+  season_number?: number;
+  episode_count?: number;
+  genres?: { id: number; name: string }[];
 }
 
 export interface UpdateMediaDto extends Partial<CreateMediaDto> {
@@ -67,7 +79,8 @@ export interface UnifiedSearchResult {
   director?: string;
   source: 'database' | 'tmdb';
   tmdb_id?: number;
-  originalData: Media | TMDbMovie;
+  media_type?: 'movie' | 'tv_season';
+  originalData: Media | TMDbMovie | TMDbTVShow;
 }
 
 // Physical Item types (what you actually own)
@@ -121,6 +134,12 @@ export interface CreatePhysicalItemDto {
     cast?: string[];
     disc_number?: number;
     formats?: string[]; // Per-movie formats
+    media_type?: 'movie' | 'tv_season';
+    tv_show_tmdb_id?: number;
+    tv_show_name?: string;
+    season_number?: number;
+    episode_count?: number;
+    genres?: { id: number; name: string }[];
   }[] | {
     id?: number;
     title?: string;
@@ -132,6 +151,12 @@ export interface CreatePhysicalItemDto {
     cast?: string[];
     disc_number?: number;
     formats?: string[];
+    media_type?: 'movie' | 'tv_season';
+    tv_show_tmdb_id?: number;
+    tv_show_name?: string;
+    season_number?: number;
+    episode_count?: number;
+    genres?: { id: number; name: string }[];
   };
 }
 
@@ -164,6 +189,49 @@ export interface TMDbSearchResponse {
   total_results: number;
 }
 
+// TMDb TV types
+export interface TMDbTVShow {
+  id: number;
+  name: string;
+  overview: string;
+  poster_path: string | null;
+  first_air_date: string;
+  vote_average: number;
+  vote_count: number;
+}
+
+export interface TMDbTVShowDetails extends TMDbTVShow {
+  backdrop_path: string | null;
+  last_air_date: string;
+  number_of_seasons: number;
+  number_of_episodes: number;
+  status: string;
+  genres: { id: number; name: string }[];
+  created_by: { id: number; name: string; profile_path: string | null }[];
+  seasons: TMDbTVSeason[];
+  creators?: string;
+  cast?: string[];
+  poster_url?: string | null;
+}
+
+export interface TMDbTVSeason {
+  id: number;
+  name: string;
+  overview: string;
+  poster_path: string | null;
+  air_date: string;
+  season_number: number;
+  episode_count: number;
+  vote_average: number;
+}
+
+export interface TMDbTVSearchResponse {
+  page: number;
+  results: TMDbTVShow[];
+  total_pages: number;
+  total_results: number;
+}
+
 // Settings types
 export interface Settings {
   collection_public: string;
@@ -192,6 +260,7 @@ export interface FilterOptions {
   format?: PhysicalFormat | PhysicalFormat[]; // Support multi-select
   genres?: number[]; // Array of genre IDs for multi-select
   decades?: string[]; // Array of decade strings like ["1990", "2000"] for multi-select
+  media_type?: 'all' | 'movie' | 'tv_season';
   sort_by?: SortField;
   sort_order?: SortOrder;
   search?: string;
@@ -260,6 +329,7 @@ export interface BulkCreatePhysicalItemsResponse {
 export interface CollectionStatistics {
   totalPhysicalItems: number;
   totalMovies: number;
+  totalTVSeasons: number;
   formatCounts: Record<string, number>;
 }
 
@@ -288,9 +358,7 @@ export interface ShelfGroup {
   shelves: Shelf[];
   created_at?: string;
   updated_at?: string;
-}
-
-export interface Shelf {
+}export interface Shelf {
   id: number;
   group_id: number;
   name: string;
@@ -303,9 +371,7 @@ export interface Shelf {
   used_units: number; // computed: sum of placed item thickness_units
   created_at?: string;
   updated_at?: string;
-}
-
-export interface ShelfPlacement {
+}export interface ShelfPlacement {
   id: number;
   shelf_id: number;
   physical_item_id: number;

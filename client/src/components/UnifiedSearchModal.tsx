@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { TMDbMovie, Media, PhysicalItem } from '../types';
+import { TMDbMovie, TMDbTVShow, Media, PhysicalItem } from '../types';
 import { apiService } from '../services/api.service';
 import FormatSelector from './FormatSelector';
+import TVSeasonPicker from './TVSeasonPicker';
 
 interface UnifiedSearchResult {
   id: number;
@@ -13,13 +14,17 @@ interface UnifiedSearchResult {
   director?: string;
   source: 'database' | 'tmdb';
   tmdb_id?: number;
-  originalData: Media | TMDbMovie;
+  media_type?: 'movie' | 'tv_season';
+  originalData: Media | TMDbMovie | TMDbTVShow;
 }
+
+export type SearchMode = 'movies' | 'tv';
 
 interface UnifiedSearchModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSelect: (result: UnifiedSearchResult, formats: string[]) => void;
+  onSelectTVSeasons?: (seasons: any[], formats: string[]) => void;
   currentPhysicalItem?: PhysicalItem | null;
 }
 
@@ -27,9 +32,11 @@ const UnifiedSearchModal: React.FC<UnifiedSearchModalProps> = ({
   isOpen, 
   onClose, 
   onSelect,
+  onSelectTVSeasons,
   currentPhysicalItem 
 }) => {
   const [query, setQuery] = useState('');
+  const [searchMode, setSearchMode] = useState<SearchMode>('movies');
   const [databaseResults, setDatabaseResults] = useState<UnifiedSearchResult[]>([]);
   const [tmdbResults, setTmdbResults] = useState<UnifiedSearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
@@ -37,8 +44,10 @@ const UnifiedSearchModal: React.FC<UnifiedSearchModalProps> = ({
   const [showFormatSelector, setShowFormatSelector] = useState(false);
   const [selectedResult, setSelectedResult] = useState<UnifiedSearchResult | null>(null);
   const [allMovies, setAllMovies] = useState<Media[]>([]);
+  // TV Season Picker state
+  const [showSeasonPicker, setShowSeasonPicker] = useState(false);
+  const [selectedTVShow, setSelectedTVShow] = useState<{ id: number; name: string } | null>(null);
 
-  // Get IDs of movies already linked to current physical item
   const linkedMovieIds = currentPhysicalItem?.media.map(m => m.id) || [];
 
   useEffect(() => {
@@ -51,22 +60,21 @@ const UnifiedSearchModal: React.FC<UnifiedSearchModalProps> = ({
     if (query.trim()) {
       const timeoutId = setTimeout(() => {
         handleSearch();
-      }, 300); // Debounce search
+      }, 300);
       return () => clearTimeout(timeoutId);
     } else {
       setDatabaseResults([]);
       setTmdbResults([]);
       setHasSearched(false);
     }
-  }, [query]);
+  }, [query, searchMode]);
 
   const loadAllMovies = async () => {
     try {
-      // Load all movies by requesting a high limit
       const response = await apiService.getMedia({ limit: 10000 });
       setAllMovies(response.items);
     } catch (error) {
-      console.error('Failed to load movies:', error);
+      console.error('Failed to load media:', error);
     }
   };
 
@@ -77,46 +85,91 @@ const UnifiedSearchModal: React.FC<UnifiedSearchModalProps> = ({
     setHasSearched(true);
 
     try {
-      // Search local database
-      const filteredMovies = allMovies.filter(movie => {
-        const matchesSearch = 
-          movie.title.toLowerCase().includes(query.toLowerCase()) ||
-          movie.director?.toLowerCase().includes(query.toLowerCase()) ||
-          movie.synopsis?.toLowerCase().includes(query.toLowerCase());
-        
-        const notLinked = !linkedMovieIds.includes(movie.id);
-        
-        return matchesSearch && notLinked;
-      });
+      if (searchMode === 'movies') {
+        // Search local database for movies
+        const filteredMovies = allMovies.filter(movie => {
+          const isMovie = !movie.media_type || movie.media_type === 'movie';
+          const matchesSearch = 
+            movie.title.toLowerCase().includes(query.toLowerCase()) ||
+            movie.director?.toLowerCase().includes(query.toLowerCase()) ||
+            movie.synopsis?.toLowerCase().includes(query.toLowerCase());
+          const notLinked = !linkedMovieIds.includes(movie.id);
+          return isMovie && matchesSearch && notLinked;
+        });
 
-      const databaseResults: UnifiedSearchResult[] = filteredMovies.map(movie => ({
-        id: movie.id,
-        title: movie.title,
-        release_date: movie.release_date,
-        overview: movie.synopsis,
-        cover_art_url: movie.cover_art_url,
-        director: movie.director,
-        source: 'database',
-        tmdb_id: movie.tmdb_id,
-        originalData: movie
-      }));
+        const dbResults: UnifiedSearchResult[] = filteredMovies.map(movie => ({
+          id: movie.id,
+          title: movie.title,
+          release_date: movie.release_date,
+          overview: movie.synopsis,
+          cover_art_url: movie.cover_art_url,
+          director: movie.director,
+          source: 'database',
+          tmdb_id: movie.tmdb_id,
+          media_type: 'movie' as const,
+          originalData: movie
+        }));
 
-      setDatabaseResults(databaseResults);
+        setDatabaseResults(dbResults);
 
-      // Search TMDB
-      const tmdbResponse = await apiService.searchMovies(query);
-      const tmdbResults: UnifiedSearchResult[] = tmdbResponse.results.map(movie => ({
-        id: movie.id,
-        title: movie.title,
-        release_date: movie.release_date,
-        overview: movie.overview,
-        poster_path: movie.poster_path,
-        source: 'tmdb',
-        tmdb_id: movie.id,
-        originalData: movie
-      }));
+        // Search TMDB movies
+        const tmdbResponse = await apiService.searchMovies(query);
+        const tmdbMovieResults: UnifiedSearchResult[] = tmdbResponse.results.map(movie => ({
+          id: movie.id,
+          title: movie.title,
+          release_date: movie.release_date,
+          overview: movie.overview,
+          poster_path: movie.poster_path,
+          source: 'tmdb',
+          tmdb_id: movie.id,
+          media_type: 'movie' as const,
+          originalData: movie
+        }));
 
-      setTmdbResults(tmdbResults);
+        setTmdbResults(tmdbMovieResults);
+      } else {
+        // Search local database for TV seasons
+        const filteredTV = allMovies.filter(media => {
+          const isTV = media.media_type === 'tv_season';
+          const matchesSearch = 
+            media.title.toLowerCase().includes(query.toLowerCase()) ||
+            media.tv_show_name?.toLowerCase().includes(query.toLowerCase()) ||
+            media.synopsis?.toLowerCase().includes(query.toLowerCase());
+          const notLinked = !linkedMovieIds.includes(media.id);
+          return isTV && matchesSearch && notLinked;
+        });
+
+        const dbResults: UnifiedSearchResult[] = filteredTV.map(media => ({
+          id: media.id,
+          title: media.title,
+          release_date: media.release_date,
+          overview: media.synopsis,
+          cover_art_url: media.cover_art_url,
+          director: media.director,
+          source: 'database',
+          tmdb_id: media.tmdb_id,
+          media_type: 'tv_season' as const,
+          originalData: media
+        }));
+
+        setDatabaseResults(dbResults);
+
+        // Search TMDB TV shows
+        const tmdbResponse = await apiService.searchTV(query);
+        const tmdbTVResults: UnifiedSearchResult[] = tmdbResponse.results.map(show => ({
+          id: show.id,
+          title: show.name,
+          release_date: show.first_air_date,
+          overview: show.overview,
+          poster_path: show.poster_path,
+          source: 'tmdb',
+          tmdb_id: show.id,
+          media_type: 'tv_season' as const,
+          originalData: show
+        }));
+
+        setTmdbResults(tmdbTVResults);
+      }
     } catch (error) {
       console.error('Search failed:', error);
       setDatabaseResults([]);
@@ -127,8 +180,19 @@ const UnifiedSearchModal: React.FC<UnifiedSearchModalProps> = ({
   };
 
   const handleResultSelect = (result: UnifiedSearchResult) => {
-    setSelectedResult(result);
-    setShowFormatSelector(true);
+    if (searchMode === 'tv' && result.source === 'tmdb') {
+      // Open TV Season Picker for TMDB TV shows
+      setSelectedTVShow({ id: result.id, name: result.title });
+      setShowSeasonPicker(true);
+    } else if (searchMode === 'tv' && result.source === 'database') {
+      // For DB TV seasons, use format selector like movies
+      setSelectedResult(result);
+      setShowFormatSelector(true);
+    } else {
+      // Movie flow: open format selector
+      setSelectedResult(result);
+      setShowFormatSelector(true);
+    }
   };
 
   const handleFormatsSelected = (formats: string[]) => {
@@ -143,12 +207,26 @@ const UnifiedSearchModal: React.FC<UnifiedSearchModalProps> = ({
     setHasSearched(false);
   };
 
+  const handleTVSeasonsConfirmed = (seasons: any[], formats: string[]) => {
+    if (onSelectTVSeasons) {
+      onSelectTVSeasons(seasons, formats);
+    }
+    setShowSeasonPicker(false);
+    setSelectedTVShow(null);
+    setQuery('');
+    setDatabaseResults([]);
+    setTmdbResults([]);
+    setHasSearched(false);
+  };
+
   const handleClose = () => {
     setQuery('');
     setDatabaseResults([]);
     setTmdbResults([]);
     setHasSearched(false);
     setSelectedResult(null);
+    setShowSeasonPicker(false);
+    setSelectedTVShow(null);
     onClose();
   };
 
@@ -168,22 +246,30 @@ const UnifiedSearchModal: React.FC<UnifiedSearchModalProps> = ({
 
   if (!isOpen) return null;
 
+  const searchPlaceholder = searchMode === 'movies' ? 'Search for movies...' : 'Search for TV shows...';
+  const emptyHint = searchMode === 'movies'
+    ? 'Enter a movie title to search your collection and TMDB'
+    : 'Enter a TV show name to search your collection and TMDB';
+  const noResultsText = searchMode === 'movies'
+    ? `No movies found for "${query}"`
+    : `No TV shows found for "${query}"`;
+
   return (
     <>
       <div className="fixed inset-0 z-50 overflow-y-auto">
-        {/* Backdrop */}
         <div
           className="fixed inset-0 bg-black bg-opacity-50 transition-opacity"
           onClick={handleClose}
         />
 
-        {/* Modal */}
         <div className="flex min-h-screen items-start justify-center p-4 pt-20">
           <div className="relative bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-4xl w-full max-h-[80vh] flex flex-col">
             {/* Header */}
             <div className="p-6 border-b border-gray-200 dark:border-gray-700">
               <div className="flex items-center justify-between mb-4">
-                <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Add Movie</h2>
+                <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+                  {searchMode === 'movies' ? 'Add Movie' : 'Add TV Show'}
+                </h2>
                 <button
                   onClick={handleClose}
                   className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
@@ -194,11 +280,47 @@ const UnifiedSearchModal: React.FC<UnifiedSearchModalProps> = ({
                 </button>
               </div>
 
+              {/* Search Mode Toggle */}
+              <div className="flex mb-4 bg-gray-100 dark:bg-gray-700 rounded-lg p-1">
+                <button
+                  onClick={() => {
+                    setSearchMode('movies');
+                    setQuery('');
+                    setDatabaseResults([]);
+                    setTmdbResults([]);
+                    setHasSearched(false);
+                  }}
+                  className={`flex-1 px-4 py-2 text-sm font-medium rounded-md transition-colors ${
+                    searchMode === 'movies'
+                      ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-gray-100 shadow-sm'
+                      : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
+                  }`}
+                >
+                  Movies
+                </button>
+                <button
+                  onClick={() => {
+                    setSearchMode('tv');
+                    setQuery('');
+                    setDatabaseResults([]);
+                    setTmdbResults([]);
+                    setHasSearched(false);
+                  }}
+                  className={`flex-1 px-4 py-2 text-sm font-medium rounded-md transition-colors ${
+                    searchMode === 'tv'
+                      ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-gray-100 shadow-sm'
+                      : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
+                  }`}
+                >
+                  TV Shows
+                </button>
+              </div>
+
               {/* Search Form */}
               <div className="relative">
                 <input
                   type="text"
-                  placeholder="Search for movies..."
+                  placeholder={searchPlaceholder}
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
                   className="w-full pl-10 pr-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 dark:bg-gray-700 dark:text-gray-100"
@@ -226,7 +348,7 @@ const UnifiedSearchModal: React.FC<UnifiedSearchModalProps> = ({
                   <svg className="w-16 h-16 text-gray-300 dark:text-gray-600 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                   </svg>
-                  <p className="text-gray-500 dark:text-gray-400">Enter a movie title to search your collection and TMDB</p>
+                  <p className="text-gray-500 dark:text-gray-400">{emptyHint}</p>
                 </div>
               )}
 
@@ -242,7 +364,7 @@ const UnifiedSearchModal: React.FC<UnifiedSearchModalProps> = ({
                   <svg className="w-16 h-16 text-gray-300 dark:text-gray-600 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.172 16.172a4 4 0 015.656 0M9 12h6m-6-4h6m2 5.291A7.962 7.962 0 0112 15c-2.34 0-4.29-1.009-5.824-2.709" />
                   </svg>
-                  <p className="text-gray-500 dark:text-gray-400">No movies found for "{query}"</p>
+                  <p className="text-gray-500 dark:text-gray-400">{noResultsText}</p>
                 </div>
               )}
 
@@ -262,7 +384,6 @@ const UnifiedSearchModal: React.FC<UnifiedSearchModalProps> = ({
                         onClick={() => handleResultSelect(result)}
                         className="flex gap-4 p-4 rounded-lg cursor-pointer transition-colors border hover:bg-gray-50 dark:hover:bg-gray-700 border-gray-200 dark:border-gray-700"
                       >
-                        {/* Poster */}
                         <div className="w-16 h-24 bg-gray-200 dark:bg-gray-700 rounded overflow-hidden flex-shrink-0">
                           {getImageUrl(result) ? (
                             <img
@@ -279,7 +400,6 @@ const UnifiedSearchModal: React.FC<UnifiedSearchModalProps> = ({
                           )}
                         </div>
 
-                        {/* Info */}
                         <div className="flex-1 min-w-0">
                           <div className="flex items-start justify-between">
                             <div className="flex-1 min-w-0">
@@ -287,7 +407,7 @@ const UnifiedSearchModal: React.FC<UnifiedSearchModalProps> = ({
                                 {result.title}
                               </h4>
                               <p className="text-sm text-gray-500 dark:text-gray-400">
-                                {getReleaseYear(result.release_date)} • {result.director || 'Unknown Director'}
+                                {getReleaseYear(result.release_date)} • {result.director || 'Unknown'}
                               </p>
                               {result.overview && (
                                 <p className="text-sm text-gray-600 dark:text-gray-300 mt-2 line-clamp-2">
@@ -322,7 +442,6 @@ const UnifiedSearchModal: React.FC<UnifiedSearchModalProps> = ({
                         onClick={() => handleResultSelect(result)}
                         className="flex gap-4 p-4 rounded-lg cursor-pointer transition-colors border hover:bg-gray-50 dark:hover:bg-gray-700 border-gray-200 dark:border-gray-700"
                       >
-                        {/* Poster */}
                         <div className="w-16 h-24 bg-gray-200 dark:bg-gray-700 rounded overflow-hidden flex-shrink-0">
                           {getImageUrl(result) ? (
                             <img
@@ -339,7 +458,6 @@ const UnifiedSearchModal: React.FC<UnifiedSearchModalProps> = ({
                           )}
                         </div>
 
-                        {/* Info */}
                         <div className="flex-1 min-w-0">
                           <div className="flex items-start justify-between">
                             <div className="flex-1 min-w-0">
@@ -348,6 +466,7 @@ const UnifiedSearchModal: React.FC<UnifiedSearchModalProps> = ({
                               </h4>
                               <p className="text-sm text-gray-500 dark:text-gray-400">
                                 {getReleaseYear(result.release_date)}
+                                {searchMode === 'tv' && ' • TV Show'}
                               </p>
                               {result.overview && (
                                 <p className="text-sm text-gray-600 dark:text-gray-300 mt-2 line-clamp-2">
@@ -370,7 +489,7 @@ const UnifiedSearchModal: React.FC<UnifiedSearchModalProps> = ({
         </div>
       </div>
 
-      {/* Format Selector Modal */}
+      {/* Format Selector Modal (for movies and DB TV seasons) */}
       <FormatSelector
         isOpen={showFormatSelector}
         onClose={() => {
@@ -380,10 +499,22 @@ const UnifiedSearchModal: React.FC<UnifiedSearchModalProps> = ({
         onConfirm={handleFormatsSelected}
         movieTitle={selectedResult?.title || ''}
       />
+
+      {/* TV Season Picker Modal */}
+      {selectedTVShow && (
+        <TVSeasonPicker
+          isOpen={showSeasonPicker}
+          onClose={() => {
+            setShowSeasonPicker(false);
+            setSelectedTVShow(null);
+          }}
+          onConfirm={handleTVSeasonsConfirmed}
+          tvShowId={selectedTVShow.id}
+          tvShowName={selectedTVShow.name}
+        />
+      )}
     </>
   );
 };
 
 export default UnifiedSearchModal;
-
-

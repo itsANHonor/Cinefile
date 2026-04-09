@@ -8,6 +8,8 @@ import {
   UpdatePhysicalItemDto,
   TMDbSearchResponse,
   TMDbMovieDetails,
+  TMDbTVSearchResponse,
+  TMDbTVShowDetails,
   Settings,
   AuthResponse,
   FilterOptions,
@@ -89,6 +91,7 @@ class ApiService {
       if (filters.search) params.search = filters.search;
       if (filters.page) params.page = filters.page;
       if (filters.limit) params.limit = filters.limit;
+      if (filters.media_type && filters.media_type !== 'all') params.media_type = filters.media_type;
     }
     const response = await this.api.get<{ items: Media[]; pagination: any }>('/media', { params });
     return response.data;
@@ -167,6 +170,34 @@ class ApiService {
     return response.data;
   }
 
+  // TMDb TV search methods
+  async searchTV(query: string, page: number = 1): Promise<TMDbTVSearchResponse> {
+    const response = await this.api.get<TMDbTVSearchResponse>('/search/tv', {
+      params: { q: query, page },
+    });
+    return response.data;
+  }
+
+  async getTVDetails(tvId: number): Promise<TMDbTVShowDetails> {
+    const response = await this.api.get<TMDbTVShowDetails>(`/search/tv/${tvId}`);
+    return response.data;
+  }
+
+  async getTVSeasonDetails(tvId: number, seasonNumber: number): Promise<any> {
+    const response = await this.api.get(`/search/tv/${tvId}/season/${seasonNumber}`);
+    return response.data;
+  }
+
+  async getTVPosters(tvId: number): Promise<string[]> {
+    const response = await this.api.get<string[]>(`/search/tv/${tvId}/posters`);
+    return response.data;
+  }
+
+  async getTVSeasonPosters(tvId: number, seasonNumber: number): Promise<string[]> {
+    const response = await this.api.get<string[]>(`/search/tv/${tvId}/season/${seasonNumber}/posters`);
+    return response.data;
+  }
+
   // Physical Items methods
   async getPhysicalItems(filterOptions?: FilterOptions): Promise<{ items: PhysicalItem[]; pagination: any }> {
     const params: any = {};
@@ -185,6 +216,7 @@ class ApiService {
       if (filterOptions.decades && filterOptions.decades.length > 0) {
         params.decades = filterOptions.decades.join(',');
       }
+      if (filterOptions.media_type && filterOptions.media_type !== 'all') params.media_type = filterOptions.media_type;
       if (filterOptions.sort_by) params.sort_by = filterOptions.sort_by;
       if (filterOptions.sort_order) params.sort_order = filterOptions.sort_order;
       if (filterOptions.search) params.search = filterOptions.search;

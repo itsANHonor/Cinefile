@@ -3,12 +3,14 @@ import {
   DndContext,
   DragEndEvent,
   DragStartEvent,
+  DragOverlay,
   PointerSensor,
   useSensor,
   useSensors,
   closestCenter,
 } from '@dnd-kit/core';
-import { PhysicalLibrary, ShelfGroup, Shelf, STANDARD_UNIT_MM } from '../types';
+import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
+import { PhysicalLibrary, ShelfGroup, Shelf, PhysicalItem, STANDARD_UNIT_MM } from '../types';
 import { apiService } from '../services/api.service';
 import { useAuth } from '../context/AuthContext';
 import { useServerMode } from '../context/ServerModeContext';
@@ -16,6 +18,15 @@ import ShelfGroupCard from '../components/library/ShelfGroupCard';
 import UnassignedItemsPanel from '../components/library/UnassignedItemsPanel';
 import ApplySortModal from '../components/library/ApplySortModal';
 import SpineColorPicker from '../components/library/SpineColorPicker';
+import { ItemDragOverlay, ShelfDragOverlay, GroupDragOverlay } from '../components/library/DragOverlayItem';
+
+/** Move an element in an array from one index to another, returning a new array. */
+function arrayMove<T>(arr: T[], from: number, to: number): T[] {
+  const result = [...arr];
+  const [removed] = result.splice(from, 1);
+  result.splice(to, 0, removed);
+  return result;
+}
 
 const PhysicalLibraryPage: React.FC = () => {
   const { isAuthenticated } = useAuth();
@@ -49,6 +60,14 @@ const PhysicalLibraryPage: React.FC = () => {
   // Spine color editing
   const [editingSpineColorItemId, setEditingSpineColorItemId] = useState<number | null>(null);
 
+  // Active drag tracking for DragOverlay
+  const [activeDragData, setActiveDragData] = useState<{
+    type: string;
+    item?: PhysicalItem;
+    shelf?: Shelf;
+    group?: ShelfGroup;
+  } | null>(null);
+
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: {
@@ -78,28 +97,206 @@ const PhysicalLibraryPage: React.FC = () => {
   // =============================================
   // Drag handlers
   // =============================================
-  const handleDragStart = (_event: DragStartEvent) => {
-    // Could track active drag for overlay in the future
+  const handleDragStart = (event: DragStartEvent) => {
+    const { active } = event;
+    const data = active.data.current;
+
+    if (data?.type === 'unassigned-item') {
+      setActiveDragData({ type: 'unassigned-item', item: data.item });
+    } else if (data?.type === 'placement') {
+      setActiveDragData({ type: 'placement', item: data.placement?.physical_item });
+    } else if (data?.type === 'shelf') {
+      setActiveDragData({ type: 'shelf', shelf: data.shelf });
+    } else if (data?.type === 'shelf-group') {
+      setActiveDragData({ type: 'shelf-group', group: data.group });
+    }
   };
 
+  const handleDragCancel = () => {
+    setActiveDragData(null);
+  };
+
+  // Helper to find a shelf across all groups
+  const findShelf = useCallback((shelfId: number): Shelf | null => {
+    if (!library) return null;
+    for (const group of library.groups) {
+      for (const shelf of group.shelves) {
+        if (shelf.id === shelfId) return shelf;
+      }
+    }
+    return null;
+  }, [library]);
+
   const handleDragEnd = async (event: DragEndEvent) => {
+    setActiveDragData(null);
     const { active, over } = event;
-    if (!over) return;
+    if (!over || active.id === over.id) return;
 
     const activeData = active.data.current;
     const overData = over.data.current;
+    if (!activeData || !overData) return;
+    const activeType = activeData.type as string;
+    const overType = overData.type as string;
 
-    // Dragging an unassigned item onto a shelf
-    if (activeData?.type === 'unassigned-item' && overData?.type === 'shelf') {
-      const physicalItemId = activeData.physicalItemId;
-      const shelfId = overData.shelfId;
+    // ─── Item-level drags (placement or unassigned-item) ───
+    if (activeType === 'placement' || activeType === 'unassigned-item') {
+      const sourceShelfId: number | null = activeType === 'placement'
+        ? activeData.placement.shelf_id
+        : null;
+
+      // Determine destination
+      let destShelfId: number | null = null;
+      let destPosition: number | undefined;
+
+      if (overType === 'shelf') {
+        destShelfId = overData.shelfId;
+      } else if (overType === 'placement') {
+        destShelfId = overData.placement.shelf_id;
+        destPosition = overData.placement.position;
+      } else if (overType === 'unassigned-container' || String(over.id).startsWith('unassigned-')) {
+        destShelfId = null; // dropping into unassigned
+      }
+
+      // Skip if no meaningful move
+      if (sourceShelfId === destShelfId && destShelfId === null) return;
 
       try {
-        await apiService.placeItemOnShelf(shelfId, physicalItemId);
-        await loadLibrary();
-        setUnassignedRefreshKey((k) => k + 1);
+        // Same shelf → reorder
+        if (sourceShelfId !== null && sourceShelfId === destShelfId && activeType === 'placement' && overType === 'placement') {
+          const shelf = findShelf(sourceShelfId);
+          if (shelf) {
+            const activeId = String(active.id);
+            const overId = String(over.id);
+            const oldIndex = shelf.placements.findIndex(p => `placement-${p.id}` === activeId);
+            const newIndex = shelf.placements.findIndex(p => `placement-${p.id}` === overId);
+            if (oldIndex !== -1 && newIndex !== -1 && oldIndex !== newIndex) {
+              const reordered = arrayMove(shelf.placements, oldIndex, newIndex);
+              await apiService.reorderShelfItems(sourceShelfId, reordered.map((p, i) => ({
+                physical_item_id: p.physical_item_id,
+                position: i,
+              })));
+              await loadLibrary();
+            }
+          }
+        }
+        // Unassigned → shelf
+        else if (sourceShelfId === null && destShelfId !== null) {
+          const physicalItemId = activeData.physicalItemId || activeData.item?.id;
+          if (physicalItemId) {
+            await apiService.placeItemOnShelf(destShelfId, physicalItemId, destPosition);
+            await loadLibrary();
+            setUnassignedRefreshKey((k) => k + 1);
+          }
+        }
+        // Shelf → different shelf
+        else if (sourceShelfId !== null && destShelfId !== null && sourceShelfId !== destShelfId) {
+          const placement = activeData.placement;
+          await apiService.removePlacement(placement.id);
+          await apiService.placeItemOnShelf(destShelfId, placement.physical_item_id, destPosition);
+          await loadLibrary();
+        }
+        // Shelf → unassigned
+        else if (sourceShelfId !== null && destShelfId === null) {
+          const placement = activeData.placement;
+          await apiService.removePlacement(placement.id);
+          await loadLibrary();
+          setUnassignedRefreshKey((k) => k + 1);
+        }
       } catch (err) {
-        console.error('Failed to place item:', err);
+        console.error('Failed to move item:', err);
+        await loadLibrary(); // Reload to ensure consistent state
+      }
+    }
+
+    // ─── Shelf-level drags (reorder shelves) ───
+    else if (activeType === 'shelf') {
+      const activeShelf = activeData.shelf as Shelf;
+      const activeShelfId = activeShelf.id;
+
+      // Find source group
+      const sourceGroup = library?.groups.find(g =>
+        g.shelves.some(s => s.id === activeShelfId)
+      );
+      if (!sourceGroup || !library) return;
+
+      // Determine target group and position
+      let targetGroupId = sourceGroup.id;
+      let targetIndex = -1;
+
+      if (overType === 'shelf') {
+        // Dropped on another shelf sortable
+        const overShelf = overData.shelf as Shelf;
+        const overGroup = library.groups.find(g =>
+          g.shelves.some(s => s.id === overShelf.id)
+        );
+        if (overGroup) {
+          targetGroupId = overGroup.id;
+          targetIndex = overGroup.shelves.findIndex(s => s.id === overShelf.id);
+        }
+      }
+
+      if (targetIndex === -1) return;
+
+      try {
+        if (sourceGroup.id === targetGroupId) {
+          // Reorder within same group
+          const shelves = [...sourceGroup.shelves];
+          const oldIndex = shelves.findIndex(s => s.id === activeShelfId);
+          const newIndex = targetIndex;
+          if (oldIndex !== -1 && newIndex !== -1 && oldIndex !== newIndex) {
+            const reordered = arrayMove(shelves, oldIndex, newIndex);
+            await apiService.reorderShelves(reordered.map((s, i) => ({
+              id: s.id,
+              sort_order: i,
+            })));
+            await loadLibrary();
+          }
+        } else {
+          // Move shelf to a different group
+          const targetGroup = library.groups.find(g => g.id === targetGroupId);
+          if (targetGroup) {
+            // Build the new order with the moved shelf inserted at targetIndex
+            const newOrder = targetGroup.shelves
+              .filter(s => s.id !== activeShelfId) // remove if already there (shouldn't be)
+              .map((s, i) => ({ id: s.id, sort_order: i, group_id: targetGroupId }));
+            newOrder.splice(targetIndex, 0, { id: activeShelfId, sort_order: targetIndex, group_id: targetGroupId });
+            // Re-index
+            const finalOrder = newOrder.map((o, i) => ({ ...o, sort_order: i }));
+            await apiService.reorderShelves(finalOrder);
+            await loadLibrary();
+          }
+        }
+      } catch (err) {
+        console.error('Failed to reorder shelves:', err);
+        await loadLibrary();
+      }
+    }
+
+    // ─── Group-level drags (reorder groups) ───
+    else if (activeType === 'shelf-group') {
+      const activeGroup = activeData.group as ShelfGroup;
+      if (!library) return;
+
+      const oldIndex = library.groups.findIndex(g => g.id === activeGroup.id);
+      let newIndex = -1;
+
+      if (overType === 'shelf-group') {
+        const overGroup = overData.group as ShelfGroup;
+        newIndex = library.groups.findIndex(g => g.id === overGroup.id);
+      }
+
+      if (oldIndex === -1 || newIndex === -1 || oldIndex === newIndex) return;
+
+      try {
+        const reordered = arrayMove(library.groups, oldIndex, newIndex);
+        await apiService.reorderShelfGroups(reordered.map((g, i) => ({
+          id: g.id,
+          sort_order: i,
+        })));
+        await loadLibrary();
+      } catch (err) {
+        console.error('Failed to reorder groups:', err);
+        await loadLibrary();
       }
     }
   };
@@ -282,6 +479,7 @@ const PhysicalLibraryPage: React.FC = () => {
       collisionDetection={closestCenter}
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
+      onDragCancel={handleDragCancel}
     >
       <div className="container mx-auto px-4 py-8">
         {/* Header */}
@@ -373,22 +571,27 @@ const PhysicalLibraryPage: React.FC = () => {
             )}
           </div>
         ) : (
-          <div className="space-y-4">
-            {library.groups.map((group) => (
-              <ShelfGroupCard
-                key={group.id}
-                group={group}
-                isEditMode={canEdit}
-                onEditGroup={openEditGroup}
-                onDeleteGroup={handleDeleteGroup}
-                onAddShelf={openAddShelf}
-                onEditShelf={openEditShelf}
-                onDeleteShelf={handleDeleteShelf}
-                onRemovePlacement={handleRemovePlacement}
-                onSpineColorEdit={(itemId) => setEditingSpineColorItemId(itemId)}
-              />
-            ))}
-          </div>
+          <SortableContext
+            items={library.groups.map(g => `group-${g.id}`)}
+            strategy={verticalListSortingStrategy}
+          >
+            <div className="space-y-4">
+              {library.groups.map((group) => (
+                <ShelfGroupCard
+                  key={group.id}
+                  group={group}
+                  isEditMode={canEdit}
+                  onEditGroup={openEditGroup}
+                  onDeleteGroup={handleDeleteGroup}
+                  onAddShelf={openAddShelf}
+                  onEditShelf={openEditShelf}
+                  onDeleteShelf={handleDeleteShelf}
+                  onRemovePlacement={handleRemovePlacement}
+                  onSpineColorEdit={(itemId) => setEditingSpineColorItemId(itemId)}
+                />
+              ))}
+            </div>
+          </SortableContext>
         )}
 
         {/* Unassigned Items - Inline collapsible section */}
@@ -538,6 +741,22 @@ const PhysicalLibraryPage: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Drag Overlay */}
+      <DragOverlay dropAnimation={null}>
+        {activeDragData?.type === 'unassigned-item' && activeDragData.item && (
+          <ItemDragOverlay item={activeDragData.item} />
+        )}
+        {activeDragData?.type === 'placement' && activeDragData.item && (
+          <ItemDragOverlay item={activeDragData.item} />
+        )}
+        {activeDragData?.type === 'shelf' && activeDragData.shelf && (
+          <ShelfDragOverlay shelf={activeDragData.shelf} />
+        )}
+        {activeDragData?.type === 'shelf-group' && activeDragData.group && (
+          <GroupDragOverlay group={activeDragData.group} />
+        )}
+      </DragOverlay>
 
       {/* Edit Shelf Modal */}
       {editingShelf && (

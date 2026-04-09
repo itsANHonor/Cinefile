@@ -24,7 +24,7 @@ interface MediaItem {
  */
 router.get('/', async (req: Request, res: Response) => {
   try {
-    const { format, sort_by = 'created_at', sort_order = 'desc', search, page = '1', limit = '100' } = req.query;
+    const { format, sort_by = 'created_at', sort_order = 'desc', search, media_type, page = '1', limit = '100' } = req.query;
 
     // Start with base query
     let query = db('media')
@@ -39,12 +39,16 @@ router.get('/', async (req: Request, res: Response) => {
       )
       .groupBy('media.id');
 
-    // Filter by physical format - NOTE: Format filtering is no longer supported
-    // since formats are now stored in physical_item_media.formats, not media.physical_format
-    // if (format && format !== 'all') {
-    //   // Format filtering would require joining with physical_item_media table
-    //   // This is not implemented as media items can have different formats in different physical items
-    // }
+    // Filter by media_type if specified
+    if (media_type && typeof media_type === 'string' && media_type !== 'all') {
+      if (media_type === 'movie') {
+        query = query.where(function() {
+          this.where('media.media_type', 'movie').orWhereNull('media.media_type');
+        });
+      } else {
+        query = query.where('media.media_type', media_type);
+      }
+    }
 
     // Search functionality
     if (search && typeof search === 'string' && search.trim() !== '') {
@@ -99,6 +103,17 @@ router.get('/', async (req: Request, res: Response) => {
       .leftJoin('movie_series', 'media.id', 'movie_series.media_id')
       .leftJoin('series', 'movie_series.series_id', 'series.id')
       .groupBy('media.id');
+
+    // Apply same media_type filter to count query
+    if (media_type && typeof media_type === 'string' && media_type !== 'all') {
+      if (media_type === 'movie') {
+        countQuery = countQuery.where(function() {
+          this.where('media.media_type', 'movie').orWhereNull('media.media_type');
+        });
+      } else {
+        countQuery = countQuery.where('media.media_type', media_type);
+      }
+    }
 
     // Apply same search filters to count query
     if (search && typeof search === 'string' && search.trim() !== '') {
@@ -583,25 +598,50 @@ router.post('/:id/refresh-tmdb', authMiddleware, async (req: Request, res: Respo
     // Import TMDB service
     const { tmdbService } = await import('../services/tmdb.service');
 
-    // Fetch fresh data from TMDB
-    const tmdbData = await tmdbService.getMovieDetails(currentMedia.tmdb_id);
-    const director = tmdbService.getDirector(tmdbData.credits);
-    const cast = tmdbService.getTopCast(tmdbData.credits, 10);
-    const posterUrl = tmdbService.getImageUrl(tmdbData.poster_path);
+    const isTV = currentMedia.media_type === 'tv_season';
 
-    // Format TMDB data to match our schema
-    const tmdbFormatted = {
-      title: tmdbData.title,
-      synopsis: tmdbData.overview,
-      director: director,
-      cast: cast,
-      release_date: tmdbData.release_date,
-      cover_art_url: posterUrl,
-      genres: tmdbData.genres || [],
-    };
+    let tmdbFormatted: any;
+
+    if (isTV && currentMedia.tv_show_tmdb_id && currentMedia.season_number != null) {
+      // Fetch TV season data from TMDB
+      const tvDetails = await tmdbService.getTVDetails(currentMedia.tv_show_tmdb_id);
+      const seasonDetails = await tmdbService.getTVSeasonDetails(currentMedia.tv_show_tmdb_id, currentMedia.season_number);
+      const creators = tmdbService.getCreators(tvDetails.created_by);
+      const cast = tmdbService.getTVTopCast(tvDetails.credits, 10);
+      const posterUrl = tmdbService.getImageUrl(seasonDetails.poster_path || tvDetails.poster_path);
+
+      tmdbFormatted = {
+        title: `${tvDetails.name} - Season ${currentMedia.season_number}`,
+        synopsis: seasonDetails.overview || tvDetails.overview,
+        director: creators,
+        cast: cast,
+        release_date: seasonDetails.air_date,
+        cover_art_url: posterUrl,
+        genres: tvDetails.genres || [],
+        episode_count: seasonDetails.episodes?.length || seasonDetails.episode_count,
+        tv_show_name: tvDetails.name,
+        season_number: currentMedia.season_number,
+      };
+    } else {
+      // Fetch movie data from TMDB
+      const tmdbData = await tmdbService.getMovieDetails(currentMedia.tmdb_id);
+      const director = tmdbService.getDirector(tmdbData.credits);
+      const cast = tmdbService.getTopCast(tmdbData.credits, 10);
+      const posterUrl = tmdbService.getImageUrl(tmdbData.poster_path);
+
+      tmdbFormatted = {
+        title: tmdbData.title,
+        synopsis: tmdbData.overview,
+        director: director,
+        cast: cast,
+        release_date: tmdbData.release_date,
+        cover_art_url: posterUrl,
+        genres: tmdbData.genres || [],
+      };
+    }
 
     // Parse current data for comparison
-    const currentFormatted = {
+    const currentFormatted: any = {
       title: currentMedia.title,
       synopsis: currentMedia.synopsis,
       director: currentMedia.director,
@@ -610,6 +650,12 @@ router.post('/:id/refresh-tmdb', authMiddleware, async (req: Request, res: Respo
       cover_art_url: currentMedia.cover_art_url,
       genres: currentMedia.genres ? JSON.parse(currentMedia.genres) : [],
     };
+
+    if (isTV) {
+      currentFormatted.episode_count = currentMedia.episode_count;
+      currentFormatted.tv_show_name = currentMedia.tv_show_name;
+      currentFormatted.season_number = currentMedia.season_number;
+    }
 
     res.json({
       current: currentFormatted,
@@ -649,35 +695,73 @@ router.put('/:id/update-from-tmdb', authMiddleware, async (req: Request, res: Re
     // Import TMDB service
     const { tmdbService } = await import('../services/tmdb.service');
 
-    // Fetch fresh data from TMDB
-    const tmdbData = await tmdbService.getMovieDetails(currentMedia.tmdb_id);
-    const director = tmdbService.getDirector(tmdbData.credits);
-    const cast = tmdbService.getTopCast(tmdbData.credits, 10);
-    const posterUrl = tmdbService.getImageUrl(tmdbData.poster_path);
+    const isTV = currentMedia.media_type === 'tv_season';
 
     // Prepare update data based on selected fields
     const updateData: any = {};
-    
-    if (fields.includes('title')) {
-      updateData.title = tmdbData.title;
-    }
-    if (fields.includes('synopsis')) {
-      updateData.synopsis = tmdbData.overview;
-    }
-    if (fields.includes('director')) {
-      updateData.director = director;
-    }
-    if (fields.includes('cast')) {
-      updateData.cast = JSON.stringify(cast);
-    }
-    if (fields.includes('release_date')) {
-      updateData.release_date = tmdbData.release_date;
-    }
-    if (fields.includes('cover_art_url')) {
-      updateData.cover_art_url = posterUrl;
-    }
-    if (fields.includes('genres')) {
-      updateData.genres = JSON.stringify(tmdbData.genres || []);
+
+    if (isTV && currentMedia.tv_show_tmdb_id && currentMedia.season_number != null) {
+      const tvDetails = await tmdbService.getTVDetails(currentMedia.tv_show_tmdb_id);
+      const seasonDetails = await tmdbService.getTVSeasonDetails(currentMedia.tv_show_tmdb_id, currentMedia.season_number);
+      const creators = tmdbService.getCreators(tvDetails.created_by);
+      const cast = tmdbService.getTVTopCast(tvDetails.credits, 10);
+      const posterUrl = tmdbService.getImageUrl(seasonDetails.poster_path || tvDetails.poster_path);
+
+      if (fields.includes('title')) {
+        updateData.title = `${tvDetails.name} - Season ${currentMedia.season_number}`;
+      }
+      if (fields.includes('synopsis')) {
+        updateData.synopsis = seasonDetails.overview || tvDetails.overview;
+      }
+      if (fields.includes('director')) {
+        updateData.director = creators;
+      }
+      if (fields.includes('cast')) {
+        updateData.cast = JSON.stringify(cast);
+      }
+      if (fields.includes('release_date')) {
+        updateData.release_date = seasonDetails.air_date;
+      }
+      if (fields.includes('cover_art_url')) {
+        updateData.cover_art_url = posterUrl;
+      }
+      if (fields.includes('genres')) {
+        updateData.genres = JSON.stringify(tvDetails.genres || []);
+      }
+      if (fields.includes('episode_count')) {
+        updateData.episode_count = seasonDetails.episodes?.length || seasonDetails.episode_count;
+      }
+      if (fields.includes('tv_show_name')) {
+        updateData.tv_show_name = tvDetails.name;
+      }
+    } else {
+      // Fetch movie data from TMDB
+      const tmdbData = await tmdbService.getMovieDetails(currentMedia.tmdb_id);
+      const director = tmdbService.getDirector(tmdbData.credits);
+      const cast = tmdbService.getTopCast(tmdbData.credits, 10);
+      const posterUrl = tmdbService.getImageUrl(tmdbData.poster_path);
+
+      if (fields.includes('title')) {
+        updateData.title = tmdbData.title;
+      }
+      if (fields.includes('synopsis')) {
+        updateData.synopsis = tmdbData.overview;
+      }
+      if (fields.includes('director')) {
+        updateData.director = director;
+      }
+      if (fields.includes('cast')) {
+        updateData.cast = JSON.stringify(cast);
+      }
+      if (fields.includes('release_date')) {
+        updateData.release_date = tmdbData.release_date;
+      }
+      if (fields.includes('cover_art_url')) {
+        updateData.cover_art_url = posterUrl;
+      }
+      if (fields.includes('genres')) {
+        updateData.genres = JSON.stringify(tmdbData.genres || []);
+      }
     }
 
     // Update the media item
@@ -897,33 +981,63 @@ async function processBulkMetadata(jobId: string, movies: any[]): Promise<void> 
     });
 
     try {
-      const tmdbData = await tmdbService.getMovieDetails(movie.tmdb_id);
-      const director = tmdbService.getDirector(tmdbData.credits);
-      const cast = tmdbService.getTopCast(tmdbData.credits, 10);
-      const posterUrl = tmdbService.getImageUrl(tmdbData.poster_path);
-
-      // Prepare update data - only update empty fields
+      const isTV = movie.media_type === 'tv_season';
       const updateData: any = {};
-      
-      if (!movie.synopsis || movie.synopsis === '') {
-        updateData.synopsis = tmdbData.overview || null;
-      }
-      if (!movie.director || movie.director === '') {
-        updateData.director = director || null;
-      }
-      if (!movie.cast || movie.cast === '') {
-        updateData.cast = cast.length > 0 ? JSON.stringify(cast) : null;
-      }
-      if (!movie.cover_art_url || movie.cover_art_url === '') {
-        updateData.cover_art_url = posterUrl || null;
-      }
-      if (!movie.release_date) {
-        updateData.release_date = tmdbData.release_date || null;
-      }
-      if (!movie.genres || movie.genres === '') {
-        updateData.genres = tmdbData.genres && tmdbData.genres.length > 0 
-          ? JSON.stringify(tmdbData.genres) 
-          : null;
+
+      if (isTV && movie.tv_show_tmdb_id && movie.season_number != null) {
+        const tvDetails = await tmdbService.getTVDetails(movie.tv_show_tmdb_id);
+        const seasonDetails = await tmdbService.getTVSeasonDetails(movie.tv_show_tmdb_id, movie.season_number);
+        const creators = tmdbService.getCreators(tvDetails.created_by);
+        const cast = tmdbService.getTVTopCast(tvDetails.credits, 10);
+        const posterUrl = tmdbService.getImageUrl(seasonDetails.poster_path || tvDetails.poster_path);
+
+        if (!movie.synopsis || movie.synopsis === '') {
+          updateData.synopsis = seasonDetails.overview || tvDetails.overview || null;
+        }
+        if (!movie.director || movie.director === '') {
+          updateData.director = creators || null;
+        }
+        if (!movie.cast || movie.cast === '') {
+          updateData.cast = cast.length > 0 ? JSON.stringify(cast) : null;
+        }
+        if (!movie.cover_art_url || movie.cover_art_url === '') {
+          updateData.cover_art_url = posterUrl || null;
+        }
+        if (!movie.release_date) {
+          updateData.release_date = seasonDetails.air_date || null;
+        }
+        if (!movie.genres || movie.genres === '') {
+          updateData.genres = tvDetails.genres && tvDetails.genres.length > 0
+            ? JSON.stringify(tvDetails.genres) : null;
+        }
+        if (!movie.episode_count) {
+          updateData.episode_count = seasonDetails.episodes?.length || seasonDetails.episode_count || null;
+        }
+      } else {
+        const tmdbData = await tmdbService.getMovieDetails(movie.tmdb_id);
+        const director = tmdbService.getDirector(tmdbData.credits);
+        const cast = tmdbService.getTopCast(tmdbData.credits, 10);
+        const posterUrl = tmdbService.getImageUrl(tmdbData.poster_path);
+
+        if (!movie.synopsis || movie.synopsis === '') {
+          updateData.synopsis = tmdbData.overview || null;
+        }
+        if (!movie.director || movie.director === '') {
+          updateData.director = director || null;
+        }
+        if (!movie.cast || movie.cast === '') {
+          updateData.cast = cast.length > 0 ? JSON.stringify(cast) : null;
+        }
+        if (!movie.cover_art_url || movie.cover_art_url === '') {
+          updateData.cover_art_url = posterUrl || null;
+        }
+        if (!movie.release_date) {
+          updateData.release_date = tmdbData.release_date || null;
+        }
+        if (!movie.genres || movie.genres === '') {
+          updateData.genres = tmdbData.genres && tmdbData.genres.length > 0
+            ? JSON.stringify(tmdbData.genres) : null;
+        }
       }
 
       // Update the media item
@@ -949,11 +1063,11 @@ async function processBulkMetadata(jobId: string, movies: any[]): Promise<void> 
     });
   }
 
-  // Second pass: retry failed movies
+  // Second pass: retry failed items
   if (failedMovies.length > 0) {
     jobTracker.updateJob(jobId, {
       pass: 2,
-      current: 'Retrying failed movies...',
+      current: 'Retrying failed items...',
     });
 
     for (let i = 0; i < failedMovies.length; i++) {
@@ -970,32 +1084,60 @@ async function processBulkMetadata(jobId: string, movies: any[]): Promise<void> 
       });
 
       try {
-        const tmdbData = await tmdbService.getMovieDetails(movie.tmdb_id);
-        const director = tmdbService.getDirector(tmdbData.credits);
-        const cast = tmdbService.getTopCast(tmdbData.credits, 10);
-        const posterUrl = tmdbService.getImageUrl(tmdbData.poster_path);
-
+        const isTV = movie.media_type === 'tv_season';
         const updateData: any = {};
-        
-        if (!movie.synopsis || movie.synopsis === '') {
-          updateData.synopsis = tmdbData.overview || null;
-        }
-        if (!movie.director || movie.director === '') {
-          updateData.director = director || null;
-        }
-        if (!movie.cast || movie.cast === '') {
-          updateData.cast = cast.length > 0 ? JSON.stringify(cast) : null;
-        }
-        if (!movie.cover_art_url || movie.cover_art_url === '') {
-          updateData.cover_art_url = posterUrl || null;
-        }
-        if (!movie.release_date) {
-          updateData.release_date = tmdbData.release_date || null;
-        }
-        if (!movie.genres || movie.genres === '') {
-          updateData.genres = tmdbData.genres && tmdbData.genres.length > 0 
-            ? JSON.stringify(tmdbData.genres) 
-            : null;
+
+        if (isTV && movie.tv_show_tmdb_id && movie.season_number != null) {
+          const tvDetails = await tmdbService.getTVDetails(movie.tv_show_tmdb_id);
+          const seasonDetails = await tmdbService.getTVSeasonDetails(movie.tv_show_tmdb_id, movie.season_number);
+          const creators = tmdbService.getCreators(tvDetails.created_by);
+          const cast = tmdbService.getTVTopCast(tvDetails.credits, 10);
+          const posterUrl = tmdbService.getImageUrl(seasonDetails.poster_path || tvDetails.poster_path);
+
+          if (!movie.synopsis || movie.synopsis === '') {
+            updateData.synopsis = seasonDetails.overview || tvDetails.overview || null;
+          }
+          if (!movie.director || movie.director === '') {
+            updateData.director = creators || null;
+          }
+          if (!movie.cast || movie.cast === '') {
+            updateData.cast = cast.length > 0 ? JSON.stringify(cast) : null;
+          }
+          if (!movie.cover_art_url || movie.cover_art_url === '') {
+            updateData.cover_art_url = posterUrl || null;
+          }
+          if (!movie.release_date) {
+            updateData.release_date = seasonDetails.air_date || null;
+          }
+          if (!movie.genres || movie.genres === '') {
+            updateData.genres = tvDetails.genres && tvDetails.genres.length > 0
+              ? JSON.stringify(tvDetails.genres) : null;
+          }
+        } else {
+          const tmdbData = await tmdbService.getMovieDetails(movie.tmdb_id);
+          const director = tmdbService.getDirector(tmdbData.credits);
+          const cast = tmdbService.getTopCast(tmdbData.credits, 10);
+          const posterUrl = tmdbService.getImageUrl(tmdbData.poster_path);
+
+          if (!movie.synopsis || movie.synopsis === '') {
+            updateData.synopsis = tmdbData.overview || null;
+          }
+          if (!movie.director || movie.director === '') {
+            updateData.director = director || null;
+          }
+          if (!movie.cast || movie.cast === '') {
+            updateData.cast = cast.length > 0 ? JSON.stringify(cast) : null;
+          }
+          if (!movie.cover_art_url || movie.cover_art_url === '') {
+            updateData.cover_art_url = posterUrl || null;
+          }
+          if (!movie.release_date) {
+            updateData.release_date = tmdbData.release_date || null;
+          }
+          if (!movie.genres || movie.genres === '') {
+            updateData.genres = tmdbData.genres && tmdbData.genres.length > 0
+              ? JSON.stringify(tmdbData.genres) : null;
+          }
         }
 
         await db('media').where({ id: movie.id }).update({

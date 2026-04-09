@@ -72,7 +72,17 @@ const CollectionStatistics: React.FC<CollectionStatisticsProps> = ({ statistics,
           <div className="text-sm text-primary-700 dark:text-primary-300">Movies</div>
         </div>
 
-        {/* Format Counts - Only show formats with movies */}
+        {/* Total TV Seasons */}
+        {statistics.totalTVSeasons > 0 && (
+          <div className="text-center p-4 rounded-lg bg-purple-50 dark:bg-purple-900/20">
+            <div className="text-2xl font-bold text-purple-600 dark:text-purple-400">
+              {statistics.totalTVSeasons}
+            </div>
+            <div className="text-sm text-purple-700 dark:text-purple-300">TV Seasons</div>
+          </div>
+        )}
+
+        {/* Format Counts - Only show formats with items */}
         {activeFormats.map((format) => {
           const { bg, text, count } = getFormatColors(format);
           return (

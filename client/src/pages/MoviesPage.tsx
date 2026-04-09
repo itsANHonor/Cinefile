@@ -17,6 +17,7 @@ const MoviesPage: React.FC = () => {
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [showBulkMetadata, setShowBulkMetadata] = useState(false);
+  const [mediaType, setMediaType] = useState<'all' | 'movie' | 'tv_season'>('all');
   
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
@@ -24,12 +25,10 @@ const MoviesPage: React.FC = () => {
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [totalCount, setTotalCount] = useState(0);
 
-  // Debounce search query to prevent API calls on every keystroke
   useEffect(() => {
     const timeoutId = setTimeout(() => {
       setDebouncedSearchQuery(searchQuery);
-    }, 300); // 300ms delay
-
+    }, 300);
     return () => clearTimeout(timeoutId);
   }, [searchQuery]);
 
@@ -37,7 +36,7 @@ const MoviesPage: React.FC = () => {
     if (isAuthenticated) {
       loadInitialData();
     }
-  }, [isAuthenticated, sortBy, sortOrder, debouncedSearchQuery]);
+  }, [isAuthenticated, sortBy, sortOrder, debouncedSearchQuery, mediaType]);
 
   const loadInitialData = async () => {
     setIsLoading(true);
@@ -46,6 +45,7 @@ const MoviesPage: React.FC = () => {
         sort_by: sortBy,
         sort_order: sortOrder,
         search: debouncedSearchQuery || undefined,
+        media_type: mediaType !== 'all' ? mediaType : undefined,
         page: 1,
         limit: 100,
       });
@@ -54,13 +54,13 @@ const MoviesPage: React.FC = () => {
       setHasMore(response.pagination.hasNext);
       setTotalCount(response.pagination.total);
     } catch (error) {
-      console.error('Failed to load movies:', error);
+      console.error('Failed to load media:', error);
     } finally {
       setIsLoading(false);
     }
   };
 
-  const loadMoreMovies = useCallback(async () => {
+  const loadMoreItems = useCallback(async () => {
     if (isLoadingMore || !hasMore) return;
     
     setIsLoadingMore(true);
@@ -70,6 +70,7 @@ const MoviesPage: React.FC = () => {
         sort_by: sortBy,
         sort_order: sortOrder,
         search: debouncedSearchQuery || undefined,
+        media_type: mediaType !== 'all' ? mediaType : undefined,
         page: nextPage,
         limit: 100,
       });
@@ -78,26 +79,25 @@ const MoviesPage: React.FC = () => {
       setCurrentPage(nextPage);
       setHasMore(response.pagination.hasNext);
     } catch (error) {
-      console.error('Failed to load more movies:', error);
+      console.error('Failed to load more media:', error);
     } finally {
       setIsLoadingMore(false);
     }
-  }, [isLoadingMore, hasMore, currentPage, sortBy, sortOrder, debouncedSearchQuery]);
+  }, [isLoadingMore, hasMore, currentPage, sortBy, sortOrder, debouncedSearchQuery, mediaType]);
 
-  // Infinite scroll handler
   useEffect(() => {
     const handleScroll = () => {
       if (window.innerHeight + document.documentElement.scrollTop !== document.documentElement.offsetHeight) {
         return;
       }
       if (!isLoadingMore && hasMore) {
-        loadMoreMovies();
+        loadMoreItems();
       }
     };
 
     window.addEventListener('scroll', handleScroll);
     return () => window.removeEventListener('scroll', handleScroll);
-  }, [isLoadingMore, hasMore, loadMoreMovies]);
+  }, [isLoadingMore, hasMore, loadMoreItems]);
 
   const handleSortChange = (newSortBy: SortField) => {
     if (newSortBy === sortBy) {
@@ -128,9 +128,10 @@ const MoviesPage: React.FC = () => {
     setSelectedMovie(null);
   };
 
-  const handleDeleteMovie = async (movie: Media) => {
+  const handleDeleteMedia = async (movie: Media) => {
+    const itemType = movie.media_type === 'tv_season' ? 'TV season' : 'movie';
     const confirmed = window.confirm(
-      `Are you sure you want to delete "${movie.title}"?\n\nThis will remove the movie from your collection and from any physical items it's linked to. This action cannot be undone.`
+      `Are you sure you want to delete "${movie.title}"?\n\nThis will remove the ${itemType} from your collection and from any physical items it's linked to. This action cannot be undone.`
     );
     
     if (!confirmed) return;
@@ -139,9 +140,20 @@ const MoviesPage: React.FC = () => {
       await apiService.deleteMedia(movie.id);
       setMovies(prev => prev.filter(m => m.id !== movie.id));
     } catch (error) {
-      console.error('Failed to delete movie:', error);
-      alert('Failed to delete movie. Please try again.');
+      console.error('Failed to delete media:', error);
+      alert('Failed to delete item. Please try again.');
     }
+  };
+
+  const getCountLabel = () => {
+    if (totalCount === 0) return 'Loading...';
+    if (mediaType === 'movie') {
+      return `${totalCount.toLocaleString()} ${totalCount === 1 ? 'movie' : 'movies'}`;
+    }
+    if (mediaType === 'tv_season') {
+      return `${totalCount.toLocaleString()} TV ${totalCount === 1 ? 'season' : 'seasons'}`;
+    }
+    return `${totalCount.toLocaleString()} ${totalCount === 1 ? 'item' : 'items'}`;
   };
 
   if (!isAuthenticated) {
@@ -152,7 +164,7 @@ const MoviesPage: React.FC = () => {
             Access Denied
           </h1>
           <p className="text-gray-600 dark:text-gray-300">
-            You need to be logged in to access the movies management page.
+            You need to be logged in to access media management.
           </p>
         </div>
       </div>
@@ -165,7 +177,7 @@ const MoviesPage: React.FC = () => {
         <div className="flex items-center justify-center py-32">
           <div className="text-center">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto mb-4"></div>
-            <p className="text-gray-600 dark:text-gray-300">Loading movies...</p>
+            <p className="text-gray-600 dark:text-gray-300">Loading media...</p>
           </div>
         </div>
       </div>
@@ -179,10 +191,10 @@ const MoviesPage: React.FC = () => {
         <div className="flex items-center justify-between mb-2">
           <div>
             <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100 mb-2">
-              Movies Management
+              Media Management
             </h1>
             <p className="text-gray-600 dark:text-gray-300">
-              {totalCount > 0 ? `${totalCount.toLocaleString()} ${totalCount === 1 ? 'movie' : 'movies'} in your collection` : 'Loading...'}
+              {totalCount > 0 ? `${getCountLabel()} in your collection` : 'Loading...'}
             </p>
           </div>
           <button
@@ -213,7 +225,7 @@ const MoviesPage: React.FC = () => {
             <div className="relative">
               <input
                 type="text"
-                placeholder="Search movies..."
+                placeholder="Search media..."
                 value={searchQuery}
                 onChange={(e) => handleSearchChange(e.target.value)}
                 className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 dark:bg-gray-700 dark:text-gray-100"
@@ -234,6 +246,23 @@ const MoviesPage: React.FC = () => {
             </div>
           </div>
 
+          {/* Media Type Filter */}
+          <div className="flex bg-gray-100 dark:bg-gray-700 rounded-lg p-0.5">
+            {(['all', 'movie', 'tv_season'] as const).map((type) => (
+              <button
+                key={type}
+                onClick={() => setMediaType(type)}
+                className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
+                  mediaType === type
+                    ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-gray-100 shadow-sm'
+                    : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
+                }`}
+              >
+                {type === 'all' ? 'All' : type === 'movie' ? 'Movies' : 'TV Seasons'}
+              </button>
+            ))}
+          </div>
+
           {/* Sort Options */}
           <div className="flex flex-wrap gap-2">
             <button
@@ -244,7 +273,7 @@ const MoviesPage: React.FC = () => {
                   : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
               }`}
             >
-              Title {sortBy === 'title' && (sortOrder === 'asc' ? '↑' : '↓')}
+              Title {sortBy === 'title' && (sortOrder === 'asc' ? '\u2191' : '\u2193')}
             </button>
             <button
               onClick={() => handleSortChange('director_last_name')}
@@ -254,7 +283,7 @@ const MoviesPage: React.FC = () => {
                   : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
               }`}
             >
-              Director {sortBy === 'director_last_name' && (sortOrder === 'asc' ? '↑' : '↓')}
+              {mediaType === 'tv_season' ? 'Creator' : 'Director'} {sortBy === 'director_last_name' && (sortOrder === 'asc' ? '\u2191' : '\u2193')}
             </button>
             <button
               onClick={() => handleSortChange('release_date')}
@@ -264,7 +293,7 @@ const MoviesPage: React.FC = () => {
                   : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
               }`}
             >
-              Year {sortBy === 'release_date' && (sortOrder === 'asc' ? '↑' : '↓')}
+              Year {sortBy === 'release_date' && (sortOrder === 'asc' ? '\u2191' : '\u2193')}
             </button>
             <button
               onClick={() => handleSortChange('created_at')}
@@ -274,7 +303,7 @@ const MoviesPage: React.FC = () => {
                   : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
               }`}
             >
-              Added {sortBy === 'created_at' && (sortOrder === 'asc' ? '↑' : '↓')}
+              Added {sortBy === 'created_at' && (sortOrder === 'asc' ? '\u2191' : '\u2193')}
             </button>
           </div>
 
@@ -304,7 +333,7 @@ const MoviesPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Movies Grid/List */}
+      {/* Media Grid/List */}
       {movies.length === 0 ? (
         <div className="card text-center py-16">
           <div className="w-16 h-16 bg-gray-100 dark:bg-gray-700 rounded-lg flex items-center justify-center mx-auto mb-6">
@@ -312,11 +341,11 @@ const MoviesPage: React.FC = () => {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 4V2a1 1 0 011-1h8a1 1 0 011 1v2m0 0V1a1 1 0 011-1h2a1 1 0 011 1v18a1 1 0 01-1 1H4a1 1 0 01-1-1V1a1 1 0 011-1h2a1 1 0 011 1v3m0 0h8M7 4v16a1 1 0 001 1h8a1 1 0 001-1V4M7 4H5a1 1 0 00-1 1v14a1 1 0 001 1h2V4z" />
             </svg>
           </div>
-          <h3 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-2">No Movies Found</h3>
+          <h3 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-2">No Media Found</h3>
           <p className="text-gray-600 dark:text-gray-300">
             {searchQuery 
-              ? 'No movies match your search. Try adjusting your search terms.' 
-              : 'No movies have been added to your collection yet.'}
+              ? 'No items match your search. Try adjusting your search terms.' 
+              : 'No items have been added to your collection yet.'}
           </p>
         </div>
       ) : (
@@ -324,134 +353,159 @@ const MoviesPage: React.FC = () => {
           ? 'grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6'
           : 'space-y-4'
         }>
-          {movies.map((movie) => (
-            <div
-              key={movie.id}
-              className={`card hover:shadow-lg transition-shadow relative group ${
-                viewMode === 'list' ? 'flex items-center space-x-4' : ''
-              }`}
-            >
-              {/* Delete Button */}
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleDeleteMovie(movie);
-                }}
-                className="absolute top-2 right-2 z-10 p-1.5 bg-red-600 text-white rounded-full opacity-0 group-hover:opacity-100 hover:bg-red-700 transition-all duration-200"
-                title="Delete movie"
+          {movies.map((movie) => {
+            const isTV = movie.media_type === 'tv_season';
+            
+            return (
+              <div
+                key={movie.id}
+                className={`card hover:shadow-lg transition-shadow relative group ${
+                  viewMode === 'list' ? 'flex items-center space-x-4' : ''
+                }`}
               >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                </svg>
-              </button>
-              <div 
-                className="cursor-pointer"
-                onClick={() => handleEditMovie(movie)}
-              >
-                {viewMode === 'grid' ? (
-                  <>
-                    {/* Grid View */}
-                    <div className="aspect-[2/3] mb-4">
-                    {movie.cover_art_url ? (
-                      <img
-                        src={movie.cover_art_url}
-                        alt={movie.title}
-                        className="w-full h-full object-cover rounded-lg"
-                        onError={(e) => {
-                          (e.target as HTMLImageElement).src = '/placeholder-movie.jpg';
-                        }}
-                      />
-                    ) : (
-                      <div className="w-full h-full bg-gray-200 dark:bg-gray-700 rounded-lg flex items-center justify-center">
-                        <svg className="w-12 h-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 4V2a1 1 0 011-1h8a1 1 0 011 1v2m0 0V1a1 1 0 011-1h2a1 1 0 011 1v18a1 1 0 01-1 1H4a1 1 0 01-1-1V1a1 1 0 011-1h2a1 1 0 011 1v3m0 0h8M7 4v16a1 1 0 001 1h8a1 1 0 001-1V4M7 4H5a1 1 0 00-1 1v14a1 1 0 001 1h2V4z" />
-                        </svg>
-                      </div>
-                    )}
+                {/* Delete Button */}
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleDeleteMedia(movie);
+                  }}
+                  className="absolute top-2 right-2 z-10 p-1.5 bg-red-600 text-white rounded-full opacity-0 group-hover:opacity-100 hover:bg-red-700 transition-all duration-200"
+                  title="Delete item"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                  </svg>
+                </button>
+
+                {/* TV Badge (grid view only) */}
+                {isTV && viewMode === 'grid' && (
+                  <div className="absolute top-2 left-2 z-10 px-1.5 py-0.5 bg-purple-600 text-white text-[10px] font-bold rounded">
+                    TV
                   </div>
-                  <h3 className="font-semibold text-gray-900 dark:text-gray-100 mb-1 line-clamp-2">
-                    {movie.title}
-                  </h3>
-                  {movie.director && (
-                    <p className="text-sm text-gray-600 dark:text-gray-300 mb-1">
-                      {movie.director}
-                    </p>
-                  )}
-                  {movie.release_date && (
-                    <p className="text-sm text-gray-500 dark:text-gray-400 mb-1">
-                      {new Date(movie.release_date).getFullYear()}
-                    </p>
-                  )}
-                  {movie.genres && movie.genres.length > 0 && (
-                    <div className="flex flex-wrap gap-1 mt-1">
-                      {movie.genres.slice(0, 3).map((genre) => (
-                        <span
-                          key={genre.id}
-                          className="text-xs px-2 py-0.5 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded"
-                        >
-                          {genre.name}
-                        </span>
-                      ))}
-                      {movie.genres.length > 3 && (
-                        <span className="text-xs text-gray-500 dark:text-gray-400">
-                          +{movie.genres.length - 3}
-                        </span>
+                )}
+
+                <div 
+                  className="cursor-pointer"
+                  onClick={() => handleEditMovie(movie)}
+                >
+                  {viewMode === 'grid' ? (
+                    <>
+                      <div className="aspect-[2/3] mb-4">
+                        {movie.cover_art_url ? (
+                          <img
+                            src={movie.cover_art_url}
+                            alt={movie.title}
+                            className="w-full h-full object-cover rounded-lg"
+                            onError={(e) => {
+                              (e.target as HTMLImageElement).src = '/placeholder-movie.jpg';
+                            }}
+                          />
+                        ) : (
+                          <div className="w-full h-full bg-gray-200 dark:bg-gray-700 rounded-lg flex items-center justify-center">
+                            <svg className="w-12 h-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 4V2a1 1 0 011-1h8a1 1 0 011 1v2m0 0V1a1 1 0 011-1h2a1 1 0 011 1v18a1 1 0 01-1 1H4a1 1 0 01-1-1V1a1 1 0 011-1h2a1 1 0 011 1v3m0 0h8M7 4v16a1 1 0 001 1h8a1 1 0 001-1V4M7 4H5a1 1 0 00-1 1v14a1 1 0 001 1h2V4z" />
+                            </svg>
+                          </div>
+                        )}
+                      </div>
+                      <h3 className="font-semibold text-gray-900 dark:text-gray-100 mb-1 line-clamp-2">
+                        {movie.title}
+                      </h3>
+                      {movie.director && (
+                        <p className="text-sm text-gray-600 dark:text-gray-300 mb-1">
+                          {movie.director}
+                        </p>
                       )}
-                    </div>
-                  )}
-                </>
-              ) : (
-                <>
-                  {/* List View */}
-                  <div className="w-16 h-24 flex-shrink-0">
-                    {movie.cover_art_url ? (
-                      <img
-                        src={movie.cover_art_url}
-                        alt={movie.title}
-                        className="w-full h-full object-cover rounded"
-                        onError={(e) => {
-                          (e.target as HTMLImageElement).src = '/placeholder-movie.jpg';
-                        }}
-                      />
-                    ) : (
-                      <div className="w-full h-full bg-gray-200 dark:bg-gray-700 rounded flex items-center justify-center">
-                        <svg className="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 4V2a1 1 0 011-1h8a1 1 0 011 1v2m0 0V1a1 1 0 011-1h2a1 1 0 011 1v18a1 1 0 01-1 1H4a1 1 0 01-1-1V1a1 1 0 011-1h2a1 1 0 011 1v3m0 0h8M7 4v16a1 1 0 001 1h8a1 1 0 001-1V4M7 4H5a1 1 0 00-1 1v14a1 1 0 001 1h2V4z" />
-                        </svg>
-                      </div>
-                    )}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <h3 className="font-semibold text-gray-900 dark:text-gray-100 mb-1">
-                      {movie.title}
-                    </h3>
-                    <div className="flex flex-wrap gap-4 text-sm text-gray-600 dark:text-gray-300 mb-2">
-                      {movie.director && <span>{movie.director}</span>}
-                      {movie.release_date && <span>{new Date(movie.release_date).getFullYear()}</span>}
-                      {movie.series && movie.series.length > 0 && (
-                        <span className="text-primary-600 dark:text-primary-400">
-                          {movie.series.map(s => s.name).join(', ')}
-                        </span>
+                      {movie.release_date && (
+                        <p className="text-sm text-gray-500 dark:text-gray-400 mb-1">
+                          {new Date(movie.release_date).getFullYear()}
+                        </p>
                       )}
-                    </div>
-                    {movie.genres && movie.genres.length > 0 && (
-                      <div className="flex flex-wrap gap-1">
-                        {movie.genres.map((genre) => (
-                          <span
-                            key={genre.id}
-                            className="text-xs px-2 py-0.5 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded"
-                          >
-                            {genre.name}
-                          </span>
-                        ))}
+                      {movie.genres && movie.genres.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          {movie.genres.slice(0, 3).map((genre) => (
+                            <span
+                              key={genre.id}
+                              className="text-xs px-2 py-0.5 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded"
+                            >
+                              {genre.name}
+                            </span>
+                          ))}
+                          {movie.genres.length > 3 && (
+                            <span className="text-xs text-gray-500 dark:text-gray-400">
+                              +{movie.genres.length - 3}
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      {/* List View */}
+                      <div className="w-16 h-24 flex-shrink-0 relative">
+                        {isTV && (
+                          <div className="absolute top-0 left-0 z-10 px-1 py-0.5 bg-purple-600 text-white text-[9px] font-bold rounded-br">
+                            TV
+                          </div>
+                        )}
+                        {movie.cover_art_url ? (
+                          <img
+                            src={movie.cover_art_url}
+                            alt={movie.title}
+                            className="w-full h-full object-cover rounded"
+                            onError={(e) => {
+                              (e.target as HTMLImageElement).src = '/placeholder-movie.jpg';
+                            }}
+                          />
+                        ) : (
+                          <div className="w-full h-full bg-gray-200 dark:bg-gray-700 rounded flex items-center justify-center">
+                            <svg className="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 4V2a1 1 0 011-1h8a1 1 0 011 1v2m0 0V1a1 1 0 011-1h2a1 1 0 011 1v18a1 1 0 01-1 1H4a1 1 0 01-1-1V1a1 1 0 011-1h2a1 1 0 011 1v3m0 0h8M7 4v16a1 1 0 001 1h8a1 1 0 001-1V4M7 4H5a1 1 0 00-1 1v14a1 1 0 001 1h2V4z" />
+                            </svg>
+                          </div>
+                        )}
                       </div>
-                    )}
-                  </div>
-                </>
-              )}
+                      <div className="flex-1 min-w-0">
+                        <h3 className="font-semibold text-gray-900 dark:text-gray-100 mb-1">
+                          {movie.title}
+                        </h3>
+                        <div className="flex flex-wrap gap-4 text-sm text-gray-600 dark:text-gray-300 mb-2">
+                          {movie.director && (
+                            <span>
+                              {isTV ? 'Creator: ' : ''}{movie.director}
+                            </span>
+                          )}
+                          {movie.release_date && <span>{new Date(movie.release_date).getFullYear()}</span>}
+                          {isTV && movie.tv_show_name && (
+                            <span className="text-purple-600 dark:text-purple-400">
+                              {movie.tv_show_name} {movie.season_number != null && `- Season ${movie.season_number}`}
+                            </span>
+                          )}
+                          {!isTV && movie.series && movie.series.length > 0 && (
+                            <span className="text-primary-600 dark:text-primary-400">
+                              {movie.series.map(s => s.name).join(', ')}
+                            </span>
+                          )}
+                        </div>
+                        {movie.genres && movie.genres.length > 0 && (
+                          <div className="flex flex-wrap gap-1">
+                            {movie.genres.map((genre) => (
+                              <span
+                                key={genre.id}
+                                className="text-xs px-2 py-0.5 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded"
+                              >
+                                {genre.name}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  )}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
       
@@ -460,7 +514,7 @@ const MoviesPage: React.FC = () => {
         <div className="flex justify-center py-8">
           <div className="flex items-center gap-2 text-gray-600 dark:text-gray-300">
             <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-primary-600"></div>
-            Loading more movies...
+            Loading more...
           </div>
         </div>
       )}
@@ -477,4 +531,3 @@ const MoviesPage: React.FC = () => {
 };
 
 export default MoviesPage;
-

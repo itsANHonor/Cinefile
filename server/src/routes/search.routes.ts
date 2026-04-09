@@ -382,5 +382,130 @@ router.get('/collections/:id', async (req: Request, res: Response) => {
   }
 });
 
+// =============================================
+// TV Show Search Endpoints
+// =============================================
+
+/**
+ * GET /api/search/tv
+ * Search for TV shows on TMDb
+ */
+router.get('/tv', async (req: Request, res: Response) => {
+  try {
+    const { q, page = '1' } = req.query;
+
+    if (!q || typeof q !== 'string') {
+      return res.status(400).json({ error: 'Query parameter "q" is required' });
+    }
+
+    const pageNum = parseInt(page as string, 10);
+    const results = await tmdbService.searchTV(q, pageNum);
+
+    res.json(results);
+  } catch (error) {
+    console.error('Error searching TV shows:', error);
+    res.status(500).json({ error: 'Failed to search TV shows' });
+  }
+});
+
+/**
+ * GET /api/search/tv/:id
+ * Get detailed information about a TV show from TMDb
+ */
+router.get('/tv/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const tvId = parseInt(id, 10);
+
+    if (isNaN(tvId)) {
+      return res.status(400).json({ error: 'Invalid TV show ID' });
+    }
+
+    const tvDetails = await tmdbService.getTVDetails(tvId);
+
+    const creators = tmdbService.getCreators(tvDetails.created_by);
+    const cast = tmdbService.getTVTopCast(tvDetails.credits, 10);
+    const posterUrl = tmdbService.getImageUrl(tvDetails.poster_path);
+
+    res.json({
+      ...tvDetails,
+      creators,
+      cast,
+      poster_url: posterUrl,
+    });
+  } catch (error) {
+    console.error('Error fetching TV show details:', error);
+    res.status(500).json({ error: 'Failed to fetch TV show details' });
+  }
+});
+
+/**
+ * GET /api/search/tv/:id/season/:seasonNumber
+ * Get details for a specific TV season
+ */
+router.get('/tv/:id/season/:seasonNumber', async (req: Request, res: Response) => {
+  try {
+    const { id, seasonNumber } = req.params;
+    const tvId = parseInt(id, 10);
+    const seasonNum = parseInt(seasonNumber, 10);
+
+    if (isNaN(tvId)) {
+      return res.status(400).json({ error: 'Invalid TV show ID' });
+    }
+    if (isNaN(seasonNum)) {
+      return res.status(400).json({ error: 'Invalid season number' });
+    }
+
+    const seasonDetails = await tmdbService.getTVSeasonDetails(tvId, seasonNum);
+    res.json(seasonDetails);
+  } catch (error) {
+    console.error('Error fetching TV season details:', error);
+    res.status(500).json({ error: 'Failed to fetch TV season details' });
+  }
+});
+
+/**
+ * GET /api/search/tv/:id/posters
+ * Get posters for a TV show from TMDb
+ */
+router.get('/tv/:id/posters', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const tvId = parseInt(id, 10);
+
+    if (isNaN(tvId)) {
+      return res.status(400).json({ error: 'Invalid TV show ID' });
+    }
+
+    const posters = await tmdbService.getTVImages(tvId);
+    res.json(posters);
+  } catch (error) {
+    console.error('Error fetching TV show posters:', error);
+    res.status(500).json({ error: 'Failed to fetch TV show posters' });
+  }
+});
+
+/**
+ * GET /api/search/tv/:id/season/:seasonNumber/posters
+ * Get posters for a specific TV season from TMDb
+ */
+router.get('/tv/:id/season/:seasonNumber/posters', async (req: Request, res: Response) => {
+  try {
+    const { id, seasonNumber } = req.params;
+    const tvId = parseInt(id, 10);
+    const seasonNum = parseInt(seasonNumber, 10);
+
+    if (isNaN(tvId) || isNaN(seasonNum)) {
+      return res.status(400).json({ error: 'Invalid TV show ID or season number' });
+    }
+
+    const posters = await tmdbService.getTVSeasonImages(tvId, seasonNum);
+    res.json(posters);
+  } catch (error) {
+    console.error('Error fetching TV season posters:', error);
+    res.status(500).json({ error: 'Failed to fetch TV season posters' });
+  }
+});
+
 export default router;
 

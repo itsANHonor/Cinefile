@@ -167,6 +167,24 @@ const Navigation: React.FC = () => {
 
             {!isReadOnly && (
               <Link
+                to="/media"
+                onClick={closeMobileMenu}
+                className={`flex items-center gap-3 px-2 py-2 rounded-lg transition-colors ${
+                  isActive('/media')
+                    ? 'bg-primary-100 dark:bg-primary-900 text-primary-700 dark:text-primary-300 font-semibold'
+                    : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
+                } ${isCollapsed ? 'justify-center' : ''}`}
+                title={isCollapsed ? 'Media' : undefined}
+              >
+                <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 4v16M17 4v16M3 8h4m10 0h4M3 12h18M3 16h4m10 0h4M4 20h16a1 1 0 001-1V5a1 1 0 00-1-1H4a1 1 0 00-1 1v14a1 1 0 001 1z" />
+                </svg>
+                {!isCollapsed && <span>Media</span>}
+              </Link>
+            )}
+
+            {!isReadOnly && (
+              <Link
                 to="/admin"
                 onClick={closeMobileMenu}
                 className={`flex items-center gap-3 px-2 py-2 rounded-lg transition-colors ${
@@ -227,7 +245,7 @@ const Navigation: React.FC = () => {
             <h1 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
               {location.pathname === '/' && 'Collection'}
               {location.pathname === '/library' && 'Physical Library'}
-              {!isReadOnly && location.pathname === '/movies' && 'Movies'}
+              {!isReadOnly && location.pathname === '/media' && 'Media'}
               {!isReadOnly && location.pathname === '/admin' && 'Settings'}
               {location.pathname === '/about' && 'About'}
             </h1>

@@ -206,7 +206,43 @@ router.get('/', async (req: Request, res: Response) => {
       });
     }
 
-    const totalMovies = await totalMoviesQuery.countDistinct('physical_item_media.media_id as count').first();
+    const totalMovies = await totalMoviesQuery
+      .where(function(this: any) {
+        this.whereNull('media.media_type').orWhere('media.media_type', 'movie');
+      })
+      .countDistinct('physical_item_media.media_id as count').first();
+
+    // Count TV seasons (reuse the same base query structure)
+    let totalTVSeasonsQuery = db('physical_item_media')
+      .leftJoin('physical_items', 'physical_item_media.physical_item_id', 'physical_items.id')
+      .leftJoin('media', 'physical_item_media.media_id', 'media.id')
+      .where('media.media_type', 'tv_season');
+
+    if (format && format !== 'all') {
+      const formats = typeof format === 'string' ? format.split(',').map(f => String(f).trim()) : [String(format)];
+      if (formats.length > 0) {
+        totalTVSeasonsQuery = totalTVSeasonsQuery.where(function(this: any) {
+          formats.forEach((f: string, index: number) => {
+            if (index === 0) {
+              this.where('physical_items.physical_format', 'like', `%"${f}"%`);
+            } else {
+              this.orWhere('physical_items.physical_format', 'like', `%"${f}"%`);
+            }
+          });
+        });
+      }
+    }
+
+    if (search && typeof search === 'string' && search.trim() !== '') {
+      const searchTerm = `%${search.trim()}%`;
+      totalTVSeasonsQuery = totalTVSeasonsQuery.where(function(this: any) {
+        this.where('physical_items.name', 'like', searchTerm)
+          .orWhere('media.title', 'like', searchTerm)
+          .orWhere('media.tv_show_name', 'like', searchTerm);
+      });
+    }
+
+    const totalTVSeasons = await totalTVSeasonsQuery.countDistinct('physical_item_media.media_id as count').first();
     
     // Count movies by format using SQL aggregation with filters applied
     let formatStatsQuery = db('physical_items')
@@ -257,6 +293,7 @@ router.get('/', async (req: Request, res: Response) => {
     res.json({
       totalPhysicalItems: parseInt(totalPhysicalItems?.count as string) || 0,
       totalMovies: parseInt(totalMovies?.count as string) || 0,
+      totalTVSeasons: parseInt(totalTVSeasons?.count as string) || 0,
       formatCounts: activeFormats
     });
   } catch (error) {

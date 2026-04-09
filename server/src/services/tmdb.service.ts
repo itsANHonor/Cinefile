@@ -40,6 +40,55 @@ export interface TMDbSearchResponse {
   total_results: number;
 }
 
+// TV Show types
+export interface TMDbTVShow {
+  id: number;
+  name: string;
+  overview: string;
+  poster_path: string | null;
+  first_air_date: string;
+  vote_average: number;
+  vote_count: number;
+}
+
+export interface TMDbTVShowDetails {
+  id: number;
+  name: string;
+  overview: string;
+  poster_path: string | null;
+  backdrop_path: string | null;
+  first_air_date: string;
+  last_air_date: string;
+  number_of_seasons: number;
+  number_of_episodes: number;
+  status: string;
+  genres: { id: number; name: string }[];
+  created_by: { id: number; name: string; profile_path: string | null }[];
+  seasons: TMDbTVSeason[];
+  credits?: {
+    cast: { id: number; name: string; character: string; profile_path: string | null }[];
+    crew: { id: number; name: string; job: string }[];
+  };
+}
+
+export interface TMDbTVSeason {
+  id: number;
+  name: string;
+  overview: string;
+  poster_path: string | null;
+  air_date: string;
+  season_number: number;
+  episode_count: number;
+  vote_average: number;
+}
+
+export interface TMDbTVSearchResponse {
+  page: number;
+  results: TMDbTVShow[];
+  total_pages: number;
+  total_results: number;
+}
+
 type LogCallback = (message: string, level?: 'info' | 'warn' | 'error') => void;
 
 class TMDbService {
@@ -272,6 +321,141 @@ class TMDbService {
       this.log(`Failed to fetch collection details for ID ${collectionId}: ${error}`, 'error');
       throw new Error('Failed to fetch collection details from TMDb');
     }
+  }
+
+  // =============================================
+  // TV Show Methods
+  // =============================================
+
+  /**
+   * Search for TV shows by name
+   */
+  async searchTV(query: string, page: number = 1): Promise<TMDbTVSearchResponse> {
+    this.log(`Searching TV shows: "${query}" (page ${page})`);
+    try {
+      const response = await this.makeRequest(() =>
+        axios.get(`${TMDB_BASE_URL}/search/tv`, {
+          params: {
+            api_key: this.apiKey,
+            query,
+            page,
+            include_adult: false,
+          },
+        })
+      );
+      this.log(`Found ${response.data.results.length} TV results for "${query}"`);
+      return response.data;
+    } catch (error) {
+      this.log(`TV search error for "${query}": ${error}`, 'error');
+      throw new Error('Failed to search TV shows on TMDb');
+    }
+  }
+
+  /**
+   * Get detailed information about a TV show including seasons and credits
+   */
+  async getTVDetails(tvId: number): Promise<TMDbTVShowDetails> {
+    this.log(`Fetching TV show details for ID: ${tvId}`);
+    try {
+      const response = await this.makeRequest(() =>
+        axios.get(`${TMDB_BASE_URL}/tv/${tvId}`, {
+          params: {
+            api_key: this.apiKey,
+            append_to_response: 'credits',
+          },
+        })
+      );
+      this.log(`Successfully fetched TV details for ID: ${tvId} - "${response.data.name}"`);
+      return response.data;
+    } catch (error) {
+      this.log(`Failed to fetch TV details for ID ${tvId}: ${error}`, 'error');
+      throw new Error('Failed to fetch TV show details from TMDb');
+    }
+  }
+
+  /**
+   * Get details for a specific TV season
+   */
+  async getTVSeasonDetails(tvId: number, seasonNumber: number): Promise<any> {
+    this.log(`Fetching TV season details for show ${tvId}, season ${seasonNumber}`);
+    try {
+      const response = await this.makeRequest(() =>
+        axios.get(`${TMDB_BASE_URL}/tv/${tvId}/season/${seasonNumber}`, {
+          params: {
+            api_key: this.apiKey,
+          },
+        })
+      );
+      this.log(`Successfully fetched season ${seasonNumber} for TV show ${tvId}`);
+      return response.data;
+    } catch (error) {
+      this.log(`Failed to fetch TV season details for show ${tvId}, season ${seasonNumber}: ${error}`, 'error');
+      throw new Error('Failed to fetch TV season details from TMDb');
+    }
+  }
+
+  /**
+   * Get images for a TV show
+   */
+  async getTVImages(tvId: number): Promise<string[]> {
+    this.log(`Fetching images for TV show ID: ${tvId}`);
+    try {
+      const response = await this.makeRequest(() =>
+        axios.get(`${TMDB_BASE_URL}/tv/${tvId}/images`, {
+          params: {
+            api_key: this.apiKey,
+          },
+        })
+      );
+
+      const posters = response.data.posters || [];
+      posters.sort((a: any, b: any) => b.vote_average - a.vote_average);
+
+      return posters.map((poster: any) => this.getImageUrl(poster.file_path, 'w500')).filter((url: string | null) => url !== null) as string[];
+    } catch (error) {
+      this.log(`Failed to fetch images for TV show ID ${tvId}: ${error}`, 'error');
+      return [];
+    }
+  }
+
+  /**
+   * Get images for a specific TV season
+   */
+  async getTVSeasonImages(tvId: number, seasonNumber: number): Promise<string[]> {
+    this.log(`Fetching images for TV show ${tvId}, season ${seasonNumber}`);
+    try {
+      const response = await this.makeRequest(() =>
+        axios.get(`${TMDB_BASE_URL}/tv/${tvId}/season/${seasonNumber}/images`, {
+          params: {
+            api_key: this.apiKey,
+          },
+        })
+      );
+
+      const posters = response.data.posters || [];
+      posters.sort((a: any, b: any) => b.vote_average - a.vote_average);
+
+      return posters.map((poster: any) => this.getImageUrl(poster.file_path, 'w500')).filter((url: string | null) => url !== null) as string[];
+    } catch (error) {
+      this.log(`Failed to fetch images for TV show ${tvId}, season ${seasonNumber}: ${error}`, 'error');
+      return [];
+    }
+  }
+
+  /**
+   * Extract creators from TV show created_by field
+   */
+  getCreators(createdBy?: TMDbTVShowDetails['created_by']): string | null {
+    if (!createdBy || createdBy.length === 0) return null;
+    return createdBy.map((creator) => creator.name).join(', ');
+  }
+
+  /**
+   * Get top cast members from TV show credits
+   */
+  getTVTopCast(credits?: TMDbTVShowDetails['credits'], limit: number = 10): string[] {
+    if (!credits?.cast) return [];
+    return credits.cast.slice(0, limit).map((actor) => actor.name);
   }
 }
 

@@ -32,6 +32,7 @@ const CollectionPage: React.FC = () => {
   const [format, setFormat] = useState<PhysicalFormat | PhysicalFormat[]>('all');
   const [selectedGenres, setSelectedGenres] = useState<number[]>([]);
   const [selectedDecades, setSelectedDecades] = useState<string[]>([]);
+  const [mediaType, setMediaType] = useState<'all' | 'movie' | 'tv_season'>('all');
   const [sortBy, setSortBy] = useState<SortField>('title');
   const [sortOrder, setSortOrder] = useState<SortOrder>('asc');
   const [searchQuery, setSearchQuery] = useState('');
@@ -105,7 +106,7 @@ const CollectionPage: React.FC = () => {
     if (isInitialized) {
       loadInitialData();
     }
-  }, [format, selectedGenres, selectedDecades, sortBy, sortOrder, debouncedSearchQuery, isInitialized]);
+  }, [format, selectedGenres, selectedDecades, mediaType, sortBy, sortOrder, debouncedSearchQuery, isInitialized]);
 
   // Load statistics on mount and when filters change (debounced)
   useEffect(() => {
@@ -172,6 +173,7 @@ const CollectionPage: React.FC = () => {
         format: formatValue,
         genres: selectedGenres.length > 0 ? selectedGenres : undefined,
         decades: selectedDecades.length > 0 ? selectedDecades : undefined,
+        media_type: mediaType !== 'all' ? mediaType : undefined,
         sort_by: sortBy,
         sort_order: sortOrder,
         search: debouncedSearchQuery || undefined,
@@ -204,6 +206,7 @@ const CollectionPage: React.FC = () => {
         format: formatValue,
         genres: selectedGenres.length > 0 ? selectedGenres : undefined,
         decades: selectedDecades.length > 0 ? selectedDecades : undefined,
+        media_type: mediaType !== 'all' ? mediaType : undefined,
         sort_by: sortBy,
         sort_order: sortOrder,
         search: debouncedSearchQuery || undefined,
@@ -219,7 +222,7 @@ const CollectionPage: React.FC = () => {
     } finally {
       setIsLoadingMore(false);
     }
-  }, [isLoadingMore, hasMore, currentPage, format, selectedGenres, selectedDecades, sortBy, sortOrder, debouncedSearchQuery]);
+  }, [isLoadingMore, hasMore, currentPage, format, selectedGenres, selectedDecades, mediaType, sortBy, sortOrder, debouncedSearchQuery]);
 
   const handleSortChange = (newSortBy: SortField, newSortOrder: SortOrder) => {
     setSortBy(newSortBy);
@@ -240,6 +243,7 @@ const CollectionPage: React.FC = () => {
     setFormat('all');
     setSelectedGenres([]);
     setSelectedDecades([]);
+    setMediaType('all');
     setSearchQuery('');
     // Reset to default sort for public users
     if (!canEdit) {
@@ -473,11 +477,13 @@ const CollectionPage: React.FC = () => {
         selectedDecades={selectedDecades}
         availableGenres={availableGenres}
         availableDecades={availableDecades}
+        mediaType={mediaType}
         onFormatChange={setFormat}
         onGenresChange={setSelectedGenres}
         onDecadesChange={setSelectedDecades}
         onSortChange={handleSortChange}
         onSearchChange={handleSearchChange}
+        onMediaTypeChange={setMediaType}
         onClearFilters={handleClearFilters}
       />
 

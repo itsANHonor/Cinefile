@@ -19,6 +19,13 @@ interface MovieWithFormats {
   formats: string[];
   details: any;
   mediaDbId?: number; // Track the actual database ID
+  // TV-specific fields
+  media_type?: 'movie' | 'tv_season';
+  tv_show_tmdb_id?: number;
+  tv_show_name?: string;
+  season_number?: number;
+  episode_count?: number;
+  genres?: { id: number; name: string }[];
 }
 
 const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editItem }) => {
@@ -51,9 +58,13 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
     custom_image_url: '',
     purchase_date: '',
     thickness_units: 1,
+    width_mm: undefined as number | undefined,
+    height_mm: undefined as number | undefined,
+    depth_mm: undefined as number | undefined,
     media_primary_series_id: undefined as number | undefined, // Adds movies to series
     sort_series_id: undefined as number | undefined, // Used for sorting
   });
+  const [showDimensions, setShowDimensions] = useState(false);
   const [availableSeries, setAvailableSeries] = useState<Series[]>([]);
 
   useEffect(() => {
@@ -82,9 +93,17 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
         custom_image_url: editItem.custom_image_url || '',
         purchase_date: editItem.purchase_date || '',
         thickness_units: editItem.thickness_units || 1,
+        width_mm: editItem.width_mm,
+        height_mm: editItem.height_mm,
+        depth_mm: editItem.depth_mm,
         media_primary_series_id: undefined, // Don't pre-fill - this is an action, not stored state
         sort_series_id: editItem.sort_series_id || editItem.primary_series_id, // Fallback to legacy
       });
+      
+      // Auto-expand dimensions if any are set
+      if (editItem.width_mm || editItem.height_mm || editItem.depth_mm) {
+        setShowDimensions(true);
+      }
       
       // Convert existing media to MovieWithFormats format for display
       const moviesWithFormats: MovieWithFormats[] = editItem.media.map(m => ({
@@ -99,6 +118,12 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
         },
         formats: m.formats || ['Blu-ray'],
         mediaDbId: m.id, // Preserve the actual media database ID
+        media_type: m.media_type,
+        tv_show_tmdb_id: m.tv_show_tmdb_id,
+        tv_show_name: m.tv_show_name,
+        season_number: m.season_number,
+        episode_count: m.episode_count,
+        genres: m.genres,
         details: {
           title: m.title,
           id: m.tmdb_id || m.id,
@@ -143,9 +168,13 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
         custom_image_url: '',
         purchase_date: '',
         thickness_units: 1,
+        width_mm: undefined,
+        height_mm: undefined,
+        depth_mm: undefined,
         media_primary_series_id: undefined,
         sort_series_id: undefined,
       });
+      setShowDimensions(false);
       setSelectedMovies([]);
       setMovieDetails(new Map());
       setStoreLinks([]);
@@ -238,6 +267,51 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
       }
     } catch (error) {
       console.error('Failed to add movie:', error);
+    }
+  };
+
+  const handleTVSeasonsSelect = (seasons: any[], formats: string[]) => {
+    const newEntries: MovieWithFormats[] = seasons.map(season => ({
+      movie: {
+        id: season.tmdb_id,
+        title: season.title,
+        overview: season.synopsis || '',
+        poster_path: null,
+        release_date: season.release_date || '',
+        vote_average: 0,
+        vote_count: 0,
+      },
+      formats,
+      media_type: 'tv_season' as const,
+      tv_show_tmdb_id: season.tv_show_tmdb_id,
+      tv_show_name: season.tv_show_name,
+      season_number: season.season_number,
+      episode_count: season.episode_count,
+      genres: season.genres,
+      details: {
+        title: season.title,
+        id: season.tmdb_id,
+        poster_url: season.cover_art_url,
+        cover_art_url: season.cover_art_url,
+        overview: season.synopsis,
+        synopsis: season.synopsis,
+        release_date: season.release_date,
+        director: season.director,
+        cast: season.cast,
+      }
+    }));
+
+    const updatedMovies = [...selectedMovies, ...newEntries];
+    setSelectedMovies(updatedMovies);
+
+    // Auto-generate name
+    const oldAutoName = updatePhysicalItemName(selectedMovies);
+    const newAutoName = updatePhysicalItemName(updatedMovies);
+    if (!formData.name || formData.name === oldAutoName) {
+      setFormData({
+        ...formData,
+        name: newAutoName,
+      });
     }
   };
 
@@ -389,18 +463,47 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
     setEditingMedia(null);
   };
 
-  // Auto-update physical item name when movies change
+  // Auto-update physical item name when media change
   const updatePhysicalItemName = (movies: MovieWithFormats[]) => {
     if (movies.length === 0) return '';
     
-    // Create name from movie titles
+    const tvSeasons = movies.filter(m => m.media_type === 'tv_season');
+    const isAllTV = tvSeasons.length === movies.length && tvSeasons.length > 0;
+    
+    if (isAllTV) {
+      // All TV seasons - group by show name
+      const showName = tvSeasons[0].tv_show_name || tvSeasons[0].movie.title;
+      const seasonNumbers = tvSeasons.map(s => s.season_number).filter(n => n != null).sort((a, b) => a! - b!);
+      
+      let title: string;
+      if (seasonNumbers.length === 0) {
+        title = showName;
+      } else if (seasonNumbers.length === 1) {
+        title = `${showName} - Season ${seasonNumbers[0]}`;
+      } else {
+        // Check if contiguous
+        const min = seasonNumbers[0]!;
+        const max = seasonNumbers[seasonNumbers.length - 1]!;
+        if (max - min + 1 === seasonNumbers.length) {
+          title = `${showName} - Complete Series`;
+          if (seasonNumbers.length < 10) {
+            title = `${showName} - Seasons ${min}-${max}`;
+          }
+        } else {
+          title = `${showName} - Seasons ${seasonNumbers.join(', ')}`;
+        }
+      }
+      
+      const format = movies[0].formats.length === 1 ? movies[0].formats[0] : 'Multi-format';
+      return `${title} [${format}]`;
+    }
+    
+    // Movies or mixed - use titles
     const titles = movies.map(m => m.movie.title).join(' / ');
     
     if (movies.length === 1 && movies[0].formats.length === 1) {
-      // Single movie with single format
       return `${titles} [${movies[0].formats[0]}]`;
     } else {
-      // Multiple movies or multiple formats
       return `${titles} [Multi-format]`;
     }
   };
@@ -432,7 +535,7 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
     
     // Validate at least one movie is selected
     if (selectedMovies.length === 0) {
-      alert('Please select at least one movie from TMDB.');
+      alert('Please select at least one item from TMDB.');
       return;
     }
     
@@ -455,6 +558,9 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
           custom_image_url: formData.custom_image_url,
           purchase_date: formData.purchase_date,
           thickness_units: formData.thickness_units,
+          width_mm: formData.width_mm || null,
+          height_mm: formData.height_mm || null,
+          depth_mm: formData.depth_mm || null,
           store_links: storeLinks,
           sort_series_id: formData.sort_series_id,
           media_primary_series_id: formData.media_primary_series_id,
@@ -499,21 +605,34 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
           }
 
           // Add new media link
-          const mediaData = mediaDbId ? {
-            id: mediaDbId,
-            formats: formats,
-            disc_number: 1, // Default disc number
-          } : {
-            title: details?.title || movie.title,
-            tmdb_id: details?.id || movie.id,
-            synopsis: details?.overview || details?.synopsis || movie.overview,
-            cover_art_url: details?.poster_url || details?.cover_art_url || '',
-            release_date: details?.release_date || movie.release_date,
-            director: details?.director || '',
-            cast: details?.cast || [],
-            formats: formats,
-            disc_number: 1, // Default disc number
-          };
+          let mediaData: any;
+          if (mediaDbId) {
+            mediaData = {
+              id: mediaDbId,
+              formats: formats,
+              disc_number: 1,
+            };
+          } else {
+            mediaData = {
+              title: details?.title || movie.title,
+              tmdb_id: details?.id || movie.id,
+              synopsis: details?.overview || details?.synopsis || movie.overview,
+              cover_art_url: details?.poster_url || details?.cover_art_url || '',
+              release_date: details?.release_date || movie.release_date,
+              director: details?.director || '',
+              cast: details?.cast || [],
+              formats: formats,
+              disc_number: 1,
+              media_type: movieWithFormats.media_type || 'movie',
+            };
+            if (movieWithFormats.media_type === 'tv_season') {
+              mediaData.tv_show_tmdb_id = movieWithFormats.tv_show_tmdb_id;
+              mediaData.tv_show_name = movieWithFormats.tv_show_name;
+              mediaData.season_number = movieWithFormats.season_number;
+              mediaData.episode_count = movieWithFormats.episode_count;
+              mediaData.genres = movieWithFormats.genres;
+            }
+          }
 
           console.log('➕ Adding new media link:', { 
             physicalItemId: editItem.id,
@@ -535,7 +654,7 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
         // Create new physical item with linked media
         const mediaArray = selectedMovies.map(movieWithFormats => {
           const { movie, formats, details } = movieWithFormats;
-          return {
+          const mediaEntry: any = {
             title: details?.title || movie.title,
             tmdb_id: details?.id || movie.id,
             synopsis: details?.overview || details?.synopsis || movie.overview,
@@ -544,9 +663,23 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
             director: details?.director || '',
             cast: details?.cast || [],
             formats: formats,
+            media_type: movieWithFormats.media_type || 'movie',
           };
+          
+          if (movieWithFormats.media_type === 'tv_season') {
+            mediaEntry.tv_show_tmdb_id = movieWithFormats.tv_show_tmdb_id;
+            mediaEntry.tv_show_name = movieWithFormats.tv_show_name;
+            mediaEntry.season_number = movieWithFormats.season_number;
+            mediaEntry.episode_count = movieWithFormats.episode_count;
+            mediaEntry.genres = movieWithFormats.genres;
+          }
+          
+          return mediaEntry;
         });
 
+        // #region agent log
+        fetch('http://localhost:7242/ingest/8b2e7252-624c-479a-86a6-74b0ba1b2bf3',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'0162e4'},body:JSON.stringify({sessionId:'0162e4',location:'MediaForm.tsx:680',message:'createPhysicalItem payload',data:{name:finalName,mediaCount:mediaArray.length,firstMedia:mediaArray[0],allMediaTypes:mediaArray.map((m:any)=>({title:m.title,media_type:m.media_type,tmdb_id:m.tmdb_id,tv_show_tmdb_id:m.tv_show_tmdb_id,genres_type:typeof m.genres,genres_is_array:Array.isArray(m.genres),director:m.director,cast_type:typeof m.cast,cast_is_array:Array.isArray(m.cast),disc_number:m.disc_number}))},timestamp:Date.now()})}).catch(()=>{});
+        // #endregion
         await apiService.createPhysicalItem({
           name: finalName,
           sort_name: formData.sort_name || undefined,
@@ -556,6 +689,9 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
           custom_image_url: formData.custom_image_url,
           purchase_date: formData.purchase_date,
           thickness_units: formData.thickness_units,
+          width_mm: formData.width_mm || undefined,
+          height_mm: formData.height_mm || undefined,
+          depth_mm: formData.depth_mm || undefined,
           store_links: storeLinks,
           sort_series_id: formData.sort_series_id,
           media_primary_series_id: formData.media_primary_series_id,
@@ -566,6 +702,9 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
       onClose();
     } catch (error: any) {
       console.error('Failed to save physical item:', error);
+      // #region agent log
+      fetch('http://localhost:7242/ingest/8b2e7252-624c-479a-86a6-74b0ba1b2bf3',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'0162e4'},body:JSON.stringify({sessionId:'0162e4',location:'MediaForm.tsx:700',message:'handleSubmit catch error',data:{errorMessage:error?.message,errorResponse:error?.response?.data,errorStatus:error?.response?.status},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
       alert('Failed to save physical item. Please try again.');
     } finally {
       setIsSubmitting(false);
@@ -624,7 +763,7 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
                       onClick={() => setShowUnifiedSearch(true)}
                       className="btn-secondary text-sm w-full"
                     >
-                      + Add Movie
+                      + Add Media
                     </button>
                   </div>
 
@@ -660,7 +799,7 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
                   {/* Selected Movies */}
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                      Selected Movies *
+                      Selected Media *
                     </label>
                     
                     {selectedMovies.length > 0 ? (
@@ -677,6 +816,11 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
                                 </p>
                                 <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
                                   {movieWithFormats.movie.release_date ? new Date(movieWithFormats.movie.release_date).getFullYear() : 'N/A'}
+                                  {movieWithFormats.media_type === 'tv_season' && (
+                                    <span className="ml-2 px-1.5 py-0.5 bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-300 rounded text-[10px] font-medium">
+                                      TV
+                                    </span>
+                                  )}
                                 </p>
                                 <div className="flex flex-wrap gap-1">
                                   {movieWithFormats.formats.map((format) => (
@@ -735,7 +879,7 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
                       </div>
                     ) : (
                       <p className="text-sm text-gray-500 dark:text-gray-400 mb-3">
-                        No movies selected. Click "Choose a Movie" to add movies.
+                        No media selected. Click "+ Add Media" to search for movies or TV shows.
                       </p>
                     )}
                   </div>
@@ -818,6 +962,74 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
                     <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                       Most standard Blu-rays = 1. Box sets may be 2-4+.
                     </p>
+                  </div>
+
+                  {/* Custom Dimensions (collapsible) */}
+                  <div>
+                    <button
+                      type="button"
+                      onClick={() => setShowDimensions(!showDimensions)}
+                      className="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 transition-colors"
+                    >
+                      <svg
+                        className={`w-4 h-4 transition-transform ${showDimensions ? 'rotate-90' : ''}`}
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                      </svg>
+                      Custom Dimensions
+                      {(formData.width_mm || formData.height_mm || formData.depth_mm) && (
+                        <span className="text-xs text-primary-600 dark:text-primary-400">(set)</span>
+                      )}
+                    </button>
+                    {showDimensions && (
+                      <div className="mt-3 grid grid-cols-3 gap-3">
+                        <div>
+                          <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                            Width (mm)
+                          </label>
+                          <input
+                            type="number"
+                            step="0.1"
+                            value={formData.width_mm ?? ''}
+                            onChange={(e) => setFormData({ ...formData, width_mm: e.target.value ? parseFloat(e.target.value) : undefined })}
+                            placeholder="Auto"
+                            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                            Height (mm)
+                          </label>
+                          <input
+                            type="number"
+                            step="0.1"
+                            value={formData.height_mm ?? ''}
+                            onChange={(e) => setFormData({ ...formData, height_mm: e.target.value ? parseFloat(e.target.value) : undefined })}
+                            placeholder="Auto"
+                            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                            Depth (mm)
+                          </label>
+                          <input
+                            type="number"
+                            step="0.1"
+                            value={formData.depth_mm ?? ''}
+                            onChange={(e) => setFormData({ ...formData, depth_mm: e.target.value ? parseFloat(e.target.value) : undefined })}
+                            placeholder="Auto"
+                            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                          />
+                        </div>
+                        <p className="col-span-3 text-xs text-gray-500 dark:text-gray-400">
+                          Override auto-calculated dimensions for non-standard cases (e.g., TV box sets).
+                        </p>
+                      </div>
+                    )}
                   </div>
 
                   {/* Primary Series - adds movies to series */}
@@ -957,6 +1169,7 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
         isOpen={showUnifiedSearch}
         onClose={() => setShowUnifiedSearch(false)}
         onSelect={handleUnifiedSearchSelect}
+        onSelectTVSeasons={handleTVSeasonsSelect}
         currentPhysicalItem={editItem}
       />
 

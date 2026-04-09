@@ -196,7 +196,8 @@ const MediaEditModal: React.FC<MediaEditModalProps> = ({ media, isOpen, onClose,
   };
 
   const handleSelectPosterClick = () => {
-    if (!media?.tmdb_id) {
+    const hasTmdbLink = media?.tmdb_id || (media?.media_type === 'tv_season' && media?.tv_show_tmdb_id);
+    if (!hasTmdbLink) {
       alert('This media item is not linked to TMDB.');
       return;
     }
@@ -246,7 +247,7 @@ const MediaEditModal: React.FC<MediaEditModalProps> = ({ media, isOpen, onClose,
 
           <div className="p-6">
             {/* TMDB Refresh Section */}
-            {media.tmdb_id && (
+            {(media.tmdb_id || (media.media_type === 'tv_season' && media.tv_show_tmdb_id)) && (
               <div className="mb-6 p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
@@ -350,9 +351,23 @@ const MediaEditModal: React.FC<MediaEditModalProps> = ({ media, isOpen, onClose,
                     />
                   </div>
 
+                  {/* TV Show Info (read-only) */}
+                  {media.media_type === 'tv_season' && (
+                    <div className="p-3 bg-purple-50 dark:bg-purple-900/20 rounded-lg">
+                      <div className="text-xs font-medium text-purple-700 dark:text-purple-300 mb-1">TV Season</div>
+                      {media.tv_show_name && (
+                        <div className="text-sm text-gray-900 dark:text-gray-100">{media.tv_show_name}</div>
+                      )}
+                      <div className="flex gap-4 text-xs text-gray-500 dark:text-gray-400 mt-1">
+                        {media.season_number != null && <span>Season {media.season_number}</span>}
+                        {media.episode_count != null && <span>{media.episode_count} episodes</span>}
+                      </div>
+                    </div>
+                  )}
+
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                      Director
+                      {media.media_type === 'tv_season' ? 'Creator' : 'Director'}
                     </label>
                     <input
                       type="text"
@@ -382,9 +397,9 @@ const MediaEditModal: React.FC<MediaEditModalProps> = ({ media, isOpen, onClose,
                       <button
                         type="button"
                         onClick={handleSelectPosterClick}
-                        disabled={!media?.tmdb_id}
+                        disabled={!media?.tmdb_id && !(media?.media_type === 'tv_season' && media?.tv_show_tmdb_id)}
                         className="btn-secondary text-sm flex-1 disabled:opacity-50 disabled:cursor-not-allowed"
-                        title={!media?.tmdb_id ? 'Not linked to TMDB' : 'Select alternative poster from TMDB'}
+                        title={(!media?.tmdb_id && !(media?.media_type === 'tv_season' && media?.tv_show_tmdb_id)) ? 'Not linked to TMDB' : 'Select alternative poster from TMDB'}
                       >
                         Select Poster
                       </button>
@@ -612,13 +627,15 @@ const MediaEditModal: React.FC<MediaEditModalProps> = ({ media, isOpen, onClose,
       </div>
 
       {/* Poster Selector */}
-      {showPosterSelector && media?.tmdb_id && (
+      {showPosterSelector && (media?.tmdb_id || (media?.media_type === 'tv_season' && media?.tv_show_tmdb_id)) && (
         <PosterSelector
-          tmdbId={media.tmdb_id}
+          tmdbId={(media.media_type === 'tv_season' ? (media.tv_show_tmdb_id || media.tmdb_id) : media.tmdb_id)!}
           movieTitle={media.title}
           onSelect={handlePosterSelected}
           onClose={() => setShowPosterSelector(false)}
           currentPosterUrl={formData.cover_art_url}
+          mediaType={media.media_type}
+          seasonNumber={media.season_number}
         />
       )}
     </div>

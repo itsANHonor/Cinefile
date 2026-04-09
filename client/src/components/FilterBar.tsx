@@ -11,11 +11,13 @@ interface FilterBarProps {
   selectedDecades: string[];
   availableGenres: Array<{ id: number; name: string }>;
   availableDecades: string[];
+  mediaType?: 'all' | 'movie' | 'tv_season';
   onFormatChange: (format: PhysicalFormat | PhysicalFormat[]) => void;
   onGenresChange: (genres: number[]) => void;
   onDecadesChange: (decades: string[]) => void;
   onSortChange: (sortBy: SortField, sortOrder: SortOrder) => void;
   onSearchChange: (query: string) => void;
+  onMediaTypeChange?: (mediaType: 'all' | 'movie' | 'tv_season') => void;
   onClearFilters: () => void;
 }
 
@@ -28,11 +30,13 @@ const FilterBar: React.FC<FilterBarProps> = ({
   selectedDecades,
   availableGenres,
   availableDecades,
+  mediaType = 'all',
   onFormatChange,
   onGenresChange,
   onDecadesChange,
   onSortChange,
   onSearchChange,
+  onMediaTypeChange,
   onClearFilters,
 }) => {
   const [showGenreDropdown, setShowGenreDropdown] = useState(false);
@@ -108,7 +112,8 @@ const FilterBar: React.FC<FilterBarProps> = ({
   const hasActiveFilters = searchQuery || 
     (Array.isArray(format) ? format.length > 0 : format !== 'all') || 
     selectedGenres.length > 0 || 
-    selectedDecades.length > 0;
+    selectedDecades.length > 0 ||
+    mediaType !== 'all';
 
   return (
     <div className="card mb-6">
@@ -149,6 +154,25 @@ const FilterBar: React.FC<FilterBarProps> = ({
               )}
             </div>
           </div>
+
+          {/* Media Type Filter */}
+          {onMediaTypeChange && (
+            <div className="flex bg-gray-100 dark:bg-gray-700 rounded-lg p-0.5">
+              {(['all', 'movie', 'tv_season'] as const).map((type) => (
+                <button
+                  key={type}
+                  onClick={() => onMediaTypeChange(type)}
+                  className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                    mediaType === type
+                      ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-gray-100 shadow-sm'
+                      : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
+                  }`}
+                >
+                  {type === 'all' ? 'All' : type === 'movie' ? 'Movies' : 'TV Shows'}
+                </button>
+              ))}
+            </div>
+          )}
 
           {/* Format Filter - Multi-select */}
           <div className="flex items-center gap-2 relative" ref={formatDropdownRef}>

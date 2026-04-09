@@ -453,8 +453,8 @@ const AdminPage: React.FC = () => {
                 </svg>
               </div>
               <div>
-                <h4 className="font-medium text-gray-900 dark:text-gray-100">Manage Movies</h4>
-                <p className="text-sm text-gray-600 dark:text-gray-300">Edit individual movie metadata and TMDB data</p>
+                <h4 className="font-medium text-gray-900 dark:text-gray-100">Manage Series</h4>
+                <p className="text-sm text-gray-600 dark:text-gray-300">Edit individual movie and TV metadata and TMDB data</p>
               </div>
             </div>
           </a>

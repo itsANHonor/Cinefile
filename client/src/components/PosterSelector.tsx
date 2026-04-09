@@ -7,6 +7,8 @@ interface PosterSelectorProps {
   onSelect: (url: string) => void;
   onClose: () => void;
   currentPosterUrl?: string;
+  mediaType?: 'movie' | 'tv_season';
+  seasonNumber?: number | null;
 }
 
 const PosterSelector: React.FC<PosterSelectorProps> = ({
@@ -15,6 +17,8 @@ const PosterSelector: React.FC<PosterSelectorProps> = ({
   onSelect,
   onClose,
   currentPosterUrl,
+  mediaType,
+  seasonNumber,
 }) => {
   const [posters, setPosters] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
@@ -24,7 +28,14 @@ const PosterSelector: React.FC<PosterSelectorProps> = ({
     const fetchPosters = async () => {
       try {
         setLoading(true);
-        const urls = await apiService.getMoviePosters(tmdbId);
+        let urls: string[];
+        if (mediaType === 'tv_season' && seasonNumber != null) {
+          urls = await apiService.getTVSeasonPosters(tmdbId, seasonNumber);
+        } else if (mediaType === 'tv_season') {
+          urls = await apiService.getTVPosters(tmdbId);
+        } else {
+          urls = await apiService.getMoviePosters(tmdbId);
+        }
         setPosters(urls);
         setError(null);
       } catch (err) {
@@ -36,7 +47,7 @@ const PosterSelector: React.FC<PosterSelectorProps> = ({
     };
 
     fetchPosters();
-  }, [tmdbId]);
+  }, [tmdbId, mediaType, seasonNumber]);
 
   return (
     <div className="fixed inset-0 z-[60] overflow-y-auto">
@@ -81,7 +92,7 @@ const PosterSelector: React.FC<PosterSelectorProps> = ({
               </div>
             ) : posters.length === 0 ? (
               <div className="text-center text-gray-500 dark:text-gray-400 p-8">
-                No posters found for this movie.
+                No posters found for this {mediaType === 'tv_season' ? 'TV show' : 'movie'}.
               </div>
             ) : (
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">

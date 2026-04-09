@@ -43,13 +43,15 @@ const AppContent: React.FC = () => {
             // In read-only mode, redirect admin routes to home
             <>
               <Route path="/admin" element={<Navigate to="/" replace />} />
-              <Route path="/movies" element={<Navigate to="/" replace />} />
+              <Route path="/media" element={<Navigate to="/" replace />} />
+              <Route path="/movies" element={<Navigate to="/media" replace />} />
             </>
           ) : (
             // In full mode, show all admin routes
             <>
               <Route path="/admin" element={<AdminPage />} />
-              <Route path="/movies" element={<MoviesPage />} />
+              <Route path="/media" element={<MoviesPage />} />
+              <Route path="/movies" element={<Navigate to="/media" replace />} />
             </>
           )}
         </Routes>

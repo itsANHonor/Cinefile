@@ -9,6 +9,11 @@ interface MediaExportRow {
   id: number;
   title: string;
   tmdb_id: number | null;
+  media_type: string | null;
+  tv_show_tmdb_id: number | null;
+  tv_show_name: string | null;
+  season_number: number | null;
+  episode_count: number | null;
   synopsis: string | null;
   cover_art_url: string | null;
   release_date: string | null;
@@ -34,6 +39,11 @@ interface MediaImportRow {
   physical_item_name: string;
   formats: string;
   tmdb_id?: string | number;
+  media_type?: string;
+  tv_show_tmdb_id?: string | number;
+  tv_show_name?: string;
+  season_number?: string | number;
+  episode_count?: string | number;
   synopsis?: string;
   cover_art_url?: string;
   release_date?: string;
@@ -162,6 +172,41 @@ router.get('/schema', (req: Request, res: Response) => {
         required: false,
         description: 'The Movie Database (TMDb) ID. If provided and a movie with this ID exists, it will be reused instead of creating a new entry.',
         example: '603',
+      },
+      {
+        name: 'media_type',
+        type: 'string',
+        required: false,
+        description: 'Type of media: "movie" (default) or "tv_season"',
+        example: 'tv_season',
+      },
+      {
+        name: 'tv_show_tmdb_id',
+        type: 'integer',
+        required: false,
+        description: 'TMDb ID of the parent TV show (only for tv_season media_type)',
+        example: '1396',
+      },
+      {
+        name: 'tv_show_name',
+        type: 'string',
+        required: false,
+        description: 'Name of the parent TV show (only for tv_season media_type)',
+        example: 'Breaking Bad',
+      },
+      {
+        name: 'season_number',
+        type: 'integer',
+        required: false,
+        description: 'Season number (only for tv_season media_type)',
+        example: '1',
+      },
+      {
+        name: 'episode_count',
+        type: 'integer',
+        required: false,
+        description: 'Number of episodes in the season (only for tv_season media_type)',
+        example: '7',
       },
       {
         name: 'synopsis',
@@ -314,6 +359,11 @@ router.get('/export', authMiddleware, async (req: Request, res: Response) => {
         'media.id',
         'media.title',
         'media.tmdb_id',
+        'media.media_type',
+        'media.tv_show_tmdb_id',
+        'media.tv_show_name',
+        'media.season_number',
+        'media.episode_count',
         'media.synopsis',
         'media.cover_art_url',
         'media.release_date',
@@ -339,6 +389,11 @@ router.get('/export', authMiddleware, async (req: Request, res: Response) => {
         'physical_item_media.formats',
         'media.title',
         'media.tmdb_id',
+        'media.media_type',
+        'media.tv_show_tmdb_id',
+        'media.tv_show_name',
+        'media.season_number',
+        'media.episode_count',
         'media.synopsis',
         'media.cover_art_url',
         'media.release_date',
@@ -354,6 +409,11 @@ router.get('/export', authMiddleware, async (req: Request, res: Response) => {
       'id',
       'title',
       'tmdb_id',
+      'media_type',
+      'tv_show_tmdb_id',
+      'tv_show_name',
+      'season_number',
+      'episode_count',
       'synopsis',
       'cover_art_url',
       'release_date',
@@ -390,6 +450,11 @@ router.get('/export', authMiddleware, async (req: Request, res: Response) => {
         escapeCSV(item.id),
         escapeCSV(item.title),
         escapeCSV(item.tmdb_id),
+        escapeCSV(item.media_type || 'movie'),
+        escapeCSV(item.tv_show_tmdb_id),
+        escapeCSV(item.tv_show_name),
+        escapeCSV(item.season_number),
+        escapeCSV(item.episode_count),
         escapeCSV(item.synopsis),
         escapeCSV(item.cover_art_url),
         escapeCSV(item.release_date),
@@ -548,6 +613,31 @@ router.post('/import', authMiddleware, async (req: Request, res: Response) => {
           throw new Error('At least one format is required');
         }
 
+        // Validate media_type if provided
+        if (rowData.media_type && !['movie', 'tv_season'].includes(rowData.media_type)) {
+          throw new Error(`Invalid media_type: "${rowData.media_type}". Must be "movie" or "tv_season"`);
+        }
+
+        // Validate TV-specific fields
+        if (rowData.tv_show_tmdb_id) {
+          const tvId = parseInt(rowData.tv_show_tmdb_id);
+          if (isNaN(tvId)) {
+            throw new Error(`tv_show_tmdb_id should be a number, got: ${rowData.tv_show_tmdb_id}`);
+          }
+        }
+        if (rowData.season_number) {
+          const sn = parseInt(rowData.season_number);
+          if (isNaN(sn)) {
+            throw new Error(`season_number should be a number, got: ${rowData.season_number}`);
+          }
+        }
+        if (rowData.episode_count) {
+          const ec = parseInt(rowData.episode_count);
+          if (isNaN(ec)) {
+            throw new Error(`episode_count should be a number, got: ${rowData.episode_count}`);
+          }
+        }
+
         // Parse optional fields
         if (rowData.tmdb_id) {
           const tmdbId = parseInt(rowData.tmdb_id);
@@ -695,10 +785,21 @@ router.post('/import', authMiddleware, async (req: Request, res: Response) => {
               }
             }
             
+            // Parse optional TV fields
+            const mediaType = movie.media_type === 'tv_season' ? 'tv_season' : 'movie';
+            const tvShowTmdbId = movie.tv_show_tmdb_id ? parseInt(String(movie.tv_show_tmdb_id)) : null;
+            const seasonNumber = movie.season_number ? parseInt(String(movie.season_number)) : null;
+            const episodeCount = movie.episode_count ? parseInt(String(movie.episode_count)) : null;
+
             // Prepare media data
             const mediaData: any = {
               title: movie.title,
               tmdb_id: movie.tmdb_id || null,
+              media_type: mediaType,
+              tv_show_tmdb_id: mediaType === 'tv_season' ? (isNaN(tvShowTmdbId as number) ? null : tvShowTmdbId) : null,
+              tv_show_name: mediaType === 'tv_season' ? (movie.tv_show_name || null) : null,
+              season_number: mediaType === 'tv_season' ? (isNaN(seasonNumber as number) ? null : seasonNumber) : null,
+              episode_count: mediaType === 'tv_season' ? (isNaN(episodeCount as number) ? null : episodeCount) : null,
               synopsis: movie.synopsis || null,
               cover_art_url: movie.cover_art_url || null,
               release_date: movie.release_date || null,
@@ -1062,6 +1163,44 @@ router.post('/validate', authMiddleware, async (req: Request, res: Response) => 
             validationResults.warnings.push({
               row: i + 1,
               warning: 'store_links is not valid JSON',
+            });
+          }
+        }
+
+        if (rowData.media_type && !['movie', 'tv_season'].includes(rowData.media_type)) {
+          validationResults.errors.push({
+            row: i + 1,
+            error: `Invalid media_type: "${rowData.media_type}". Must be "movie" or "tv_season"`,
+          });
+          validationResults.valid = false;
+        }
+
+        if (rowData.tv_show_tmdb_id) {
+          const tvId = parseInt(rowData.tv_show_tmdb_id);
+          if (isNaN(tvId)) {
+            validationResults.warnings.push({
+              row: i + 1,
+              warning: `tv_show_tmdb_id should be a number, got: ${rowData.tv_show_tmdb_id}`,
+            });
+          }
+        }
+
+        if (rowData.season_number) {
+          const sn = parseInt(rowData.season_number);
+          if (isNaN(sn)) {
+            validationResults.warnings.push({
+              row: i + 1,
+              warning: `season_number should be a number, got: ${rowData.season_number}`,
+            });
+          }
+        }
+
+        if (rowData.episode_count) {
+          const ec = parseInt(rowData.episode_count);
+          if (isNaN(ec)) {
+            validationResults.warnings.push({
+              row: i + 1,
+              warning: `episode_count should be a number, got: ${rowData.episode_count}`,
             });
           }
         }
