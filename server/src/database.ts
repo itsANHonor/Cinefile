@@ -6,20 +6,21 @@ const databasePath = process.env.DATABASE_PATH || './database.sqlite';
 export const db = knex({
   client: 'better-sqlite3',
   connection: {
-    filename: path.resolve(databasePath)
+    filename: path.resolve(databasePath),
   },
   useNullAsDefault: true,
   migrations: {
     directory: path.join(__dirname, '../migrations'),
-    extension: 'js'
-  }
+    extension: 'js',
+    loadExtensions: ['.js'],
+  },
 });
 
 export async function setupDatabase() {
   try {
     // Enable foreign keys before running migrations (as a backup)
     await db.raw('PRAGMA foreign_keys = ON');
-    
+
     // Run any pending migrations
     await db.migrate.latest();
     console.log('✅ Database migrations completed');
