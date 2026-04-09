@@ -1,6 +1,6 @@
 import express from 'express';
 import cors from 'cors';
-import dotenv from 'dotenv';
+import 'dotenv/config';
 import path from 'path';
 import { setupDatabase } from './database';
 
@@ -14,9 +14,6 @@ import seriesRoutes from './routes/series.routes';
 import importExportRoutes from './routes/import-export.routes';
 import statisticsRoutes from './routes/statistics.routes';
 import libraryRoutes from './routes/library.routes';
-
-// Load environment variables
-dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -40,11 +37,11 @@ app.get('/api', (req, res) => {
 });
 
 app.get('/api/health', (req, res) => {
-  res.json({ 
+  res.json({
     status: 'healthy',
     mode: 'full',
     timestamp: new Date().toISOString(),
-    version: '1.0.0'
+    version: '1.0.0',
   });
 });
 
@@ -74,6 +71,3 @@ app.listen(PORT, () => {
   console.log(`🎬 Cinefile server running on port ${PORT} (Full Mode)`);
   console.log(`📱 API available at http://localhost:${PORT}/api`);
 });
-
-
-

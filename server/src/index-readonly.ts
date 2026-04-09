@@ -1,6 +1,6 @@
 import express from 'express';
 import cors from 'cors';
-import dotenv from 'dotenv';
+import 'dotenv/config';
 import path from 'path';
 import rateLimit from 'express-rate-limit';
 import { setupDatabase } from './database';
@@ -13,9 +13,6 @@ import seriesReadOnlyRoutes from './routes/series-readonly.routes';
 import importExportReadOnlyRoutes from './routes/import-export-readonly.routes';
 import statisticsRoutes from './routes/statistics.routes';
 import libraryReadOnlyRoutes from './routes/library-readonly.routes';
-
-// Load environment variables
-dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -33,7 +30,7 @@ const apiLimiter = rateLimit({
 const corsOptions = {
   origin: process.env.ALLOWED_ORIGIN || '*', // Default to * for development, set to your domain in production
   credentials: false,
-  optionsSuccessStatus: 200
+  optionsSuccessStatus: 200,
 };
 
 // Middleware
@@ -46,14 +43,17 @@ setupDatabase();
 
 // Serve uploaded files statically with security options
 const uploadDir = process.env.UPLOAD_DIR || path.join(__dirname, '../uploads');
-app.use('/uploads', express.static(uploadDir, {
-  dotfiles: 'deny', // Deny access to dotfiles
-  index: false, // Disable directory indexing
-  setHeaders: (res, filePath) => {
-    // Set security headers for uploaded files
-    res.set('X-Content-Type-Options', 'nosniff');
-  }
-}));
+app.use(
+  '/uploads',
+  express.static(uploadDir, {
+    dotfiles: 'deny', // Deny access to dotfiles
+    index: false, // Disable directory indexing
+    setHeaders: (res, filePath) => {
+      // Set security headers for uploaded files
+      res.set('X-Content-Type-Options', 'nosniff');
+    },
+  }),
+);
 
 // Apply rate limiting to all API routes
 app.use('/api', apiLimiter);
@@ -64,11 +64,11 @@ app.get('/api', (req, res) => {
 });
 
 app.get('/api/health', (req, res) => {
-  res.json({ 
+  res.json({
     status: 'healthy',
     mode: 'readonly',
     timestamp: new Date().toISOString(),
-    version: '1.0.0'
+    version: '1.0.0',
   });
 });
 
@@ -96,6 +96,3 @@ app.listen(PORT, () => {
   console.log(`🎬 Cinefile server running on port ${PORT} (Read-Only Mode)`);
   console.log(`📱 API available at http://localhost:${PORT}/api`);
 });
-
-
-
