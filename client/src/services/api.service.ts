@@ -78,8 +78,16 @@ class ApiService {
     }
   }
 
-  logout() {
-    this.clearAuthToken();
+  async logout(): Promise<void> {
+    try {
+      if (this.token) {
+        await this.api.post('/auth/logout');
+      }
+    } catch {
+      // Still drop local credentials if the server is unreachable or the session was already invalid.
+    } finally {
+      this.clearAuthToken();
+    }
   }
 
   // Media methods

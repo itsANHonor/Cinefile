@@ -5,7 +5,7 @@ interface AuthContextType {
   isAuthenticated: boolean;
   isLoading: boolean;
   login: (password: string) => Promise<boolean>;
-  logout: () => void;
+  logout: () => Promise<void>;
   checkAuth: () => Promise<void>;
 }
 
@@ -44,8 +44,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const logout = () => {
-    apiService.logout();
+  const logout = async () => {
+    await apiService.logout();
     setIsAuthenticated(false);
   };
 

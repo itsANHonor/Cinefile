@@ -113,6 +113,7 @@ services:
       # Admin Password - Required for admin panel access
       # Set a secure password for the admin panel
       - ADMIN_PASSWORD=${ADMIN_PASSWORD}
+      - SESSION_SECRET=${SESSION_SECRET}
       - DATABASE_PATH=/data/database.sqlite
       - UPLOAD_DIR=/data/uploads
     volumes:
@@ -129,9 +130,12 @@ Create a `.env` file in the same directory:
 ```env
 TMDB_API_KEY=your_tmdb_api_key_here
 ADMIN_PASSWORD=your_secure_password
+SESSION_SECRET=use_a_long_random_string_distinct_from_the_password
 ```
 
-Or replace `${TMDB_API_KEY}` and `${ADMIN_PASSWORD}` directly in the docker-compose.yml file.
+Or set the same variables directly in `docker-compose.yml`.
+
+`SESSION_SECRET` signs admin JWTs; use a long random value and keep it private. JWTs expire after `JWT_EXPIRES_IN` (default **8 hours**); after **logout**, the token still works until it expires (stateless JWT).
 
 3. **Start the container:**
 

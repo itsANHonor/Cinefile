@@ -1,4 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
+import { timingSafeEqual } from 'crypto';
+import { verifySessionToken } from '../services/jwt-auth.service';
 
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
 
@@ -7,26 +9,29 @@ export interface AuthRequest extends Request {
 }
 
 /**
- * Simple authentication middleware
- * Checks for password in Authorization header
+ * Parses `Authorization: Bearer <token>` or returns null.
+ */
+export function parseBearerToken(authHeader: string | undefined): string | null {
+  if (!authHeader) return null;
+  const parts = authHeader.split(' ');
+  if (parts.length !== 2 || parts[0] !== 'Bearer') return null;
+  return parts[1] || null;
+}
+
+/**
+ * Validates JWT issued by POST /api/auth/login. Admin password is only sent on login.
  */
 export function authMiddleware(req: AuthRequest, res: Response, next: NextFunction) {
-  const authHeader = req.headers.authorization;
+  const token = parseBearerToken(req.headers.authorization);
 
-  if (!authHeader) {
-    return res.status(401).json({ error: 'No authorization header provided' });
+  if (!token) {
+    return res.status(401).json({
+      error: 'Invalid authorization format. Expected: Bearer <token>',
+    });
   }
 
-  // Expected format: "Bearer <password>"
-  const parts = authHeader.split(' ');
-  if (parts.length !== 2 || parts[0] !== 'Bearer') {
-    return res.status(401).json({ error: 'Invalid authorization format. Expected: Bearer <password>' });
-  }
-
-  const password = parts[1];
-
-  if (password !== ADMIN_PASSWORD) {
-    return res.status(401).json({ error: 'Invalid password' });
+  if (!verifySessionToken(token)) {
+    return res.status(401).json({ error: 'Invalid or expired session' });
   }
 
   req.isAuthenticated = true;
@@ -34,9 +39,20 @@ export function authMiddleware(req: AuthRequest, res: Response, next: NextFuncti
 }
 
 /**
- * Verify password without requiring it in every request
+ * Verify admin password (timing-safe when lengths match).
  */
 export function verifyPassword(password: string): boolean {
-  return password === ADMIN_PASSWORD;
+  if (typeof password !== 'string' || !ADMIN_PASSWORD) {
+    return false;
+  }
+  try {
+    const a = Buffer.from(password, 'utf8');
+    const b = Buffer.from(ADMIN_PASSWORD, 'utf8');
+    if (a.length !== b.length) {
+      return false;
+    }
+    return timingSafeEqual(a, b);
+  } catch {
+    return false;
+  }
 }
-

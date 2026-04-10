@@ -103,6 +103,14 @@ if [ -f ".env.docker" ]; then
     else
         echo -e "${RED}✗${NC} ADMIN_PASSWORD not found in .env.docker"
     fi
+
+    if grep -q "SESSION_SECRET=your_long_random_session_secret_here" .env.docker; then
+        echo -e "${YELLOW}⚠${NC} SESSION_SECRET not configured (still has default value)"
+    elif grep -q "SESSION_SECRET=" .env.docker; then
+        echo -e "${GREEN}✓${NC} SESSION_SECRET configured"
+    else
+        echo -e "${RED}✗${NC} SESSION_SECRET not found in .env.docker"
+    fi
 else
     echo -e "${YELLOW}⚠${NC} .env.docker not found (you can copy from env.docker.example)"
 fi

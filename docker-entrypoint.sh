@@ -93,6 +93,11 @@ if [ -z "$ADMIN_PASSWORD" ]; then
     echo "   Admin panel will not be accessible."
 fi
 
+if [ -z "$SESSION_SECRET" ]; then
+    echo "⚠️  WARNING: SESSION_SECRET is not set!"
+    echo "   The full admin API will exit on startup without it."
+fi
+
 # Run database migrations with safety checks
 echo ""
 echo "🗄️  Running database migrations..."

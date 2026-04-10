@@ -54,6 +54,7 @@ Edit `.env.docker` and set:
 ```env
 TMDB_API_KEY=your_actual_tmdb_api_key
 ADMIN_PASSWORD=your_secure_password
+SESSION_SECRET=your_long_random_jwt_signing_secret
 CLIENT_PORT=3000  # Optional: change if port 3000 is in use
 ```
 
@@ -300,7 +301,7 @@ docker exec cinefile npx knex migrate:currentVersion
 
 ### Cannot Login to Admin
 
-1. Verify `ADMIN_PASSWORD` in `.env.docker`
+1. Verify `ADMIN_PASSWORD` and `SESSION_SECRET` in `.env.docker`
 2. Restart server after changing password:
    ```bash
    docker-compose restart server

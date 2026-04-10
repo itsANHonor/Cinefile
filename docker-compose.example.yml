@@ -26,6 +26,7 @@ services:
       # Admin Password - Required for admin panel access
       # Set a secure password for the admin panel
       - ADMIN_PASSWORD=${ADMIN_PASSWORD}
+      - SESSION_SECRET=${SESSION_SECRET}
       - DATABASE_PATH=/data/database.sqlite
       - UPLOAD_DIR=/data/uploads
     volumes:

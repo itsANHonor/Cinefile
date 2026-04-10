@@ -15,6 +15,11 @@ import importExportRoutes from './routes/import-export.routes';
 import statisticsRoutes from './routes/statistics.routes';
 import libraryRoutes from './routes/library.routes';
 
+if (!process.env.SESSION_SECRET?.trim()) {
+  console.error('FATAL: SESSION_SECRET must be set (signs admin JWTs). See server/env.example.');
+  process.exit(1);
+}
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 

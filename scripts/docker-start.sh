@@ -35,6 +35,7 @@ if [ ! -f .env.docker ]; then
         echo "⚠️  IMPORTANT: Edit .env.docker and add your:"
         echo "   - TMDB_API_KEY"
         echo "   - ADMIN_PASSWORD"
+        echo "   - SESSION_SECRET"
         echo ""
         read -p "Press Enter after updating .env.docker, or Ctrl+C to cancel..."
     else
