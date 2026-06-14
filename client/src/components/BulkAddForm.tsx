@@ -119,6 +119,7 @@ const BulkAddForm: React.FC<BulkAddFormProps> = ({ onSuccess }) => {
             release_date: selectedMovie.release_date,
             director: selectedMovie.director || undefined,
             cast: selectedMovie.cast || undefined,
+            genres: selectedMovie.genres || undefined,
           },
         });
       }

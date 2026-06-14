@@ -210,6 +210,7 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
             release_date: existingMedia.release_date,
             director: existingMedia.director,
             cast: existingMedia.cast,
+            genres: existingMedia.genres,
           }
         };
         
@@ -247,7 +248,8 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
         const newMovieWithFormats: MovieWithFormats = {
           movie: tmdbMovie,
           formats,
-          details
+          details,
+          genres: details?.genres
         };
         
         console.log('🎬 Added TMDB movie:', { tmdb_id: tmdbMovie.id, title: tmdbMovie.title, formats });
@@ -621,6 +623,7 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
               release_date: details?.release_date || movie.release_date,
               director: details?.director || '',
               cast: details?.cast || [],
+              genres: details?.genres || movieWithFormats.genres || [],
               formats: formats,
               disc_number: 1,
               media_type: movieWithFormats.media_type || 'movie',
@@ -662,6 +665,7 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
             release_date: details?.release_date || movie.release_date,
             director: details?.director || '',
             cast: details?.cast || [],
+            genres: details?.genres || movieWithFormats.genres || [],
             formats: formats,
             media_type: movieWithFormats.media_type || 'movie',
           };

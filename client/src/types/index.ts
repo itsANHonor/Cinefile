@@ -306,6 +306,7 @@ export interface BulkPhysicalItemDto {
     release_date?: string;
     director?: string;
     cast?: string[];
+    genres?: { id: number; name: string }[];
   };
 }
 

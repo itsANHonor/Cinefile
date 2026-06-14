@@ -38,7 +38,6 @@ data/
 
 # Docker
 docker-compose.override.yml
-docker-compose.yml
 
 # Logs
 logs/
