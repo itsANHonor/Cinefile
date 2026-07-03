@@ -1,0 +1,33 @@
+version: '3.8'
+
+services:
+  cinefile:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: cinefile
+    restart: unless-stopped
+    user: "1000:1000"
+    ports:
+      - "3005:3000"  # Public read-only API (host:container)
+      - "3001:3001"  # Full API (restrict via firewall/VPN only)
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - TMDB_API_KEY=0f528f7dffac88d3c425f144e4409e73
+      - ADMIN_PASSWORD=peckpeck
+      - SESSION_SECRET=change_me_to_a_long_random_secret
+      - DATABASE_PATH=/data/database.sqlite
+      - UPLOAD_DIR=/data/uploads
+      - ALLOWED_ORIGIN=http://localhost:3005
+    volumes:
+      - /opt/cinefile:/data
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    labels:
+      - "com.cinefile.description=Cinefile - Homelab Media Collection Manager"
+

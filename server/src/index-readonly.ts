@@ -26,9 +26,9 @@ const apiLimiter = rateLimit({
   legacyHeaders: false, // Disable the `X-RateLimit-*` headers
 });
 
-// CORS configuration - restrict to allowed origin or allow all for development
+// CORS configuration - restrict to allowed origin for security
 const corsOptions = {
-  origin: process.env.ALLOWED_ORIGIN || '*', // Default to * for development, set to your domain in production
+  origin: process.env.ALLOWED_ORIGIN || 'http://localhost:3005', // Default to frontend URL
   credentials: false,
   optionsSuccessStatus: 200,
 };

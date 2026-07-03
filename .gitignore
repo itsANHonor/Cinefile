@@ -59,3 +59,6 @@ temp/
 !SETUP.md
 !DOCKER.md
 
+# AI Skills - allow workflow files
+!.windsurf/workflows/*.md
+

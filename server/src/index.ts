@@ -23,8 +23,15 @@ if (!process.env.SESSION_SECRET?.trim()) {
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// CORS configuration - restrict to allowed origin for security
+const corsOptions = {
+  origin: process.env.ALLOWED_ORIGIN || 'http://localhost:3005', // Default to frontend URL
+  credentials: false,
+  optionsSuccessStatus: 200,
+};
+
 // Middleware
-app.use(cors());
+app.use(cors(corsOptions));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
