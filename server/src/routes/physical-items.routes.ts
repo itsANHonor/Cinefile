@@ -216,6 +216,24 @@ router.get('/', async (req: Request, res: Response) => {
     let countQuery = db('physical_items');
 
     // Apply the same filters as the main query
+    if (media_type && typeof media_type === 'string' && media_type !== 'all') {
+      if (media_type === 'movie') {
+        countQuery = countQuery.whereRaw(`EXISTS (
+          SELECT 1 FROM physical_item_media
+          JOIN media ON physical_item_media.media_id = media.id
+          WHERE physical_item_media.physical_item_id = physical_items.id
+          AND (media.media_type = 'movie' OR media.media_type IS NULL)
+        )`);
+      } else {
+        countQuery = countQuery.whereRaw(`EXISTS (
+          SELECT 1 FROM physical_item_media
+          JOIN media ON physical_item_media.media_id = media.id
+          WHERE physical_item_media.physical_item_id = physical_items.id
+          AND media.media_type = ?
+        )`, [media_type]);
+      }
+    }
+
     if (format && format !== 'all') {
       const formats = typeof format === 'string' ? format.split(',').map(f => String(f).trim()) : [String(format)];
       if (formats.length > 0) {

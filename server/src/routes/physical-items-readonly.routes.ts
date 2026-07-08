@@ -37,12 +37,31 @@ interface PhysicalItemWithMedia {
  */
 router.get('/', async (req: Request, res: Response) => {
   try {
-    const { format, genres, decades, sort_by = 'created_at', sort_order = 'desc', search, page = '1', limit = '24' } = req.query;
+    const { format, genres, decades, sort_by = 'created_at', sort_order = 'desc', search, media_type, page = '1', limit = '24' } = req.query;
 
     // Start with base query - fetch physical items WITHOUT joins first
     // This ensures all items are returned, then we'll filter and attach media separately
     let query = db('physical_items')
       .select('physical_items.*');
+
+    // Filter by media_type if specified (include physical item if ANY linked media matches)
+    if (media_type && typeof media_type === 'string' && media_type !== 'all') {
+      if (media_type === 'movie') {
+        query = query.whereRaw(`EXISTS (
+          SELECT 1 FROM physical_item_media
+          JOIN media ON physical_item_media.media_id = media.id
+          WHERE physical_item_media.physical_item_id = physical_items.id
+          AND (media.media_type = 'movie' OR media.media_type IS NULL)
+        )`);
+      } else {
+        query = query.whereRaw(`EXISTS (
+          SELECT 1 FROM physical_item_media
+          JOIN media ON physical_item_media.media_id = media.id
+          WHERE physical_item_media.physical_item_id = physical_items.id
+          AND media.media_type = ?
+        )`, [media_type]);
+      }
+    }
 
     // Filter by format if specified (support multi-select: comma-separated)
     if (format && format !== 'all') {
@@ -191,6 +210,24 @@ router.get('/', async (req: Request, res: Response) => {
     let countQuery = db('physical_items');
 
     // Apply the same filters as the main query
+    if (media_type && typeof media_type === 'string' && media_type !== 'all') {
+      if (media_type === 'movie') {
+        countQuery = countQuery.whereRaw(`EXISTS (
+          SELECT 1 FROM physical_item_media
+          JOIN media ON physical_item_media.media_id = media.id
+          WHERE physical_item_media.physical_item_id = physical_items.id
+          AND (media.media_type = 'movie' OR media.media_type IS NULL)
+        )`);
+      } else {
+        countQuery = countQuery.whereRaw(`EXISTS (
+          SELECT 1 FROM physical_item_media
+          JOIN media ON physical_item_media.media_id = media.id
+          WHERE physical_item_media.physical_item_id = physical_items.id
+          AND media.media_type = ?
+        )`, [media_type]);
+      }
+    }
+
     if (format && format !== 'all') {
       const formats = typeof format === 'string' ? format.split(',').map(f => String(f).trim()) : [String(format)];
       if (formats.length > 0) {
