@@ -4,7 +4,7 @@ description: Quick Cinefile rebuild and test workflow
 
 # /cinefile-rebuild
 
-Quick workflow to rebuild Cinefile container and test changes after code modifications.
+Required local verification workflow for Cinefile. Run this after any frontend, backend, API, database, asset, or Docker change; standalone npm builds do not replace the container rebuild.
 
 ## Steps
 

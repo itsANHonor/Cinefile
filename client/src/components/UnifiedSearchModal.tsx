@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { TMDbMovie, TMDbTVShow, Media, PhysicalItem } from '../types';
+import { TMDbMovie, TMDbTVShow, Media, PhysicalItem, ManualMovieData } from '../types';
 import { apiService } from '../services/api.service';
 import FormatSelector from './FormatSelector';
 import TVSeasonPicker from './TVSeasonPicker';
+import ManualMovieModal from './ManualMovieModal';
 
 interface UnifiedSearchResult {
   id: number;
@@ -12,10 +13,10 @@ interface UnifiedSearchResult {
   poster_path?: string | null;
   cover_art_url?: string | null;
   director?: string;
-  source: 'database' | 'tmdb';
+  source: 'database' | 'tmdb' | 'manual';
   tmdb_id?: number;
   media_type?: 'movie' | 'tv_season';
-  originalData: Media | TMDbMovie | TMDbTVShow;
+  originalData: Media | TMDbMovie | TMDbTVShow | ManualMovieData;
 }
 
 export type SearchMode = 'movies' | 'tv';
@@ -47,6 +48,7 @@ const UnifiedSearchModal: React.FC<UnifiedSearchModalProps> = ({
   // TV Season Picker state
   const [showSeasonPicker, setShowSeasonPicker] = useState(false);
   const [selectedTVShow, setSelectedTVShow] = useState<{ id: number; name: string } | null>(null);
+  const [showManualMovieModal, setShowManualMovieModal] = useState(false);
 
   const linkedMovieIds = currentPhysicalItem?.media.map(m => m.id) || [];
 
@@ -195,6 +197,22 @@ const UnifiedSearchModal: React.FC<UnifiedSearchModalProps> = ({
     }
   };
 
+  const handleManualMovieConfirm = (manualMovie: ManualMovieData) => {
+    const manualId = -Date.now();
+    setSelectedResult({
+      id: manualId,
+      title: manualMovie.title,
+      release_date: manualMovie.release_date,
+      overview: manualMovie.synopsis,
+      cover_art_url: manualMovie.cover_art_url || null,
+      source: 'manual',
+      media_type: 'movie',
+      originalData: manualMovie,
+    });
+    setShowManualMovieModal(false);
+    setShowFormatSelector(true);
+  };
+
   const handleFormatsSelected = (formats: string[]) => {
     if (selectedResult) {
       onSelect(selectedResult, formats);
@@ -227,6 +245,7 @@ const UnifiedSearchModal: React.FC<UnifiedSearchModalProps> = ({
     setSelectedResult(null);
     setShowSeasonPicker(false);
     setSelectedTVShow(null);
+    setShowManualMovieModal(false);
     onClose();
   };
 
@@ -339,6 +358,15 @@ const UnifiedSearchModal: React.FC<UnifiedSearchModalProps> = ({
                   </div>
                 )}
               </div>
+              {searchMode === 'movies' && (
+                <button
+                  type="button"
+                  onClick={() => setShowManualMovieModal(true)}
+                  className="mt-3 text-sm text-primary-600 dark:text-primary-400 hover:underline"
+                >
+                  Can’t find it? Create a movie manually
+                </button>
+              )}
             </div>
 
             {/* Results */}
@@ -488,6 +516,13 @@ const UnifiedSearchModal: React.FC<UnifiedSearchModalProps> = ({
           </div>
         </div>
       </div>
+
+      <ManualMovieModal
+        isOpen={showManualMovieModal}
+        initialTitle={query.trim()}
+        onClose={() => setShowManualMovieModal(false)}
+        onConfirm={handleManualMovieConfirm}
+      />
 
       {/* Format Selector Modal (for movies and DB TV seasons) */}
       <FormatSelector

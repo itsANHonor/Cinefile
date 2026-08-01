@@ -4,7 +4,7 @@ description: Cinefile development workflow - rebuild container and test changes
 
 # Cinefile Development Workflow
 
-This workflow automates the process of rebuilding the Docker container and testing changes via browser preview after making code modifications.
+This workflow is the required verification path for Cinefile. After any frontend, backend, API, database, asset, or Docker change, rebuild and verify the local Docker container before considering the work tested. Standalone npm builds do not replace this workflow.
 
 ## Prerequisites
 

@@ -23,6 +23,15 @@ const PosterSelector: React.FC<PosterSelectorProps> = ({
   const [posters, setPosters] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [page, setPage] = useState(0);
+
+  const postersPerPage = 40;
+  const pageCount = Math.ceil(posters.length / postersPerPage);
+  const visiblePosters = posters.slice(page * postersPerPage, (page + 1) * postersPerPage);
+
+  useEffect(() => {
+    setPage(0);
+  }, [tmdbId, mediaType, seasonNumber]);
 
   useEffect(() => {
     const fetchPosters = async () => {
@@ -36,7 +45,7 @@ const PosterSelector: React.FC<PosterSelectorProps> = ({
         } else {
           urls = await apiService.getMoviePosters(tmdbId);
         }
-        setPosters(urls);
+        setPosters([...new Set(urls)]);
         setError(null);
       } catch (err) {
         console.error('Failed to fetch posters:', err);
@@ -96,9 +105,9 @@ const PosterSelector: React.FC<PosterSelectorProps> = ({
               </div>
             ) : (
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-                {posters.map((url, index) => (
+                {visiblePosters.map((url, index) => (
                   <div
-                    key={index}
+                    key={url}
                     onClick={() => onSelect(url)}
                     className={`
                       cursor-pointer group relative aspect-[2/3] rounded-lg overflow-hidden border-2 transition-all
@@ -128,6 +137,29 @@ const PosterSelector: React.FC<PosterSelectorProps> = ({
                     )}
                   </div>
                 ))}
+              </div>
+            )}
+            {!loading && !error && pageCount > 1 && (
+              <div className="flex items-center justify-center gap-4 mt-6">
+                <button
+                  type="button"
+                  onClick={() => setPage(currentPage => currentPage - 1)}
+                  disabled={page === 0}
+                  className="px-3 py-2 rounded-md border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Previous
+                </button>
+                <span className="text-sm text-gray-600 dark:text-gray-300">
+                  Page {page + 1} of {pageCount}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setPage(currentPage => currentPage + 1)}
+                  disabled={page === pageCount - 1}
+                  className="px-3 py-2 rounded-md border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Next
+                </button>
               </div>
             )}
           </div>

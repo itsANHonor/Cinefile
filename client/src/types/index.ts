@@ -68,6 +68,15 @@ export interface UpdateMediaDto extends Partial<CreateMediaDto> {
   primary_series_id?: number | null;
 }
 
+export interface ManualMovieData {
+  title: string;
+  synopsis: string;
+  director: string;
+  release_date: string;
+  cast: string[];
+  cover_art_url: string;
+}
+
 // Unified Search types
 export interface UnifiedSearchResult {
   id: number;
@@ -77,10 +86,10 @@ export interface UnifiedSearchResult {
   poster_path?: string | null;
   cover_art_url?: string | null;
   director?: string;
-  source: 'database' | 'tmdb';
+  source: 'database' | 'tmdb' | 'manual';
   tmdb_id?: number;
   media_type?: 'movie' | 'tv_season';
-  originalData: Media | TMDbMovie | TMDbTVShow;
+  originalData: Media | TMDbMovie | TMDbTVShow | ManualMovieData;
 }
 
 // Physical Item types (what you actually own)

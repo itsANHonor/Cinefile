@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { PhysicalItem, TMDbMovie, Media, UnifiedSearchResult, Series } from '../types';
+import { PhysicalItem, TMDbMovie, Media, UnifiedSearchResult, Series, ManualMovieData } from '../types';
 import { apiService } from '../services/api.service';
 import UnifiedSearchModal from './UnifiedSearchModal';
 import StoreLinkManager from './StoreLinkManager';
@@ -19,6 +19,7 @@ interface MovieWithFormats {
   formats: string[];
   details: any;
   mediaDbId?: number; // Track the actual database ID
+  isManual?: boolean;
   // TV-specific fields
   media_type?: 'movie' | 'tv_season';
   tv_show_tmdb_id?: number;
@@ -200,6 +201,7 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
           },
           formats,
           mediaDbId: existingMedia.id, // Preserve the database ID for existing media
+          isManual: !existingMedia.tmdb_id,
           details: {
             title: existingMedia.title,
             id: existingMedia.tmdb_id || existingMedia.id,
@@ -232,6 +234,39 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
             ...formData,
             name: newAutoName,
           });
+        }
+      } else if (result.source === 'manual') {
+        const manualMovie = result.originalData as ManualMovieData;
+        const newMovieWithFormats: MovieWithFormats = {
+          movie: {
+            id: result.id,
+            title: manualMovie.title,
+            overview: manualMovie.synopsis,
+            poster_path: null,
+            release_date: manualMovie.release_date,
+            vote_average: 0,
+            vote_count: 0,
+          },
+          formats,
+          isManual: true,
+          details: {
+            title: manualMovie.title,
+            synopsis: manualMovie.synopsis,
+            overview: manualMovie.synopsis,
+            director: manualMovie.director,
+            release_date: manualMovie.release_date,
+            cast: manualMovie.cast,
+            poster_url: manualMovie.cover_art_url,
+            cover_art_url: manualMovie.cover_art_url,
+          },
+        };
+
+        setSelectedMovies(prev => [...prev, newMovieWithFormats]);
+        const allMovies = [...selectedMovies, newMovieWithFormats];
+        const oldAutoName = updatePhysicalItemName(selectedMovies);
+        const newAutoName = updatePhysicalItemName(allMovies);
+        if (!formData.name || formData.name === oldAutoName) {
+          setFormData({ ...formData, name: newAutoName });
         }
       } else {
         // Handle TMDB movie (existing flow)
@@ -440,6 +475,11 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
       return;
     }
 
+    if (selectedMovies.length === 1 && selectedMovies[0].isManual) {
+      alert('Manual movies can use a cover image from the manual movie form or an upload.');
+      return;
+    }
+
     if (selectedMovies.length === 1) {
       setPosterSelectorMovieId(selectedMovies[0].movie.id);
       setShowPosterSelector(true);
@@ -537,7 +577,7 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
     
     // Validate at least one movie is selected
     if (selectedMovies.length === 0) {
-      alert('Please select at least one item from TMDB.');
+      alert('Please select at least one media item.');
       return;
     }
     
@@ -617,7 +657,7 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
           } else {
             mediaData = {
               title: details?.title || movie.title,
-              tmdb_id: details?.id || movie.id,
+              ...(movieWithFormats.isManual ? {} : { tmdb_id: details?.id || movie.id }),
               synopsis: details?.overview || details?.synopsis || movie.overview,
               cover_art_url: details?.poster_url || details?.cover_art_url || '',
               release_date: details?.release_date || movie.release_date,
@@ -659,7 +699,7 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
           const { movie, formats, details } = movieWithFormats;
           const mediaEntry: any = {
             title: details?.title || movie.title,
-            tmdb_id: details?.id || movie.id,
+            ...(movieWithFormats.isManual ? {} : { tmdb_id: details?.id || movie.id }),
             synopsis: details?.overview || details?.synopsis || movie.overview,
             cover_art_url: details?.poster_url || details?.cover_art_url || '',
             release_date: details?.release_date || movie.release_date,
@@ -779,7 +819,8 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
                       <button
                         type="button"
                         onClick={handleSelectPosterClick}
-                        className="flex-1 btn-secondary text-sm"
+                      disabled={selectedMovies.length === 1 && selectedMovies[0].isManual}
+                      className="flex-1 btn-secondary text-sm disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         Select Poster
                       </button>
@@ -1233,7 +1274,8 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
                       setShowMovieSelectionForPoster(false);
                       setShowPosterSelector(true);
                     }}
-                    className="w-full text-left px-4 py-3 rounded-lg bg-gray-50 dark:bg-gray-700 hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors text-gray-900 dark:text-gray-100"
+                    disabled={movie.isManual}
+                    className="w-full text-left px-4 py-3 rounded-lg bg-gray-50 dark:bg-gray-700 hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors text-gray-900 dark:text-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {movie.movie.title}
                   </button>
