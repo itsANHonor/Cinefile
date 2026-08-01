@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
 import { ThemeProvider } from './context/ThemeContext';
+import { DisplayPreferencesProvider } from './context/DisplayPreferencesContext';
 import { SidebarProvider, useSidebar } from './context/SidebarContext';
 import { ServerModeProvider, useServerMode } from './context/ServerModeContext';
 import AboutPage from './pages/AboutPage';
@@ -88,16 +89,18 @@ function App() {
 
   return (
     <ThemeProvider>
-      <ServerModeProvider>
-        <AuthProvider>
-          <SidebarProvider>
-            <DynamicFavicon />
-            <Router>
-              <AppContent />
-            </Router>
-          </SidebarProvider>
-        </AuthProvider>
-      </ServerModeProvider>
+      <DisplayPreferencesProvider>
+        <ServerModeProvider>
+          <AuthProvider>
+            <SidebarProvider>
+              <DynamicFavicon />
+              <Router>
+                <AppContent />
+              </Router>
+            </SidebarProvider>
+          </AuthProvider>
+        </ServerModeProvider>
+      </DisplayPreferencesProvider>
     </ThemeProvider>
   );
 }

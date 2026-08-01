@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import ThemeToggle from './ThemeToggle';
+import FormatBadgeToggle from './FormatBadgeToggle';
 import Logo from './Logo';
 import { useSidebar } from '../context/SidebarContext';
 import { useServerMode } from '../context/ServerModeContext';
@@ -219,17 +220,28 @@ const Navigation: React.FC = () => {
             </Link>
           </nav>
 
-          {/* Theme Toggle */}
-          <div className="px-2 py-2 border-t border-gray-200 dark:border-gray-700">
+          {/* Display Toggles */}
+          <div className="px-2 py-2 border-t border-gray-200 dark:border-gray-700 space-y-2">
             {isCollapsed ? (
-              <div className="flex justify-center">
-                <ThemeToggle />
-              </div>
+              <>
+                <div className="flex justify-center">
+                  <ThemeToggle />
+                </div>
+                <div className="flex justify-center">
+                  <FormatBadgeToggle />
+                </div>
+              </>
             ) : (
-              <div className="flex items-center justify-between px-1">
-                <span className="text-sm text-gray-700 dark:text-gray-300">Theme</span>
-                <ThemeToggle />
-              </div>
+              <>
+                <div className="flex items-center justify-between px-1">
+                  <span className="text-sm text-gray-700 dark:text-gray-300">Theme</span>
+                  <ThemeToggle />
+                </div>
+                <div className="flex items-center justify-between px-1">
+                  <span className="text-sm text-gray-700 dark:text-gray-300">Format tags</span>
+                  <FormatBadgeToggle />
+                </div>
+              </>
             )}
           </div>
         </div>

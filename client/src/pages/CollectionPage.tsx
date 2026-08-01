@@ -428,11 +428,13 @@ const CollectionPage: React.FC = () => {
           selectedDecades={selectedDecades}
           availableGenres={availableGenres}
           availableDecades={availableDecades}
+          mediaType={mediaType}
           onSearchChange={handleSearchChange}
           onFormatChange={setFormat}
           onSortChange={handleSortChange}
           onGenresChange={setSelectedGenres}
           onDecadesChange={setSelectedDecades}
+          onMediaTypeChange={setMediaType}
           onClearFilters={handleClearFilters}
         />
       )}

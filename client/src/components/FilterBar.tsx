@@ -1,6 +1,8 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState } from 'react';
 import { PhysicalFormat, SortField, SortOrder } from '../types';
 import ThemeToggle from './ThemeToggle';
+import FormatBadgeToggle from './FormatBadgeToggle';
+import FilterPanel, { countActiveFilters } from './FilterPanel';
 
 interface FilterBarProps {
   format: PhysicalFormat | PhysicalFormat[];
@@ -21,6 +23,14 @@ interface FilterBarProps {
   onClearFilters: () => void;
 }
 
+const SORT_OPTIONS: Array<{ field: SortField; label: string }> = [
+  { field: 'title', label: 'Title' },
+  { field: 'series_sort', label: 'Series' },
+  { field: 'director_last_name', label: 'Director' },
+  { field: 'release_date', label: 'Year' },
+  { field: 'created_at', label: 'Added' },
+];
+
 const FilterBar: React.FC<FilterBarProps> = ({
   format,
   sortBy,
@@ -39,30 +49,7 @@ const FilterBar: React.FC<FilterBarProps> = ({
   onMediaTypeChange,
   onClearFilters,
 }) => {
-  const [showGenreDropdown, setShowGenreDropdown] = useState(false);
-  const [showDecadeDropdown, setShowDecadeDropdown] = useState(false);
-  const [showFormatDropdown, setShowFormatDropdown] = useState(false);
-  const genreDropdownRef = useRef<HTMLDivElement>(null);
-  const decadeDropdownRef = useRef<HTMLDivElement>(null);
-  const formatDropdownRef = useRef<HTMLDivElement>(null);
-
-  // Close dropdowns when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (genreDropdownRef.current && !genreDropdownRef.current.contains(event.target as Node)) {
-        setShowGenreDropdown(false);
-      }
-      if (decadeDropdownRef.current && !decadeDropdownRef.current.contains(event.target as Node)) {
-        setShowDecadeDropdown(false);
-      }
-      if (formatDropdownRef.current && !formatDropdownRef.current.contains(event.target as Node)) {
-        setShowFormatDropdown(false);
-      }
-    };
-
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
+  const [showFilterPanel, setShowFilterPanel] = useState(false);
 
   const handleSortByChange = (newSortBy: SortField) => {
     if (newSortBy === sortBy) {
@@ -75,53 +62,16 @@ const FilterBar: React.FC<FilterBarProps> = ({
     }
   };
 
-  const handleGenreToggle = (genreId: number) => {
-    if (selectedGenres.includes(genreId)) {
-      onGenresChange(selectedGenres.filter(id => id !== genreId));
-    } else {
-      onGenresChange([...selectedGenres, genreId]);
-    }
-  };
-
-  const handleDecadeToggle = (decade: string) => {
-    if (selectedDecades.includes(decade)) {
-      onDecadesChange(selectedDecades.filter(d => d !== decade));
-    } else {
-      onDecadesChange([...selectedDecades, decade]);
-    }
-  };
-
-  const handleFormatToggle = (formatValue: PhysicalFormat) => {
-    if (formatValue === 'all') {
-      onFormatChange('all');
-    } else {
-      const formatArray = Array.isArray(format) ? format : (format === 'all' ? [] : [format]);
-      if (formatArray.includes(formatValue)) {
-        const newFormats = formatArray.filter(f => f !== formatValue);
-        onFormatChange(newFormats.length === 0 ? 'all' : newFormats);
-      } else {
-        onFormatChange([...formatArray, formatValue]);
-      }
-    }
-  };
-
-  const formatDisplay = Array.isArray(format) 
-    ? (format.length === 0 ? 'All Formats' : `${format.length} selected`)
-    : (format === 'all' ? 'All Formats' : format);
-
-  const hasActiveFilters = searchQuery || 
-    (Array.isArray(format) ? format.length > 0 : format !== 'all') || 
-    selectedGenres.length > 0 || 
-    selectedDecades.length > 0 ||
-    mediaType !== 'all';
+  const activeFilterCount = countActiveFilters({ format, selectedGenres, selectedDecades, mediaType });
+  const hasActiveFilters = activeFilterCount > 0 || Boolean(searchQuery);
 
   return (
-    <div className="card mb-6">
-      <div className="flex flex-col lg:flex-row gap-4 items-start lg:items-center justify-between">
-        <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center flex-1">
-          {/* Search */}
-          <div className="flex-1 max-w-md">
-            <div className="relative">
+    <>
+      <div className="card mb-6">
+        <div className="flex flex-col lg:flex-row gap-4 items-stretch lg:items-center justify-between">
+          {/* Search + Filters */}
+          <div className="flex gap-2 items-center flex-1">
+            <div className="relative flex-1 max-w-md">
               <input
                 type="text"
                 placeholder="Search collection..."
@@ -146,6 +96,7 @@ const FilterBar: React.FC<FilterBarProps> = ({
                 <button
                   onClick={() => onSearchChange('')}
                   className="absolute right-3 top-2.5 h-5 w-5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                  aria-label="Clear search"
                 >
                   <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -153,220 +104,81 @@ const FilterBar: React.FC<FilterBarProps> = ({
                 </button>
               )}
             </div>
-          </div>
 
-          {/* Media Type Filter */}
-          {onMediaTypeChange && (
-            <div className="flex bg-gray-100 dark:bg-gray-700 rounded-lg p-0.5">
-              {(['all', 'movie', 'tv_season'] as const).map((type) => (
-                <button
-                  key={type}
-                  onClick={() => onMediaTypeChange(type)}
-                  className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
-                    mediaType === type
-                      ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-gray-100 shadow-sm'
-                      : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
-                  }`}
-                >
-                  {type === 'all' ? 'All' : type === 'movie' ? 'Movies' : 'TV Shows'}
-                </button>
-              ))}
-            </div>
-          )}
-
-          {/* Format Filter - Multi-select */}
-          <div className="flex items-center gap-2 relative" ref={formatDropdownRef}>
-            <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Format:</label>
-            <div className="relative">
-              <button
-                onClick={() => setShowFormatDropdown(!showFormatDropdown)}
-                className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500 min-w-[120px] text-left flex items-center justify-between"
-              >
-                <span>{formatDisplay}</span>
-                <svg className="w-4 h-4 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                </svg>
-              </button>
-              {showFormatDropdown && (
-                <div className="absolute z-50 mt-1 w-48 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg shadow-lg max-h-60 overflow-y-auto">
-                  <div className="p-2">
-                    <label className="flex items-center gap-2 p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={Array.isArray(format) ? format.length === 0 : format === 'all'}
-                        onChange={() => handleFormatToggle('all')}
-                        className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
-                      />
-                      <span className="text-sm text-gray-900 dark:text-gray-100">All Formats</span>
-                    </label>
-                    {(['4K UHD', 'Blu-ray', 'DVD', 'Digital-HD', 'Digital-SD', 'Digital-UHD', 'LaserDisc', 'VHS'] as PhysicalFormat[]).map((fmt) => {
-                      const isChecked = Array.isArray(format) ? format.includes(fmt) : false;
-                      return (
-                        <label key={fmt} className="flex items-center gap-2 p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={isChecked}
-                            onChange={() => handleFormatToggle(fmt)}
-                            className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
-                          />
-                          <span className="text-sm text-gray-900 dark:text-gray-100">{fmt}</span>
-                        </label>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Genre Filter - Multi-select */}
-          <div className="flex items-center gap-2 relative" ref={genreDropdownRef}>
-            <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Genres:</label>
-            <div className="relative">
-              <button
-                onClick={() => setShowGenreDropdown(!showGenreDropdown)}
-                className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500 min-w-[120px] text-left flex items-center justify-between"
-              >
-                <span>{selectedGenres.length === 0 ? 'All Genres' : `${selectedGenres.length} selected`}</span>
-                <svg className="w-4 h-4 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                </svg>
-              </button>
-              {showGenreDropdown && (
-                <div className="absolute z-50 mt-1 w-64 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg shadow-lg max-h-60 overflow-y-auto">
-                  <div className="p-2">
-                    {availableGenres.length === 0 ? (
-                      <p className="text-sm text-gray-500 dark:text-gray-400 p-2">No genres available</p>
-                    ) : (
-                      availableGenres.map((genre) => (
-                        <label key={genre.id} className="flex items-center gap-2 p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={selectedGenres.includes(genre.id)}
-                            onChange={() => handleGenreToggle(genre.id)}
-                            className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
-                          />
-                          <span className="text-sm text-gray-900 dark:text-gray-100">{genre.name}</span>
-                        </label>
-                      ))
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Decade Filter - Multi-select */}
-          <div className="flex items-center gap-2 relative" ref={decadeDropdownRef}>
-            <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Decade:</label>
-            <div className="relative">
-              <button
-                onClick={() => setShowDecadeDropdown(!showDecadeDropdown)}
-                className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500 min-w-[120px] text-left flex items-center justify-between"
-              >
-                <span>{selectedDecades.length === 0 ? 'All Decades' : `${selectedDecades.length} selected`}</span>
-                <svg className="w-4 h-4 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                </svg>
-              </button>
-              {showDecadeDropdown && (
-                <div className="absolute z-50 mt-1 w-48 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg shadow-lg max-h-60 overflow-y-auto">
-                  <div className="p-2">
-                    {availableDecades.length === 0 ? (
-                      <p className="text-sm text-gray-500 dark:text-gray-400 p-2">No decades available</p>
-                    ) : (
-                      availableDecades.map((decade) => (
-                        <label key={decade} className="flex items-center gap-2 p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={selectedDecades.includes(decade)}
-                            onChange={() => handleDecadeToggle(decade)}
-                            className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
-                          />
-                          <span className="text-sm text-gray-900 dark:text-gray-100">{decade}s</span>
-                        </label>
-                      ))
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Sort Options */}
-          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2">
-            <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Sort by:</label>
-            <div className="flex flex-wrap gap-2">
-              <button
-                onClick={() => handleSortByChange('title')}
-                className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${
-                  sortBy === 'title'
-                    ? 'bg-primary-600 text-white'
-                    : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
-                }`}
-              >
-                Title {sortBy === 'title' && (sortOrder === 'asc' ? '↑' : '↓')}
-              </button>
-              <button
-                onClick={() => handleSortByChange('series_sort')}
-                className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${
-                  sortBy === 'series_sort'
-                    ? 'bg-primary-600 text-white'
-                    : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
-                }`}
-              >
-                Series {sortBy === 'series_sort' && (sortOrder === 'asc' ? '↑' : '↓')}
-              </button>
-              <button
-                onClick={() => handleSortByChange('director_last_name')}
-                className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${
-                  sortBy === 'director_last_name'
-                    ? 'bg-primary-600 text-white'
-                    : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
-                }`}
-              >
-                Director {sortBy === 'director_last_name' && (sortOrder === 'asc' ? '↑' : '↓')}
-              </button>
-              <button
-                onClick={() => handleSortByChange('release_date')}
-                className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${
-                  sortBy === 'release_date'
-                    ? 'bg-primary-600 text-white'
-                    : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
-                }`}
-              >
-                Year {sortBy === 'release_date' && (sortOrder === 'asc' ? '↑' : '↓')}
-              </button>
-              <button
-                onClick={() => handleSortByChange('created_at')}
-                className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${
-                  sortBy === 'created_at'
-                    ? 'bg-primary-600 text-white'
-                    : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
-                }`}
-              >
-                Added {sortBy === 'created_at' && (sortOrder === 'asc' ? '↑' : '↓')}
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {/* Clear Filters & Theme Toggle */}
-        <div className="flex items-center gap-4">
-          {hasActiveFilters && (
             <button
-              onClick={onClearFilters}
-              className="text-sm text-primary-600 hover:text-primary-800 dark:text-primary-400 dark:hover:text-primary-300 font-medium"
+              type="button"
+              onClick={() => setShowFilterPanel(true)}
+              className="flex items-center gap-2 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors"
+              aria-haspopup="dialog"
+              aria-expanded={showFilterPanel}
             >
-              Clear Filters
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.879a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
+              </svg>
+              <span>Filters</span>
+              {activeFilterCount > 0 && (
+                <span className="ml-0.5 px-1.5 py-0.5 text-xs font-semibold rounded-full bg-primary-600 text-white">
+                  {activeFilterCount}
+                </span>
+              )}
             </button>
-          )}
-          <ThemeToggle />
+
+            {hasActiveFilters && (
+              <button
+                onClick={onClearFilters}
+                className="text-sm text-primary-600 hover:text-primary-800 dark:text-primary-400 dark:hover:text-primary-300 font-medium whitespace-nowrap"
+              >
+                Clear
+              </button>
+            )}
+          </div>
+
+          {/* Sort + display toggles */}
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
+              <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Sort by:</label>
+              <div className="flex flex-wrap gap-2">
+                {SORT_OPTIONS.map(({ field, label }) => (
+                  <button
+                    key={field}
+                    onClick={() => handleSortByChange(field)}
+                    className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${
+                      sortBy === field
+                        ? 'bg-primary-600 text-white'
+                        : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+                    }`}
+                  >
+                    {label} {sortBy === field && (sortOrder === 'asc' ? '↑' : '↓')}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <FormatBadgeToggle />
+              <ThemeToggle />
+            </div>
+          </div>
         </div>
       </div>
-    </div>
+
+      <FilterPanel
+        isOpen={showFilterPanel}
+        onClose={() => setShowFilterPanel(false)}
+        format={format}
+        selectedGenres={selectedGenres}
+        selectedDecades={selectedDecades}
+        availableGenres={availableGenres}
+        availableDecades={availableDecades}
+        mediaType={mediaType}
+        onFormatChange={onFormatChange}
+        onGenresChange={onGenresChange}
+        onDecadesChange={onDecadesChange}
+        onMediaTypeChange={onMediaTypeChange}
+        onClearFilters={onClearFilters}
+      />
+    </>
   );
 };
 
 export default FilterBar;
-

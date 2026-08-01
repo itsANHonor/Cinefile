@@ -1,5 +1,6 @@
 import React from 'react';
 import { PhysicalItem } from '../types';
+import { useDisplayPreferences } from '../context/DisplayPreferencesContext';
 
 interface MediaCardProps {
   physicalItem: PhysicalItem;
@@ -18,6 +19,7 @@ const MediaCard: React.FC<MediaCardProps> = ({
   onEdit,
   onDelete
 }) => {
+  const { showFormatBadges } = useDisplayPreferences();
   // Get primary media for display
   const primaryMedia = physicalItem.media[0];
   const imageUrl = physicalItem.custom_image_url || primaryMedia?.cover_art_url;
@@ -102,13 +104,15 @@ const MediaCard: React.FC<MediaCardProps> = ({
         )}
         
         {/* Format Badges */}
-        <div className="absolute top-2 left-2 flex flex-col gap-1 items-start">
-          {physicalItem.physical_format.map((format, idx) => (
-            <span key={idx} className={`${getFormatColor(format)} text-xs font-medium px-2 py-1 rounded shadow-sm`}>
-              {format}
-            </span>
-          ))}
-        </div>
+        {showFormatBadges && (
+          <div className="absolute top-2 left-2 flex flex-col gap-1 items-start">
+            {physicalItem.physical_format.map((format, idx) => (
+              <span key={idx} className={`${getFormatColor(format)} text-xs font-medium px-2 py-1 rounded shadow-sm`}>
+                {format}
+              </span>
+            ))}
+          </div>
+        )}
         
         {/* Multi-item indicator */}
         {physicalItem.media.length > 1 && (
