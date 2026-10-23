@@ -1,77 +1,83 @@
 # Cinefile 🎬
 
-A simple, clean, and modern self-hosted web application for cataloging and displaying your personal collection of physical video media (Blu-rays, 4K UHDs, DVDs, LaserDiscs, and VHS). You can see a live read-only version of this at https://cinefile.itsanhonor.me/ (which is my own humble collection!)
+A clean, modern self-hosted web application for cataloging, organizing, and exploring your personal collection of physical video media (4K UHDs, Blu-rays, 3D Blu-rays, DVDs, LaserDiscs, VHS, and Digital copies) — complete with physical shelf mapping, collection analytics, and a built-in Model Context Protocol (MCP) server for AI assistants.
+
+You can see a live read-only version at https://cinefile.itsanhonor.me/ (my own personal collection!).
 
 ## Features
 
-- **Media Management**: Add, edit, and delete entries with TMDb API integration
-- **Poster Selection**: Choose from all available movie posters on TMDB when editing items
-- **Multiple Formats**: Support for 4K UHD, 3D Blu-ray, Blu-ray, DVD, Digital-UHD, Digital-HD, Digital-SD, LaserDisc, and VHS
-- **CSV Import/Export**: Backup and restore your collection with full metadata
-- **Beautiful Gallery**: Responsive collection view with cover art and filtering
-- **Two-Port Architecture**: Read-only public port and full admin port for enhanced security
-- **Privacy Control**: Public or private collection visibility
-- **Custom Metadata**: Track physical format, edition details, and personal photos
+- **Movies & TV Seasons**: Catalog single films, multi-film box sets, and TV seasons with automatic TMDb metadata, cast/director credits, genres, and cover art — or create manual entries for rare/unlisted releases
+- **Poster Selection & Spine Color Extraction**: Choose from all available TMDb posters and automatically extract dominant spine colors for virtual shelf rendering
+- **Multi-Format & Edition Tagging**: Track multiple formats per release (e.g., `4K UHD + Blu-ray + Digital-UHD`) and normalized edition tags (`Criterion`, `Steelbook`, `Arrow Video`, `Limited Edition`, `Slipcover`, etc.)
+- **Physical Library & Virtual Shelves**: Organize your real-world media cabinets into Shelf Groups and Shelves, track capacity in standard case thickness units (and linear millimeters), and visually arrange or locate discs on virtual spines
+- **Collection Statistics & Insights**: Interactive analytics dashboard featuring format breakdowns, decade distributions, top directors and cast (with TMDb portraits), franchise counts, format "double-dips," spine color palettes, shelf utilization, and acquisition timelines
+- **Rich Filtering & URL-Synced Gallery**: Filter by format, genre, decade, media type, edition tags, series, or physical shelf with live facet counts, infinite scroll, toggleable poster format badges, and shareable URL query parameters
+- **Archiving & Bulk Tools**: Archive sold or upgraded items with a reason instead of losing collection history, bulk-add releases, and run bulk metadata operations
+- **CSV Import/Export**: Backup, migrate, and restore your collection with full metadata
+- **Two-Port Security Architecture**: Public read-only gallery port (`3000`/`3005`) and internal admin port (`3001`) backed by stateless JWT authentication (`SESSION_SECRET`)
+- **Built-in MCP Server**: Connect AI assistants (Claude, Cursor, Windsurf, Devin, etc.) via Streamable HTTP to search your library, get mood-based movie night recommendations, analyze franchise gaps, and locate discs on your physical shelves
 
 ### Gallery View
 
 ![Display Panel](screenshots/display_panel.png)
 
-The main gallery displays your collection with beautiful cover art, filtering by format, and search functionality.
+The main gallery displays your collection with cover art, multi-facet filtering, sorting, and search functionality across desktop and mobile.
 
 ### Admin Panel
 
 ![Admin Panel](screenshots/admin_panel.png)
 
-Manage your entire collection with the admin interface - add, edit, and delete items with ease.
+Manage your entire collection from the admin interface — add, edit, archive, bulk-update, and organize series and shelves.
 
 ### Editor Panel
 
 ![Editor Panel](screenshots/editor_panel.png)
 
-Edit entries with TMDb integration for automatic metadata fetching, or manually enter custom details.
+Edit entries with TMDb integration for automatic movie and TV season metadata fetching, poster selection, store links, and edition tags.
 
 ## Data Concepts
 
-Cinefile organizes your physical media collection around these core concepts:
+Cinefile models your collection around a separation between the **physical package** you own and the **artistic works** inside it:
 
 ### Physical Items
 
-A **Physical Item** is the actual disc, tape, or other physical media object in your collection. This is what you can hold in your hand. Each physical item can have:
-- A unique barcode or identifier
-- A physical format (4K UHD, Blu-ray, DVD, Digital-UHD, Digital-HD, Digital-SD, LaserDisc, VHS)
-- Optional custom photos of the physical media
-- Edition details (Criterion, Steelbook, Limited Edition, etc.)
-- Other custom metadata fields links to the store page, buying links, etc. 
+A **Physical Item** is the actual case, box set, steelbook, tape, or disc package on your shelf. Each physical item can have:
+- One or more **Physical Formats** (`4K UHD`, `3D Blu-ray`, `Blu-ray`, `DVD`, `Digital-UHD`, `Digital-HD`, `Digital-SD`, `LaserDisc`, `VHS`)
+- Linked **Media** entries (a single film, multiple films in a box set/double feature, or TV seasons across multiple discs)
+- **Edition Tags** (normalized tags such as `Criterion`, `Steelbook`, `Limited Edition`, `Arrow Video`, `Vinegar Syndrome`)
+- **Physical Dimensions & Appearance**: Case thickness in standard Blu-ray units (`thickness_units`), width in millimeters, custom photos, and spine color
+- **Shelf Placement**: Assignment to a specific physical shelf and position from the left
+- **Acquisition Metadata**: Purchase date, store/retailer links, personal notes (with public/private visibility toggle), and archive status (`archived` + `archive_reason`)
 
-### Movies
+### Media (Movies & TV Seasons)
 
-A **Movie** represents the film itself - the artistic work independent of its physical format. Multiple physical items can reference the same movie (for example, you might own both the Blu-ray and 4K UHD of the same film).
+A **Media** record represents the film or TV season itself — independent of its physical format. Multiple physical items can reference the same work (for example, owning both a standard Blu-ray and a 4K UHD Steelbook of the same film, tracked in Statistics as a "double-dip").
 
-### Series
+### Series & Franchises
 
-A **Series** represents a collection of related content such as the "Marvel Cinematic Universe" or "Wes Anderson Collection." Like movies, multiple physical items can reference the same series (complete series collections, etc.).
+A **Series** groups related films or releases (such as the *Marvel Cinematic Universe*, *The Lord of the Rings*, or the *Wes Anderson Collection*) and can optionally link to a canonical TMDb Collection ID for franchise completeness checks.
 
 When editing a physical item, you have two series-related options:
+- **Primary Series**: Automatically associates all movies in the physical item with the selected series.
+- **Sort Series**: Controls how the physical item is grouped when sorting the collection by series (helpful for multi-film crossover sets).
 
-- **Primary Series**: Setting this will automatically add all movies in the physical item to the selected series and set it as their primary series. This is the main way to manage which series movies belong to.
+### Physical Library (Shelf Groups & Shelves)
 
-- **Sort Series**: This is a sorting preference for the physical item. When you sort your collection by series, items are grouped by their Sort Series value. This is useful when a physical item contains movies from multiple series and you want to control how it's sorted.
+Your physical storage is modeled as:
+- **Shelf Groups**: A bookcase, media cabinet, or rack (e.g., *Living Room Billy Bookcase*).
+- **Shelves**: Individual rows within a group, configured with a capacity in standard case units. Placing items on a shelf tracks capacity utilization and lets you see the exact position and neighboring titles for any disc.
 
-### Physical Formats
+### Supported Formats
 
-Cinefile supports tracking these physical formats:
 - **4K UHD**: Ultra HD Blu-ray discs
+- **3D Blu-ray**: Blu-ray discs encoded for 3D playback
 - **Blu-ray**: Standard high-definition Blu-ray discs
-- **3D Blu-ray**: Blu-ray discs specifically encoded for 3D films
 - **DVD**: Standard definition DVDs
-- **Digital-UHD**: Digital copies in Ultra HD quality
+- **Digital-UHD**: Digital copies in 4K Ultra HD
 - **Digital-HD**: Digital copies in high definition
 - **Digital-SD**: Digital copies in standard definition
 - **LaserDisc**: Legacy LaserDisc format
 - **VHS**: VHS tapes
-
-Each physical item in your collection is tagged with one of these formats, making it easy to filter and organize by media type.
 
 ## Quick Start with Docker
 
@@ -82,7 +88,7 @@ Each physical item in your collection is tagged with one of these formats, makin
 
 ### Setup Steps
 
-1. **Create a `docker-compose.yml` file:**
+1. **Create a `docker-compose.yml` file** (see `docker-compose.example.yml`):
 
 ```yaml
 version: '3.8'
@@ -98,28 +104,24 @@ services:
     ports:
       # Read-Only Port (Public-facing)
       # Maps host port to container port 3000 (read-only server)
-      # Default: 3000, change if needed (e.g., 3006:3000)
       - "3000:3000"
-      # Admin Port (Full API - Internal/VPN only)
+      # Admin Port (Full API + MCP Server - Internal/VPN only)
       # Maps host port to container port 3001 (full API server)
       # WARNING: Do not expose this port to the public internet!
-      # Default: 3001, change if needed
       - "3001:3001"
     environment:
       - NODE_ENV=production
-      # TMDb API Key - Required for movie search and metadata
-      # Get your free API key from: https://www.themoviedb.org/settings/api
       - TMDB_API_KEY=${TMDB_API_KEY}
-      # Admin Password - Required for admin panel access
-      # Set a secure password for the admin panel
       - ADMIN_PASSWORD=${ADMIN_PASSWORD}
       - SESSION_SECRET=${SESSION_SECRET}
+      # Optional: Set an API key to enable the MCP server endpoint (/api/mcp) on port 3001
+      - MCP_API_KEY=${MCP_API_KEY:-}
+      # Optional: Restrict CORS to your public origin
+      - ALLOWED_ORIGIN=${ALLOWED_ORIGIN:-http://localhost:3000}
       - DATABASE_PATH=/data/database.sqlite
       - UPLOAD_DIR=/data/uploads
     volumes:
-      # CHOOSE YOUR STORAGE HERE!
-      # Ensure the host directory is writable by the container user (UID 1001 by default)
-      # If needed: sudo chown -R 1001:1001 /opt/cinefile
+      # Ensure the host directory is writable by the container user
       - /opt/cinefile:/data
 ```
 
@@ -131,11 +133,10 @@ Create a `.env` file in the same directory:
 TMDB_API_KEY=your_tmdb_api_key_here
 ADMIN_PASSWORD=your_secure_password
 SESSION_SECRET=use_a_long_random_string_distinct_from_the_password
+MCP_API_KEY=optional_long_random_mcp_api_key
 ```
 
-Or set the same variables directly in `docker-compose.yml`.
-
-`SESSION_SECRET` signs admin JWTs; use a long random value and keep it private. JWTs expire after `JWT_EXPIRES_IN` (default **8 hours**); after **logout**, the token still works until it expires (stateless JWT).
+`SESSION_SECRET` signs admin JWTs; use a long random value and keep it private. JWTs expire after `JWT_EXPIRES_IN` (default **8 hours**).
 
 3. **Start the container:**
 
@@ -144,35 +145,33 @@ docker compose up -d
 ```
 
 4. **Access the application:**
-   - Read-only (public): http://localhost:3000
-   - Admin (internal): http://localhost:3001
+   - **Read-only (public)**: `http://localhost:3000` (or `http://localhost:3005` when using the repo's local `docker-compose.yml`)
+   - **Admin (internal)**: `http://localhost:3001`
+   - **MCP Endpoint (internal)**: `http://localhost:3001/api/mcp`
 
 ### Two-Port Architecture
 
-Cinefile runs two servers in one container:
+Cinefile runs two Express servers in a single container:
 
-- **Read-Only Port** (default 3000): Public-facing server with collection viewing only
-- **Admin Port** (default 3001): Full API with all CRUD operations - keep this restricted to VPN/internal network
-
-Both servers share the same database, but the read-only server cannot modify data by design.
+- **Read-Only Port** (container port `3000`): Public-facing server exposing only `GET` routes for browsing the collection, statistics, series, and shelf layouts. Cannot modify data by design.
+- **Admin Port** (container port `3001`): Full CRUD API, admin UI, CSV import/export, TMDb sync, and the MCP server endpoint. Keep this port restricted to your local network or VPN.
 
 ## Model Context Protocol (MCP) Server
 
-Cinefile includes a built-in **Streamable HTTP MCP endpoint** (`/api/mcp` and `/mcp`) on the **Admin Port (`3001`)** so you can connect AI agents (Claude Desktop, Cursor, Windsurf, Devin, OpenWebUI, etc.) directly to your physical media collection.
+Cinefile includes a built-in **stateless Streamable HTTP MCP server** mounted at `/api/mcp` (and `/mcp`) on the **Admin Port (`3001`)**. This lets AI agents and MCP clients (Claude Desktop, Claude Code, Cursor, Windsurf, Devin, OpenWebUI, etc.) query, analyze, and manage your physical media collection directly.
 
-### Enabling MCP
+### Security & Authentication
 
-Set `MCP_API_KEY` in your `.env` or `docker-compose.yml`:
+- **Admin Port Only**: The MCP routes are registered exclusively on the full admin server (`3001`). The public read-only server (`3000`/`3005`) never mounts `/api/mcp`.
+- **Fail-Closed Configuration**: If `MCP_API_KEY` is unset or empty, all requests to `/api/mcp` return `503 Service Unavailable`.
+- **Supported Auth Headers**: Authenticate requests using either:
+  - `Authorization: Bearer <MCP_API_KEY>` (or a valid admin session JWT)
+  - `X-MCP-API-Key: <MCP_API_KEY>`
+- **Timing-Safe Verification**: API keys are verified using constant-time comparison (`crypto.timingSafeEqual`).
 
-```env
-MCP_API_KEY=your_long_random_mcp_api_key
-```
+### Client Configuration
 
-If `MCP_API_KEY` is not set, `/api/mcp` fails closed with `503 Service Unavailable`. The public read-only port (`3000`/`3005`) never exposes the MCP endpoint.
-
-### Example Client Configuration
-
-Connect any Streamable HTTP-capable MCP client to `http://<your-host>:3001/api/mcp`:
+Connect any Streamable HTTP-compatible MCP client to `http://<your-host>:3001/api/mcp`:
 
 ```json
 {
@@ -188,17 +187,66 @@ Connect any Streamable HTTP-capable MCP client to `http://<your-host>:3001/api/m
 }
 ```
 
-### Exposed MCP Capabilities
+If your client uses `x-mcp-api-key` or `serverUrl`, you can pass `"X-MCP-API-Key": "your_long_random_mcp_api_key"` in `headers`.
 
-- **Collection Search & Mood Discovery**: `search_collection`, `get_item_details`, `recommend_for_mood`, `get_collection_facets`
-- **Statistics & Insights**: `get_collection_stats`, `get_recent_acquisitions`
-- **Series & TMDB Franchise Intelligence**: `list_series`, `get_series_details`, `check_series_completeness`, `search_tmdb`
-- **Physical Library & Shelf Location**: `get_shelf_layout`, `find_item_on_shelf`, `place_item_on_shelf`
-- **Collection CRUD**: `add_physical_item` (auto-fetches TMDB metadata & spine colors), `update_physical_item`, `delete_physical_item`
-- **Resources & Prompts**: `cinefile://stats/summary`, `cinefile://facets`, `cinefile://library/shelves`, and prompts (`movie-night-picker`, `franchise-gap-analysis`, `collection-curator-report`)
+### MCP Tools Reference (15 Tools)
+
+#### 1. Collection Search, Browse & Mood Discovery (Read-Only)
+| Tool | Description |
+| :--- | :--- |
+| `search_collection` | Search and filter items by keyword, physical formats, genres (name or ID), decades, release year range, director, actor, edition tag, media type (`movie`, `tv_season`, `all`), or archive status. Supports sorting, pagination, and token-compact `minimal` mode. |
+| `get_item_details` | Fetch complete details for a `physical_item_id` or `media_id`, including all linked discs, full cast, synopsis, edition tags, store links, series membership, and shelf placement. |
+| `recommend_for_mood` | Sample movies or TV seasons from your collection matching desired genres, excluded genres, decades, year range, playback formats, director/actor, or theme keywords — complete with shelf locations for movie night pitches. |
+| `get_collection_facets` | List all available genres, decades, physical formats, and canonical edition tags in the collection with item counts. |
+
+#### 2. Statistics & Collection Analytics (Read-Only)
+| Tool | Description |
+| :--- | :--- |
+| `get_collection_stats` | Retrieve collection analytics (`all`, `overview`, `formats`, `content`, `physical_library`, or `acquisitions`), including format breakdowns, top directors/actors/franchises, format double-dips, shelf capacity & linear footage (mm), spine colors, and top retailers. |
+| `get_recent_acquisitions` | List the most recently purchased (`purchase_date`) or cataloged (`created_at`) physical items. |
+
+#### 3. Series, Franchises & TMDb Intelligence (Read-Only)
+| Tool | Description |
+| :--- | :--- |
+| `list_series` | List all series/franchises configured in Cinefile with owned movie counts, sort modes, and linked TMDb Collection IDs. |
+| `get_series_details` | Get a series by ID or name along with all owned movies in watch/sort order and their physical formats. |
+| `check_series_completeness` | Compare an owned series (or TMDb Collection ID) against TMDb's canonical franchise list to identify owned vs. missing installments. |
+| `search_tmdb` | Search TMDb for movies or TV shows, optionally fetching full credits, and automatically flag whether each result is already owned in your Cinefile collection. |
+
+#### 4. Physical Library & Shelf Management (Read + Write)
+| Tool | Description |
+| :--- | :--- |
+| `get_shelf_layout` | Inspect shelf groups, shelves, capacity units, utilization percentages, ordered shelf items, or unassigned items awaiting shelf placement. |
+| `find_item_on_shelf` | Locate where a movie or physical item lives on your physical shelves — returns the shelf group, shelf name, 1-based position from the left, and immediate left/right neighboring titles. |
+| `place_item_on_shelf` | Place or move a physical item onto a specific shelf (at an optional 0-based position), or pass `shelf_id: null` to unassign it. |
+
+#### 5. Collection CRUD Management (Write)
+| Tool | Description |
+| :--- | :--- |
+| `add_physical_item` | Add a new physical item (single film, multi-film box set, or TV season). Passing `tmdb_id` automatically fetches TMDb metadata, credits, genres, cover art, and extracts spine colors; can also place the item directly onto a `shelf_id`. |
+| `update_physical_item` | Update an existing item's name, formats, edition tags, notes, purchase date, store links, thickness units, series associations, or archive status (`archived` + `archive_reason`). |
+| `delete_physical_item` | Permanently delete a physical item by ID (and optionally clean up orphaned media records). |
+
+### MCP Resources
+
+- `cinefile://stats/summary` — Live JSON summary of collection counts, format distribution, and shelf usage
+- `cinefile://facets` — Available genres, decades, formats, and edition tags with counts
+- `cinefile://library/shelves` — Hierarchy of shelf groups, shelves, capacity units, and utilization
+
+### MCP Prompts
+
+- `movie-night-picker` (`mood`, `preferred_format?`, `decade?`) — Samples matching titles from your collection and pitches 3–5 options with format/edition details and exact shelf coordinates
+- `franchise-gap-analysis` (`series_name?`) — Audits your series against TMDb Collections to highlight missing franchise installments
+- `collection-curator-report` — Generates a curator breakdown of collection size, format mix, top directors/actors, double-dips, and shelf footprint
+
+## Development & Verification
+
+- **Frontend (`client/`)**: React 18, TypeScript, Vite, Tailwind CSS, Lucide Icons, Vitest + React Testing Library (`cd client && npm test`)
+- **Backend (`server/`)**: Node.js, Express, TypeScript, SQLite + Knex migrations, `@modelcontextprotocol/sdk`
+- **Container Verification**: Run `./cinefile-skill.sh` from the repository root to rebuild the Docker image, run database migrations, and verify both the public (`:3005`) and admin (`:3001`) services.
 
 ## AI Disclosure
-Cinefile was generated almost entirely by a combination of Cursor's Compooser and Google's Gemini 2.5 and 3.0 and Claude Ops 4.5 models. As a hobby project, I am deliberately using it as a testing ground to 'feel' out the capabilities of current LLM models. If this is not to your taste or preferences, I completely understand but I am disclosing this for transparency reasons. I'm committed to building a good products, and this is a low stakes way for me to try new tools. 
+Cinefile was generated almost entirely by a combination of Cursor's Composer and Google's Gemini 2.5 and 3.0 and Claude Opus 4.5/4.6 models. As a hobby project, I am deliberately using it as a testing ground to 'feel' out the capabilities of current LLM models. If this is not to your taste or preferences, I completely understand, but I am disclosing this for transparency reasons. I'm committed to building a good product, and this is a low-stakes way for me to try new tools.
 
 ## License
 
