@@ -33,6 +33,9 @@ async function getFullLibrary() {
     ? await db('shelf_placements')
         .join('physical_items', 'shelf_placements.physical_item_id', 'physical_items.id')
         .whereIn('shelf_placements.shelf_id', shelfIds)
+        .where(function () {
+          this.where('physical_items.archived', 0).orWhereNull('physical_items.archived');
+        })
         .select(
           'shelf_placements.*',
           'physical_items.name as physical_item_name',

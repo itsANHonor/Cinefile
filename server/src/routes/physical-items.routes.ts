@@ -1,7 +1,13 @@
 import { Router, Request, Response } from 'express';
 import { db } from '../database';
-import { authMiddleware } from '../middleware/auth.middleware';
+import { authMiddleware, parseBearerToken } from '../middleware/auth.middleware';
+import { verifySessionToken } from '../services/jwt-auth.service';
 import { calculateSortName } from '../utils/sort-name.util';
+import {
+  applyEditionTagFilter,
+  buildCanonicalEditionTagMap,
+  normalizeEditionNotes,
+} from '../utils/edition-tags.util';
 import { extractSpineColors } from '../services/color.service';
 
 const router = Router();
@@ -14,6 +20,8 @@ interface PhysicalItem {
   edition_notes?: string;
   notes?: string;
   notes_public?: boolean;
+  archived?: boolean;
+  archive_reason?: string | null;
   custom_image_url?: string;
   purchase_date?: string;
   store_links?: string; // JSON string of array
@@ -43,12 +51,25 @@ interface PhysicalItemWithMedia extends PhysicalItem {
  */
 router.get('/', async (req: Request, res: Response) => {
   try {
-    const { format, genres, decades, sort_by = 'created_at', sort_order = 'desc', search, media_type, page = '1', limit = '24' } = req.query;
+    const { format, genres, decades, editions, edition, sort_by = 'created_at', sort_order = 'desc', search, media_type, archived, page = '1', limit = '24' } = req.query;
+
+    const token = parseBearerToken(req.headers.authorization);
+    const isAdmin = Boolean(token && verifySessionToken(token));
+    const showArchived = isAdmin && (archived === 'true' || archived === '1');
 
     // Start with base query - fetch physical items WITHOUT joins first
     // This ensures all items are returned, then we'll filter and attach media separately
     let query = db('physical_items')
       .select('physical_items.*');
+
+    // Filter by archived status (archived items are only visible when admin explicitly filters for them)
+    if (showArchived) {
+      query = query.where('physical_items.archived', 1);
+    } else {
+      query = query.where(function() {
+        this.where('physical_items.archived', 0).orWhereNull('physical_items.archived');
+      });
+    }
 
     // Filter by media_type if specified (include physical item if ANY linked media matches)
     if (media_type && typeof media_type === 'string' && media_type !== 'all') {
@@ -153,6 +174,11 @@ router.get('/', async (req: Request, res: Response) => {
       }
     }
 
+    // Filter by edition tags if specified (multi-select: comma-separated tags)
+    if (editions || edition) {
+      query = applyEditionTagFilter(query, editions || edition);
+    }
+
     // Search functionality
     if (search && typeof search === 'string' && search.trim() !== '') {
       const searchTerm = `%${search.trim()}%`;
@@ -214,6 +240,15 @@ router.get('/', async (req: Request, res: Response) => {
 
     // Get total count for pagination - use same filters but without joins
     let countQuery = db('physical_items');
+
+    // Filter by archived status in count query
+    if (showArchived) {
+      countQuery = countQuery.where('physical_items.archived', 1);
+    } else {
+      countQuery = countQuery.where(function() {
+        this.where('physical_items.archived', 0).orWhereNull('physical_items.archived');
+      });
+    }
 
     // Apply the same filters as the main query
     if (media_type && typeof media_type === 'string' && media_type !== 'all') {
@@ -314,6 +349,11 @@ router.get('/', async (req: Request, res: Response) => {
           });
         });
       }
+    }
+
+    // Filter by edition tags in count query
+    if (editions || edition) {
+      countQuery = applyEditionTagFilter(countQuery, editions || edition);
     }
 
     if (search && typeof search === 'string' && search.trim() !== '') {
@@ -536,6 +576,8 @@ router.get('/', async (req: Request, res: Response) => {
       // Clean up the aggregated fields from the main query
       const cleanedItem = {
         ...item,
+        archived: Boolean(item.archived),
+        archive_reason: isAdmin ? (item.archive_reason || null) : undefined,
         physical_format: item.physical_format ? (typeof item.physical_format === 'string' ? JSON.parse(item.physical_format) : item.physical_format) : [],
         store_links: item.store_links ? (typeof item.store_links === 'string' ? JSON.parse(item.store_links) : item.store_links) : [],
         thickness_units: item.thickness_units || 1,
@@ -704,10 +746,16 @@ router.get('/', async (req: Request, res: Response) => {
 router.get('/:id', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
+    const token = parseBearerToken(req.headers.authorization);
+    const isAdmin = Boolean(token && verifySessionToken(token));
 
     const physicalItem = await db('physical_items').where('id', id).first();
 
     if (!physicalItem) {
+      return res.status(404).json({ error: 'Physical item not found' });
+    }
+
+    if (physicalItem.archived && !isAdmin) {
       return res.status(404).json({ error: 'Physical item not found' });
     }
 
@@ -776,6 +824,8 @@ router.get('/:id', async (req: Request, res: Response) => {
 
     const result: PhysicalItemWithMedia = {
       ...physicalItem,
+      archived: Boolean(physicalItem.archived),
+      archive_reason: isAdmin ? (physicalItem.archive_reason || null) : undefined,
       physical_format: JSON.parse(physicalItem.physical_format),
       store_links: physicalItem.store_links ? JSON.parse(physicalItem.store_links) : [],
       thickness_units: physicalItem.thickness_units || 1,
@@ -801,12 +851,22 @@ router.post('/', authMiddleware, async (req: Request, res: Response) => {
       media, store_links, sort_name,
       thickness_units, width_mm, height_mm, depth_mm,
       sort_series_id, // Used for sorting preference
-      media_primary_series_id // When set, adds all media to this series and sets it as their primary
+      media_primary_series_id, // When set, adds all media to this series and sets it as their primary
+      archived, archive_reason
     } = req.body;
 
     // Validate notes length (max 2000 characters)
     if (notes && typeof notes === 'string' && notes.length > 2000) {
       return res.status(400).json({ error: 'Notes cannot exceed 2000 characters' });
+    }
+
+    const isArchived = archived === true || archived === 1;
+    const trimmedReason = typeof archive_reason === 'string' ? archive_reason.trim() : '';
+    if (isArchived && !trimmedReason) {
+      return res.status(400).json({ error: 'Archive reason is required when archiving an item' });
+    }
+    if (trimmedReason.length > 500) {
+      return res.status(400).json({ error: 'Archive reason cannot exceed 500 characters' });
     }
 
     // Validation function for store links
@@ -871,6 +931,13 @@ router.post('/', authMiddleware, async (req: Request, res: Response) => {
         }
       }
 
+      // Normalize edition_notes against existing collection tags for consistent casing
+      const existingEditionRows = await trx('physical_items')
+        .whereNotNull('edition_notes')
+        .select('edition_notes');
+      const canonicalTagMap = buildCanonicalEditionTagMap(existingEditionRows);
+      const normalizedEditionNotes = normalizeEditionNotes(edition_notes, canonicalTagMap);
+
       // Create physical item first (formats will be calculated after linking media)
       // Calculate sort_name if not provided, but allow user override
       const calculatedSortName = sort_name !== undefined ? sort_name : calculateSortName(name);
@@ -878,9 +945,11 @@ router.post('/', authMiddleware, async (req: Request, res: Response) => {
         name,
         sort_name: calculatedSortName || null,
         physical_format: JSON.stringify([]), // Will be updated after linking media
-        edition_notes,
+        edition_notes: normalizedEditionNotes,
         notes: notes || null,
         notes_public: notes_public === true ? 1 : 0, // SQLite boolean
+        archived: isArchived ? 1 : 0,
+        archive_reason: isArchived ? trimmedReason : null,
         custom_image_url,
         purchase_date,
         thickness_units: Math.max(1, parseInt(thickness_units) || 1),
@@ -1009,6 +1078,8 @@ router.post('/', authMiddleware, async (req: Request, res: Response) => {
 
       return {
         ...createdItem,
+        archived: Boolean(createdItem.archived),
+        archive_reason: createdItem.archive_reason || null,
         physical_format: JSON.parse(createdItem.physical_format),
         media: linkedMedia.map(m => ({
           ...m,
@@ -1057,7 +1128,8 @@ router.put('/:id', authMiddleware, async (req: Request, res: Response) => {
       custom_image_url, purchase_date, store_links, sort_name,
       thickness_units, width_mm, height_mm, depth_mm,
       sort_series_id, // Used for sorting preference
-      media_primary_series_id // When set, adds all media to this series and sets it as their primary
+      media_primary_series_id, // When set, adds all media to this series and sets it as their primary
+      archived, archive_reason
     } = req.body;
 
     console.log('PUT /api/physical-items/:id', { id, body: req.body });
@@ -1071,6 +1143,17 @@ router.put('/:id', authMiddleware, async (req: Request, res: Response) => {
     const existingItem = await db('physical_items').where('id', id).first();
     if (!existingItem) {
       return res.status(404).json({ error: 'Physical item not found' });
+    }
+
+    const nextArchived = archived !== undefined ? (archived === true || archived === 1) : Boolean(existingItem.archived);
+    const nextReasonRaw = archive_reason !== undefined ? archive_reason : existingItem.archive_reason;
+    const nextReasonTrimmed = typeof nextReasonRaw === 'string' ? nextReasonRaw.trim() : '';
+
+    if (nextArchived && !nextReasonTrimmed) {
+      return res.status(400).json({ error: 'Archive reason is required when archiving an item' });
+    }
+    if (nextReasonTrimmed.length > 500) {
+      return res.status(400).json({ error: 'Archive reason cannot exceed 500 characters' });
     }
 
     // Handle media_primary_series_id: add all media to series and set as their primary
@@ -1125,9 +1208,20 @@ router.put('/:id', authMiddleware, async (req: Request, res: Response) => {
     const updateData: any = {};
 
     if (name !== undefined) updateData.name = name;
-    if (edition_notes !== undefined) updateData.edition_notes = edition_notes;
+    if (edition_notes !== undefined) {
+      const existingEditionRows = await db('physical_items')
+        .whereNot('id', id)
+        .whereNotNull('edition_notes')
+        .select('edition_notes');
+      const canonicalTagMap = buildCanonicalEditionTagMap(existingEditionRows);
+      updateData.edition_notes = normalizeEditionNotes(edition_notes, canonicalTagMap);
+    }
     if (notes !== undefined) updateData.notes = notes || null;
     if (notes_public !== undefined) updateData.notes_public = notes_public === true ? 1 : 0; // SQLite boolean
+    if (archived !== undefined || archive_reason !== undefined) {
+      updateData.archived = nextArchived ? 1 : 0;
+      updateData.archive_reason = nextArchived ? nextReasonTrimmed : null;
+    }
     if (custom_image_url !== undefined) updateData.custom_image_url = custom_image_url;
     if (purchase_date !== undefined) updateData.purchase_date = purchase_date;
     if (thickness_units !== undefined) updateData.thickness_units = Math.max(1, parseInt(thickness_units) || 1);
@@ -1202,6 +1296,11 @@ router.put('/:id', authMiddleware, async (req: Request, res: Response) => {
     // Update physical item
     await db('physical_items').where('id', id).update(updateData);
 
+    // If item is archived, remove any physical shelf placement
+    if (nextArchived) {
+      await db('shelf_placements').where('physical_item_id', id).delete();
+    }
+
     // Fetch updated physical item with media
     const updatedItem = await db('physical_items').where('id', id).first();
     const linkedMedia = await db('physical_item_media')
@@ -1211,6 +1310,8 @@ router.put('/:id', authMiddleware, async (req: Request, res: Response) => {
 
     const result: PhysicalItemWithMedia = {
       ...updatedItem,
+      archived: Boolean(updatedItem.archived),
+      archive_reason: updatedItem.archive_reason || null,
       physical_format: JSON.parse(updatedItem.physical_format),
       store_links: updatedItem.store_links ? JSON.parse(updatedItem.store_links) : [],
       media: linkedMedia.map(m => ({
@@ -1531,6 +1632,11 @@ router.post('/bulk', authMiddleware, async (req: Request, res: Response) => {
             mediaId = newMediaId;
           }
 
+          const existingEditionRows = await trx('physical_items')
+            .whereNotNull('edition_notes')
+            .select('edition_notes');
+          const canonicalTagMap = buildCanonicalEditionTagMap(existingEditionRows);
+
           // Create physical item
           // Calculate sort_name if not provided, but allow user override
           const calculatedSortName = item.sort_name !== undefined ? item.sort_name : calculateSortName(item.name);
@@ -1538,7 +1644,7 @@ router.post('/bulk', authMiddleware, async (req: Request, res: Response) => {
             name: item.name,
             sort_name: calculatedSortName || null,
             physical_format: JSON.stringify(formatArray),
-            edition_notes: item.edition_notes,
+            edition_notes: normalizeEditionNotes(item.edition_notes, canonicalTagMap),
             custom_image_url: item.custom_image_url,
             purchase_date: item.purchase_date,
           };

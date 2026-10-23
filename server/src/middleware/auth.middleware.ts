@@ -56,3 +56,57 @@ export function verifyPassword(password: string): boolean {
     return false;
   }
 }
+
+/**
+ * Verify MCP API key (timing-safe when lengths match).
+ */
+export function verifyMcpApiKey(apiKey: string): boolean {
+  const configuredKey = process.env.MCP_API_KEY?.trim();
+  if (typeof apiKey !== 'string' || !apiKey || !configuredKey) {
+    return false;
+  }
+  try {
+    const a = Buffer.from(apiKey, 'utf8');
+    const b = Buffer.from(configuredKey, 'utf8');
+    if (a.length !== b.length) {
+      return false;
+    }
+    return timingSafeEqual(a, b);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Validates MCP requests using `Authorization: Bearer <MCP_API_KEY>`,
+ * `X-MCP-API-Key: <MCP_API_KEY>`, or a valid admin session JWT.
+ * Fails closed (503) if MCP_API_KEY is not configured.
+ */
+export function mcpAuthMiddleware(req: AuthRequest, res: Response, next: NextFunction) {
+  if (!process.env.MCP_API_KEY?.trim()) {
+    return res.status(503).json({
+      error: 'MCP endpoint is disabled because MCP_API_KEY is not configured.',
+    });
+  }
+
+  const bearerToken = parseBearerToken(req.headers.authorization);
+  const headerApiKey =
+    typeof req.headers['x-mcp-api-key'] === 'string'
+      ? req.headers['x-mcp-api-key'].trim()
+      : null;
+  const token = bearerToken || headerApiKey;
+
+  if (!token) {
+    return res.status(401).json({
+      error: 'Authentication required. Expected Authorization: Bearer <MCP_API_KEY> or X-MCP-API-Key header.',
+    });
+  }
+
+  if (!verifyMcpApiKey(token) && !verifySessionToken(token)) {
+    return res.status(401).json({ error: 'Invalid MCP API key or session token' });
+  }
+
+  req.isAuthenticated = true;
+  next();
+}
+

@@ -32,6 +32,9 @@ async function getFullLibrary() {
     ? await db('shelf_placements')
         .join('physical_items', 'shelf_placements.physical_item_id', 'physical_items.id')
         .whereIn('shelf_placements.shelf_id', shelfIds)
+        .where(function () {
+          this.where('physical_items.archived', 0).orWhereNull('physical_items.archived');
+        })
         .select(
           'shelf_placements.*',
           'physical_items.name as physical_item_name',
@@ -344,6 +347,77 @@ router.post('/groups/:groupId/shelves', authMiddleware, async (req: Request, res
   }
 });
 
+// POST /api/library/groups/:groupId/shelves/bulk (protected)
+router.post('/groups/:groupId/shelves/bulk', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const { groupId } = req.params;
+    const { count, capacity_units, width_mm, depth_mm } = req.body;
+
+    const shelfCount = parseInt(count);
+    if (!Number.isInteger(shelfCount) || shelfCount < 1 || shelfCount > 50) {
+      return res.status(400).json({ error: 'count must be an integer between 1 and 50' });
+    }
+
+    const group = await db('shelf_groups').where('id', groupId).first();
+    if (!group) {
+      return res.status(404).json({ error: 'Shelf group not found' });
+    }
+
+    const capacityUnits = Math.max(1, parseInt(capacity_units) || 10);
+    const computedWidthMm = width_mm ?? capacityUnits * STANDARD_UNIT_MM;
+
+    const existingShelves = await db('shelves')
+      .where('group_id', groupId)
+      .orderBy('sort_order', 'asc');
+
+    const existingDisplayNames = new Set(
+      existingShelves.map((s: any) => String(s.display_name).toLowerCase())
+    );
+    const maxOrder = existingShelves.reduce(
+      (max: number, s: any) => Math.max(max, s.sort_order ?? 0),
+      -1
+    );
+
+    const createdShelves = await db.transaction(async (trx) => {
+      const inserted: any[] = [];
+      let nextShelfNumber = existingShelves.length + 1;
+      let nextSortOrder = maxOrder + 1;
+
+      for (let i = 0; i < shelfCount; i++) {
+        let displayName = `${group.display_name} - Shelf ${nextShelfNumber}`;
+        while (existingDisplayNames.has(displayName.toLowerCase())) {
+          nextShelfNumber++;
+          displayName = `${group.display_name} - Shelf ${nextShelfNumber}`;
+        }
+        existingDisplayNames.add(displayName.toLowerCase());
+        const slugName = displayName.toLowerCase().replace(/\s+/g, '_');
+
+        const [id] = await trx('shelves').insert({
+          group_id: parseInt(groupId),
+          name: slugName,
+          display_name: displayName,
+          capacity_units: capacityUnits,
+          width_mm: computedWidthMm,
+          depth_mm: depth_mm || null,
+          sort_order: nextSortOrder,
+        });
+
+        const shelf = await trx('shelves').where('id', id).first();
+        inserted.push({ ...shelf, placements: [], used_units: 0 });
+        nextShelfNumber++;
+        nextSortOrder++;
+      }
+
+      return inserted;
+    });
+
+    res.status(201).json(createdShelves);
+  } catch (error) {
+    console.error('Error bulk creating shelves:', error);
+    res.status(500).json({ error: 'Failed to bulk create shelves' });
+  }
+});
+
 // PUT /api/library/shelves/:id (protected)
 router.put('/shelves/:id', authMiddleware, async (req: Request, res: Response) => {
   try {
@@ -435,6 +509,9 @@ router.get('/unassigned', async (req: Request, res: Response) => {
     let query = db('physical_items')
       .leftJoin('shelf_placements', 'physical_items.id', 'shelf_placements.physical_item_id')
       .whereNull('shelf_placements.id')
+      .where(function () {
+        this.where('physical_items.archived', 0).orWhereNull('physical_items.archived');
+      })
       .select('physical_items.*');
 
     if (search && typeof search === 'string' && search.trim() !== '') {
@@ -507,6 +584,9 @@ router.post('/shelves/:shelfId/items', authMiddleware, async (req: Request, res:
     const item = await db('physical_items').where('id', physical_item_id).first();
     if (!item) {
       return res.status(404).json({ error: 'Physical item not found' });
+    }
+    if (item.archived) {
+      return res.status(400).json({ error: 'Cannot place an archived item on a shelf' });
     }
 
     // Check if item is already placed somewhere
@@ -594,7 +674,11 @@ router.post('/apply-sort', authMiddleware, async (req: Request, res: Response) =
     const { sort_by = 'title', sort_order = 'asc' } = req.body;
 
     // Get all physical items in the requested sort order
-    let query = db('physical_items').select('physical_items.*');
+    let query = db('physical_items')
+      .where(function () {
+        this.where('physical_items.archived', 0).orWhereNull('physical_items.archived');
+      })
+      .select('physical_items.*');
 
     const sortDirection = sort_order === 'asc' ? 'asc' : 'desc';
 

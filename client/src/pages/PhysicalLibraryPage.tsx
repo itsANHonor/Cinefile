@@ -5,20 +5,32 @@ import {
   DragStartEvent,
   DragOverlay,
   PointerSensor,
+  TouchSensor,
+  KeyboardSensor,
   useSensor,
   useSensors,
   closestCenter,
 } from '@dnd-kit/core';
-import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
+import { SortableContext, verticalListSortingStrategy, sortableKeyboardCoordinates } from '@dnd-kit/sortable';
 import { PhysicalLibrary, ShelfGroup, Shelf, PhysicalItem, STANDARD_UNIT_MM } from '../types';
 import { apiService } from '../services/api.service';
 import { useAuth } from '../context/AuthContext';
 import { useServerMode } from '../context/ServerModeContext';
+import { useConfirm } from '../context/ConfirmContext';
+import { useToast } from '../context/ToastContext';
 import ShelfGroupCard from '../components/library/ShelfGroupCard';
 import UnassignedItemsPanel from '../components/library/UnassignedItemsPanel';
 import ApplySortModal from '../components/library/ApplySortModal';
 import SpineColorPicker from '../components/library/SpineColorPicker';
+import MediaDetailModal from '../components/MediaDetailModal';
+import MediaForm from '../components/MediaForm';
 import { ItemDragOverlay, ShelfDragOverlay, GroupDragOverlay } from '../components/library/DragOverlayItem';
+import { Button } from '../components/ui/Button';
+import { Chip } from '../components/ui/Chip';
+import { EmptyState } from '../components/ui/EmptyState';
+import { SegmentedControl } from '../components/ui/SegmentedControl';
+import { Skeleton } from '../components/ui/Skeleton';
+import { Sheet } from '../components/ui/Sheet';
 
 /** Move an element in an array from one index to another, returning a new array. */
 function arrayMove<T>(arr: T[], from: number, to: number): T[] {
@@ -32,6 +44,8 @@ const PhysicalLibraryPage: React.FC = () => {
   const { isAuthenticated } = useAuth();
   const { isReadOnly } = useServerMode();
   const canEdit = isAuthenticated && !isReadOnly;
+  const confirm = useConfirm();
+  const { toast } = useToast();
 
   const [library, setLibrary] = useState<PhysicalLibrary | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -52,6 +66,9 @@ const PhysicalLibraryPage: React.FC = () => {
   const [formName, setFormName] = useState('');
   const [formDisplayName, setFormDisplayName] = useState('');
   const [formCapacity, setFormCapacity] = useState(10);
+  const [addShelfMode, setAddShelfMode] = useState<'single' | 'bulk'>('single');
+  const [bulkShelfCount, setBulkShelfCount] = useState(5);
+  const [isSubmittingShelves, setIsSubmittingShelves] = useState(false);
 
   // Library name editing
   const [isEditingLibraryName, setIsEditingLibraryName] = useState(false);
@@ -68,27 +85,54 @@ const PhysicalLibraryPage: React.FC = () => {
     group?: ShelfGroup;
   } | null>(null);
 
+  // Detail modal state
+  const [selectedDetailItem, setSelectedDetailItem] = useState<PhysicalItem | null>(null);
+  const [editingPhysicalItem, setEditingPhysicalItem] = useState<PhysicalItem | null>(null);
+
+  const handleItemClick = async (id: number) => {
+    try {
+      const item = await apiService.getPhysicalItemById(id);
+      setSelectedDetailItem(item);
+    } catch (err) {
+      console.error('Failed to load item details:', err);
+      toast({ message: 'Could not open item details. Please try again.', type: 'error' });
+    }
+  };
+
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: {
         distance: 8,
       },
+    }),
+    useSensor(TouchSensor, {
+      activationConstraint: {
+        delay: 200,
+        tolerance: 8,
+      },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
     })
   );
 
   const loadLibrary = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
     try {
       const data = await apiService.getLibrary();
       setLibrary(data);
       setLibraryDisplayName(data.display_name);
       setError(null);
     } catch (err) {
+      const message = 'Failed to load physical library';
       console.error('Failed to load library:', err);
-      setError('Failed to load physical library');
+      setError(message);
+      toast({ message, type: 'error', persistent: true });
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [toast]);
 
   useEffect(() => {
     loadLibrary();
@@ -312,10 +356,12 @@ const PhysicalLibraryPage: React.FC = () => {
         display_name: formDisplayName.trim(),
       });
       await loadLibrary();
+      toast({ message: 'Group created.', type: 'success' });
       setShowAddGroup(false);
       setFormName('');
       setFormDisplayName('');
     } catch (err) {
+      toast({ message: 'Failed to create group.', type: 'error' });
       console.error('Failed to create group:', err);
     }
   };
@@ -328,27 +374,38 @@ const PhysicalLibraryPage: React.FC = () => {
         name: formName.trim().toLowerCase().replace(/\s+/g, '_'),
       });
       await loadLibrary();
+      toast({ message: 'Group updated.', type: 'success' });
       setEditingGroup(null);
       setFormName('');
       setFormDisplayName('');
     } catch (err) {
+      toast({ message: 'Failed to update group.', type: 'error' });
       console.error('Failed to update group:', err);
     }
   };
 
-  const handleDeleteGroup = async (groupId: number) => {
-    if (!confirm('Delete this group? All shelves and item placements in this group will be removed. Items will become unassigned.')) return;
+  const handleDeleteGroup = async (group: ShelfGroup) => {
+    const confirmed = await confirm({
+      title: 'Delete group?',
+      message: `Delete "${group.display_name}"? All shelves and item placements in this group will be removed; items will become unassigned.`,
+      confirmLabel: 'Delete',
+      cancelLabel: 'Cancel',
+      variant: 'danger',
+    });
+    if (!confirmed) return;
     try {
-      await apiService.deleteShelfGroup(groupId);
+      await apiService.deleteShelfGroup(group.id);
       await loadLibrary();
       setUnassignedRefreshKey((k) => k + 1);
     } catch (err) {
+      toast({ message: 'Failed to delete group.', type: 'error' });
       console.error('Failed to delete group:', err);
     }
   };
 
   const handleAddShelf = async () => {
     if (showAddShelf === null || !formName.trim() || !formDisplayName.trim()) return;
+    setIsSubmittingShelves(true);
     try {
       await apiService.createShelf(showAddShelf, {
         name: formName.trim().toLowerCase().replace(/\s+/g, '_'),
@@ -356,12 +413,43 @@ const PhysicalLibraryPage: React.FC = () => {
         capacity_units: formCapacity,
       });
       await loadLibrary();
+      toast({ message: 'Shelf created.', type: 'success' });
       setShowAddShelf(null);
       setFormName('');
       setFormDisplayName('');
       setFormCapacity(10);
     } catch (err) {
+      toast({ message: 'Failed to create shelf.', type: 'error' });
       console.error('Failed to create shelf:', err);
+    } finally {
+      setIsSubmittingShelves(false);
+    }
+  };
+
+  const handleBulkAddShelves = async () => {
+    if (showAddShelf === null || bulkShelfCount < 1 || formCapacity < 1) return;
+    setIsSubmittingShelves(true);
+    try {
+      const count = Math.min(50, Math.max(1, bulkShelfCount));
+      await apiService.bulkCreateShelves(showAddShelf, {
+        count,
+        capacity_units: formCapacity,
+      });
+      await loadLibrary();
+      toast({
+        message: `Created ${count} ${count === 1 ? 'shelf' : 'shelves'}.`,
+        type: 'success',
+      });
+      setShowAddShelf(null);
+      setFormName('');
+      setFormDisplayName('');
+      setFormCapacity(10);
+      setBulkShelfCount(5);
+    } catch (err) {
+      toast({ message: 'Failed to create shelves.', type: 'error' });
+      console.error('Failed to bulk create shelves:', err);
+    } finally {
+      setIsSubmittingShelves(false);
     }
   };
 
@@ -374,22 +462,32 @@ const PhysicalLibraryPage: React.FC = () => {
         capacity_units: formCapacity,
       });
       await loadLibrary();
+      toast({ message: 'Shelf updated.', type: 'success' });
       setEditingShelf(null);
       setFormName('');
       setFormDisplayName('');
       setFormCapacity(10);
     } catch (err) {
+      toast({ message: 'Failed to update shelf.', type: 'error' });
       console.error('Failed to update shelf:', err);
     }
   };
 
-  const handleDeleteShelf = async (shelfId: number) => {
-    if (!confirm('Delete this shelf? Items on this shelf will become unassigned.')) return;
+  const handleDeleteShelf = async (shelf: Shelf) => {
+    const confirmed = await confirm({
+      title: 'Delete shelf?',
+      message: `Delete "${shelf.display_name}"? Items on this shelf will become unassigned.`,
+      confirmLabel: 'Delete',
+      cancelLabel: 'Cancel',
+      variant: 'danger',
+    });
+    if (!confirmed) return;
     try {
-      await apiService.deleteShelf(shelfId);
+      await apiService.deleteShelf(shelf.id);
       await loadLibrary();
       setUnassignedRefreshKey((k) => k + 1);
     } catch (err) {
+      toast({ message: 'Failed to delete shelf.', type: 'error' });
       console.error('Failed to delete shelf:', err);
     }
   };
@@ -400,6 +498,7 @@ const PhysicalLibraryPage: React.FC = () => {
       await loadLibrary();
       setUnassignedRefreshKey((k) => k + 1);
     } catch (err) {
+      toast({ message: 'Failed to remove item from shelf.', type: 'error' });
       console.error('Failed to remove placement:', err);
     }
   };
@@ -409,8 +508,10 @@ const PhysicalLibraryPage: React.FC = () => {
     try {
       await apiService.updateLibrary({ display_name: libraryDisplayName.trim() });
       await loadLibrary();
+      toast({ message: 'Library name updated.', type: 'success' });
       setIsEditingLibraryName(false);
     } catch (err) {
+      toast({ message: 'Failed to update library name.', type: 'error' });
       console.error('Failed to update library name:', err);
     }
   };
@@ -438,6 +539,8 @@ const PhysicalLibraryPage: React.FC = () => {
     setFormName('');
     setFormDisplayName('');
     setFormCapacity(10);
+    setAddShelfMode('single');
+    setBulkShelfCount(5);
     setShowAddShelf(groupId);
   };
 
@@ -452,24 +555,27 @@ const PhysicalLibraryPage: React.FC = () => {
   // =============================================
   if (isLoading) {
     return (
-      <div className="container mx-auto px-4 py-8">
-        <div className="flex items-center justify-center py-32">
-          <div className="text-center">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto mb-4" />
-            <p className="text-gray-600 dark:text-gray-300">Loading physical library...</p>
-          </div>
+      <main className="container mx-auto px-4 py-8">
+        <Skeleton className="mb-4 h-8 w-64 rounded-[--radius-control]" />
+        <Skeleton className="mb-6 h-4 w-40 rounded-[--radius-control]" />
+        <div className="space-y-4">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <Skeleton key={i} className="h-48 w-full rounded-[--radius-card]" />
+          ))}
         </div>
-      </div>
+      </main>
     );
   }
 
   if (error || !library) {
     return (
-      <div className="container mx-auto px-4 py-8">
-        <div className="text-center py-16">
-          <p className="text-red-600 dark:text-red-400">{error || 'Library not found'}</p>
-        </div>
-      </div>
+      <main className="container mx-auto px-4 py-8">
+        <EmptyState
+          title="Couldn’t load physical library"
+          description={error || 'Library not found'}
+          action={<Button onClick={() => loadLibrary()} variant="secondary">Try again</Button>}
+        />
+      </main>
     );
   }
 
@@ -530,18 +636,12 @@ const PhysicalLibraryPage: React.FC = () => {
 
             {canEdit && (
               <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setShowApplySort(true)}
-                  className="px-3 py-1.5 text-sm text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-                >
+                <Button onClick={() => setShowApplySort(true)} variant="secondary" size="sm">
                   Apply Sort
-                </button>
-                <button
-                  onClick={openAddGroup}
-                  className="px-3 py-1.5 text-sm bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
-                >
+                </Button>
+                <Button onClick={openAddGroup} size="sm">
                   Add Group
-                </button>
+                </Button>
               </div>
             )}
           </div>
@@ -549,27 +649,16 @@ const PhysicalLibraryPage: React.FC = () => {
 
         {/* Groups */}
         {library.groups.length === 0 ? (
-          <div className="text-center py-16 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700">
-            <div className="w-16 h-16 bg-gray-100 dark:bg-gray-700 rounded-lg flex items-center justify-center mx-auto mb-6">
-              <svg className="w-8 h-8 text-gray-400 dark:text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <EmptyState
+            title="No shelf groups yet"
+            description="Create a group to start organizing your physical media. Groups represent rooms or areas."
+            action={canEdit ? <Button onClick={openAddGroup}>Create your first group</Button> : undefined}
+            icon={
+              <svg className="h-8 w-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
               </svg>
-            </div>
-            <h3 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-2">
-              No Shelf Groups Yet
-            </h3>
-            <p className="text-gray-600 dark:text-gray-300 mb-6">
-              Create a group to start organizing your physical media. Groups represent rooms or areas.
-            </p>
-            {canEdit && (
-              <button
-                onClick={openAddGroup}
-                className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
-              >
-                Create Your First Group
-              </button>
-            )}
-          </div>
+            }
+          />
         ) : (
           <SortableContext
             items={library.groups.map(g => `group-${g.id}`)}
@@ -587,6 +676,7 @@ const PhysicalLibraryPage: React.FC = () => {
                   onEditShelf={openEditShelf}
                   onDeleteShelf={handleDeleteShelf}
                   onRemovePlacement={handleRemovePlacement}
+                  onItemClick={handleItemClick}
                   onSpineColorEdit={(itemId) => setEditingSpineColorItemId(itemId)}
                 />
               ))}
@@ -600,6 +690,7 @@ const PhysicalLibraryPage: React.FC = () => {
             isOpen={isUnassignedOpen}
             onToggle={() => setIsUnassignedOpen(!isUnassignedOpen)}
             refreshKey={unassignedRefreshKey}
+            onItemClick={handleItemClick}
           />
         )}
       </div>
@@ -628,119 +719,298 @@ const PhysicalLibraryPage: React.FC = () => {
           ============================================= */}
 
       {/* Add Group Modal */}
-      {showAddGroup && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/50" onClick={() => setShowAddGroup(false)} />
-          <div className="relative bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-md mx-4 p-6">
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Add Shelf Group</h3>
-            <div className="space-y-3">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Display Name</label>
-                <input
-                  type="text"
-                  value={formDisplayName}
-                  onChange={(e) => {
-                    setFormDisplayName(e.target.value);
-                    setFormName(e.target.value.toLowerCase().replace(/\s+/g, '_'));
-                  }}
-                  placeholder="e.g., Living Room"
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500"
-                  autoFocus
-                  onKeyDown={(e) => e.key === 'Enter' && handleAddGroup()}
-                />
-              </div>
-            </div>
-            <div className="flex justify-end gap-3 mt-6">
-              <button onClick={() => setShowAddGroup(false)} className="px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg">Cancel</button>
-              <button onClick={handleAddGroup} disabled={!formDisplayName.trim()} className="px-4 py-2 text-sm bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50">Create</button>
-            </div>
-          </div>
+      <Sheet
+        isOpen={showAddGroup}
+        onClose={() => setShowAddGroup(false)}
+        title="Add Shelf Group"
+        position="center"
+        size="md"
+      >
+        <div className="space-y-3">
+          <label className="block text-sm font-medium text-content-muted">Display Name</label>
+          <input
+            type="text"
+            value={formDisplayName}
+            onChange={(e) => {
+              setFormDisplayName(e.target.value);
+              setFormName(e.target.value.toLowerCase().replace(/\s+/g, '_'));
+            }}
+            placeholder="e.g., Living Room"
+            className="w-full rounded-[--radius-control] border border-subtle bg-surface px-3 py-2 text-content focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+            autoFocus
+            onKeyDown={(e) => e.key === 'Enter' && handleAddGroup()}
+          />
         </div>
-      )}
+        <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+          <Button variant="secondary" onClick={() => setShowAddGroup(false)}>Cancel</Button>
+          <Button onClick={handleAddGroup} disabled={!formDisplayName.trim()}>Create</Button>
+        </div>
+      </Sheet>
 
       {/* Edit Group Modal */}
-      {editingGroup && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/50" onClick={() => setEditingGroup(null)} />
-          <div className="relative bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-md mx-4 p-6">
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Edit Shelf Group</h3>
-            <div className="space-y-3">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Display Name</label>
-                <input
-                  type="text"
-                  value={formDisplayName}
-                  onChange={(e) => {
-                    setFormDisplayName(e.target.value);
-                    setFormName(e.target.value.toLowerCase().replace(/\s+/g, '_'));
-                  }}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500"
-                  autoFocus
-                  onKeyDown={(e) => e.key === 'Enter' && handleEditGroup()}
-                />
-              </div>
-            </div>
-            <div className="flex justify-end gap-3 mt-6">
-              <button onClick={() => setEditingGroup(null)} className="px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg">Cancel</button>
-              <button onClick={handleEditGroup} disabled={!formDisplayName.trim()} className="px-4 py-2 text-sm bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50">Save</button>
-            </div>
-          </div>
+      <Sheet
+        isOpen={!!editingGroup}
+        onClose={() => setEditingGroup(null)}
+        title="Edit Shelf Group"
+        position="center"
+        size="md"
+      >
+        <div className="space-y-3">
+          <label className="block text-sm font-medium text-content-muted">Display Name</label>
+          <input
+            type="text"
+            value={formDisplayName}
+            onChange={(e) => {
+              setFormDisplayName(e.target.value);
+              setFormName(e.target.value.toLowerCase().replace(/\s+/g, '_'));
+            }}
+            className="w-full rounded-[--radius-control] border border-subtle bg-surface px-3 py-2 text-content focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+            autoFocus
+            onKeyDown={(e) => e.key === 'Enter' && handleEditGroup()}
+          />
         </div>
-      )}
+        <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+          <Button variant="secondary" onClick={() => setEditingGroup(null)}>Cancel</Button>
+          <Button onClick={handleEditGroup} disabled={!formDisplayName.trim()}>Save</Button>
+        </div>
+      </Sheet>
 
       {/* Add Shelf Modal */}
-      {showAddShelf !== null && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/50" onClick={() => setShowAddShelf(null)} />
-          <div className="relative bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-md mx-4 p-6">
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Add Shelf</h3>
-            <div className="space-y-3">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Display Name</label>
-                <input
-                  type="text"
-                  value={formDisplayName}
-                  onChange={(e) => {
-                    setFormDisplayName(e.target.value);
-                    setFormName(e.target.value.toLowerCase().replace(/\s+/g, '_'));
-                  }}
-                  placeholder="e.g., Top Shelf"
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500"
-                  autoFocus
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Capacity (standard Blu-ray cases)
-                </label>
-                <div className="flex items-center gap-3">
-                  <input
-                    type="number"
-                    value={formCapacity}
-                    onChange={(e) => setFormCapacity(Math.max(1, parseInt(e.target.value) || 1))}
-                    min={1}
-                    className="w-24 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500"
-                  />
-                  <span className="text-sm text-gray-500 dark:text-gray-400">
-                    = {(formCapacity * STANDARD_UNIT_MM).toFixed(1)}mm
-                  </span>
+      {(() => {
+        const activeAddGroup = showAddShelf !== null
+          ? library.groups.find((g) => g.id === showAddShelf) ?? null
+          : null;
+        const existingNames = new Set(
+          (activeAddGroup?.shelves ?? []).map((s) => s.display_name.toLowerCase())
+        );
+        const previewNames: string[] = [];
+        if (activeAddGroup) {
+          let nextNum = activeAddGroup.shelves.length + 1;
+          const count = Math.min(50, Math.max(1, bulkShelfCount));
+          for (let i = 0; i < count; i++) {
+            let candidate = `${activeAddGroup.display_name} - Shelf ${nextNum}`;
+            while (existingNames.has(candidate.toLowerCase())) {
+              nextNum++;
+              candidate = `${activeAddGroup.display_name} - Shelf ${nextNum}`;
+            }
+            existingNames.add(candidate.toLowerCase());
+            previewNames.push(candidate);
+            nextNum++;
+          }
+        }
+        const firstPreviewName = previewNames[0] ?? 'Group - Shelf 1';
+        const lastPreviewName = previewNames[previewNames.length - 1] ?? firstPreviewName;
+
+        return (
+          <Sheet
+            isOpen={showAddShelf !== null}
+            onClose={() => setShowAddShelf(null)}
+            title={addShelfMode === 'bulk' ? 'Bulk Add Shelves' : 'Add Shelf'}
+            description={
+              activeAddGroup
+                ? `Adding to ${activeAddGroup.display_name}`
+                : undefined
+            }
+            position="center"
+            size="md"
+          >
+            <div className="space-y-5">
+              <SegmentedControl
+                name="Add shelf mode"
+                value={addShelfMode}
+                onChange={(val) => setAddShelfMode(val as 'single' | 'bulk')}
+                className="w-full"
+                options={[
+                  { value: 'single', label: 'Single Shelf' },
+                  { value: 'bulk', label: 'Bulk Add' },
+                ]}
+              />
+
+              {addShelfMode === 'single' ? (
+                <div className="space-y-4">
+                  <div>
+                    <label htmlFor="shelf-display-name" className="block text-sm font-medium text-content-muted mb-1">
+                      Display Name
+                    </label>
+                    <input
+                      id="shelf-display-name"
+                      type="text"
+                      value={formDisplayName}
+                      onChange={(e) => {
+                        setFormDisplayName(e.target.value);
+                        setFormName(e.target.value.toLowerCase().replace(/\s+/g, '_'));
+                      }}
+                      placeholder="e.g., Top Shelf"
+                      className="w-full rounded-[--radius-control] border border-subtle bg-surface px-3 py-2 text-content focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+                      autoFocus
+                      onKeyDown={(e) => e.key === 'Enter' && handleAddShelf()}
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="shelf-capacity-single" className="block text-sm font-medium text-content-muted mb-1">
+                      Capacity (standard Blu-ray cases)
+                    </label>
+                    <div className="flex items-center gap-3">
+                      <input
+                        id="shelf-capacity-single"
+                        type="number"
+                        value={formCapacity}
+                        onChange={(e) => setFormCapacity(Math.max(1, parseInt(e.target.value) || 1))}
+                        min={1}
+                        className="w-24 rounded-[--radius-control] border border-subtle bg-surface px-3 py-2 text-content focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+                      />
+                      <span className="text-sm text-content-muted">
+                        = {(formCapacity * STANDARD_UNIT_MM).toFixed(1)}mm
+                      </span>
+                    </div>
+                  </div>
                 </div>
-              </div>
+              ) : (
+                <div className="space-y-5">
+                  {/* Number of Shelves */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label htmlFor="bulk-shelf-count" className="block text-sm font-medium text-content">
+                        Number of Shelves
+                      </label>
+                      <span className="text-xs text-content-muted">Max 50 at once</span>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-3">
+                      <div className="inline-flex items-center rounded-[--radius-control] border border-subtle bg-surface">
+                        <button
+                          type="button"
+                          aria-label="Decrease shelf count"
+                          onClick={() => setBulkShelfCount((c) => Math.max(1, c - 1))}
+                          disabled={bulkShelfCount <= 1}
+                          className="px-3 py-2 text-content-muted hover:bg-surface-sunken hover:text-content disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                        >
+                          &minus;
+                        </button>
+                        <input
+                          id="bulk-shelf-count"
+                          type="number"
+                          min={1}
+                          max={50}
+                          value={bulkShelfCount}
+                          onChange={(e) =>
+                            setBulkShelfCount(Math.min(50, Math.max(1, parseInt(e.target.value) || 1)))
+                          }
+                          className="w-16 bg-transparent py-2 text-center font-semibold text-content focus:outline-none"
+                        />
+                        <button
+                          type="button"
+                          aria-label="Increase shelf count"
+                          onClick={() => setBulkShelfCount((c) => Math.min(50, c + 1))}
+                          disabled={bulkShelfCount >= 50}
+                          className="px-3 py-2 text-content-muted hover:bg-surface-sunken hover:text-content disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                        >
+                          +
+                        </button>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        {[3, 5, 6, 8, 10].map((preset) => (
+                          <Chip
+                            key={preset}
+                            label={`${preset}`}
+                            selected={bulkShelfCount === preset}
+                            onClick={() => setBulkShelfCount(preset)}
+                            className="px-2.5 py-1 text-xs"
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Shelf Width / Capacity */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label htmlFor="bulk-shelf-capacity" className="block text-sm font-medium text-content">
+                        Shelf Width (standard Blu-ray cases)
+                      </label>
+                      <span className="text-xs font-medium text-primary-600 dark:text-primary-400">
+                        {(formCapacity * STANDARD_UNIT_MM).toFixed(1)}mm ({((formCapacity * STANDARD_UNIT_MM) / 25.4).toFixed(1)}&Prime;) each
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-3">
+                      <input
+                        id="bulk-shelf-capacity"
+                        type="number"
+                        min={1}
+                        value={formCapacity}
+                        onChange={(e) => setFormCapacity(Math.max(1, parseInt(e.target.value) || 1))}
+                        className="w-24 rounded-[--radius-control] border border-subtle bg-surface px-3 py-2 font-semibold text-content focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+                      />
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        {[10, 20, 30, 50].map((preset) => (
+                          <Chip
+                            key={preset}
+                            label={`${preset} cases`}
+                            selected={formCapacity === preset}
+                            onClick={() => setFormCapacity(preset)}
+                            className="px-2.5 py-1 text-xs"
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Live Summary & Auto-naming Preview */}
+                  <div className="rounded-[--radius-control] border border-subtle bg-surface-sunken p-3.5 space-y-2">
+                    <div className="flex items-center justify-between text-xs font-medium text-content-muted uppercase tracking-wider">
+                      <span>Summary Preview</span>
+                      <span>
+                        {bulkShelfCount * formCapacity} total units ({(bulkShelfCount * formCapacity * STANDARD_UNIT_MM).toFixed(0)}mm)
+                      </span>
+                    </div>
+                    <div className="text-sm text-content">
+                      {bulkShelfCount === 1 ? (
+                        <span>
+                          Will create <span className="font-semibold">&ldquo;{firstPreviewName}&rdquo;</span>
+                        </span>
+                      ) : (
+                        <span>
+                          Will create <span className="font-semibold">{bulkShelfCount} shelves</span> named{' '}
+                          <span className="font-medium text-primary-600 dark:text-primary-400">
+                            &ldquo;{firstPreviewName}&rdquo;
+                          </span>{' '}
+                          through{' '}
+                          <span className="font-medium text-primary-600 dark:text-primary-400">
+                            &ldquo;{lastPreviewName}&rdquo;
+                          </span>
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-content-muted">
+                      Names are generated automatically so you can start organizing right away. You can rename any shelf later.
+                    </p>
+                  </div>
+                </div>
+              )}
             </div>
-            <div className="flex justify-end gap-3 mt-6">
-              <button onClick={() => setShowAddShelf(null)} className="px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg">Cancel</button>
-              <button
-                onClick={handleAddShelf}
-                disabled={!formDisplayName.trim()}
-                className="px-4 py-2 text-sm bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50"
-                onKeyDown={(e) => e.key === 'Enter' && handleAddShelf()}
-              >
-                Create
-              </button>
+
+            <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+              <Button variant="secondary" onClick={() => setShowAddShelf(null)} disabled={isSubmittingShelves}>
+                Cancel
+              </Button>
+              {addShelfMode === 'single' ? (
+                <Button
+                  onClick={handleAddShelf}
+                  disabled={!formDisplayName.trim() || isSubmittingShelves}
+                >
+                  Create Shelf
+                </Button>
+              ) : (
+                <Button
+                  onClick={handleBulkAddShelves}
+                  disabled={bulkShelfCount < 1 || formCapacity < 1 || isSubmittingShelves}
+                >
+                  {bulkShelfCount === 1 ? 'Create 1 Shelf' : `Create ${bulkShelfCount} Shelves`}
+                </Button>
+              )}
             </div>
-          </div>
-        </div>
-      )}
+          </Sheet>
+        );
+      })()}
 
       {/* Drag Overlay */}
       <DragOverlay dropAnimation={null}>
@@ -759,49 +1029,84 @@ const PhysicalLibraryPage: React.FC = () => {
       </DragOverlay>
 
       {/* Edit Shelf Modal */}
-      {editingShelf && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/50" onClick={() => setEditingShelf(null)} />
-          <div className="relative bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-md mx-4 p-6">
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Edit Shelf</h3>
-            <div className="space-y-3">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Display Name</label>
-                <input
-                  type="text"
-                  value={formDisplayName}
-                  onChange={(e) => {
-                    setFormDisplayName(e.target.value);
-                    setFormName(e.target.value.toLowerCase().replace(/\s+/g, '_'));
-                  }}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500"
-                  autoFocus
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Capacity (standard Blu-ray cases)
-                </label>
-                <div className="flex items-center gap-3">
-                  <input
-                    type="number"
-                    value={formCapacity}
-                    onChange={(e) => setFormCapacity(Math.max(1, parseInt(e.target.value) || 1))}
-                    min={1}
-                    className="w-24 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500"
-                  />
-                  <span className="text-sm text-gray-500 dark:text-gray-400">
-                    = {(formCapacity * STANDARD_UNIT_MM).toFixed(1)}mm
-                  </span>
-                </div>
-              </div>
-            </div>
-            <div className="flex justify-end gap-3 mt-6">
-              <button onClick={() => setEditingShelf(null)} className="px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg">Cancel</button>
-              <button onClick={handleEditShelf} disabled={!formDisplayName.trim()} className="px-4 py-2 text-sm bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50">Save</button>
+      <Sheet
+        isOpen={!!editingShelf}
+        onClose={() => setEditingShelf(null)}
+        title="Edit Shelf"
+        position="center"
+        size="md"
+      >
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-content-muted">Display Name</label>
+            <input
+              type="text"
+              value={formDisplayName}
+              onChange={(e) => {
+                setFormDisplayName(e.target.value);
+                setFormName(e.target.value.toLowerCase().replace(/\s+/g, '_'));
+              }}
+              className="w-full rounded-[--radius-control] border border-subtle bg-surface px-3 py-2 text-content focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+              autoFocus
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-content-muted">Capacity (standard Blu-ray cases)</label>
+            <div className="flex items-center gap-3">
+              <input
+                type="number"
+                value={formCapacity}
+                onChange={(e) => setFormCapacity(Math.max(1, parseInt(e.target.value) || 1))}
+                min={1}
+                className="w-24 rounded-[--radius-control] border border-subtle bg-surface px-3 py-2 text-content focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+              />
+              <span className="text-sm text-content-muted">= {(formCapacity * STANDARD_UNIT_MM).toFixed(1)}mm</span>
             </div>
           </div>
         </div>
+        <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+          <Button variant="secondary" onClick={() => setEditingShelf(null)}>Cancel</Button>
+          <Button onClick={handleEditShelf} disabled={!formDisplayName.trim()}>Save</Button>
+        </div>
+      </Sheet>
+
+      {/* Item Detail Modal */}
+      <MediaDetailModal
+        physicalItem={selectedDetailItem}
+        isOpen={!!selectedDetailItem}
+        onClose={() => setSelectedDetailItem(null)}
+        onEdit={
+          canEdit
+            ? (item) => {
+                setSelectedDetailItem(null);
+                setEditingPhysicalItem(item);
+              }
+            : undefined
+        }
+      />
+
+      {canEdit && (
+        <MediaForm
+          isOpen={!!editingPhysicalItem}
+          onClose={() => setEditingPhysicalItem(null)}
+          onSuccess={() => {
+            setEditingPhysicalItem(null);
+            loadLibrary();
+            setUnassignedRefreshKey((k) => k + 1);
+          }}
+          editItem={editingPhysicalItem}
+          onDelete={async (itemId) => {
+            try {
+              await apiService.deletePhysicalItem(itemId);
+              setEditingPhysicalItem(null);
+              loadLibrary();
+              setUnassignedRefreshKey((k) => k + 1);
+            } catch (err) {
+              console.error('Failed to delete physical item:', err);
+              toast({ message: 'Failed to delete item. Please try again.', type: 'error' });
+            }
+          }}
+        />
       )}
     </DndContext>
   );

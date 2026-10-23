@@ -1,100 +1,119 @@
-import React from 'react';
+import React, { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { CollectionStatistics as Stats } from '../types';
+import { PHYSICAL_FORMATS, formatBadgeClasses } from '../lib/formats';
+import { Skeleton } from './ui/Skeleton';
+import { Sheet } from './ui/Sheet';
+import { Button } from './ui/Button';
 
 interface CollectionStatisticsProps {
-  statistics: Stats;
+  statistics: Stats | null;
   isLoading: boolean;
 }
 
+const formatCount = (value: number) => value.toLocaleString();
+
+/**
+ * One-line collection summary with a "View breakdown" action that opens the
+ * full per-format breakdown in a Sheet. Keeps posters above the fold while
+ * leaving the detailed numbers one tap away.
+ */
 const CollectionStatistics: React.FC<CollectionStatisticsProps> = ({ statistics, isLoading }) => {
-  if (isLoading) {
+  const [isBreakdownOpen, setIsBreakdownOpen] = useState(false);
+
+  // Reserve the same vertical space while loading so the layout does not jump.
+  if (isLoading || !statistics) {
     return (
-      <div className="card mb-6 animate-pulse">
-        <div className="h-20 bg-gray-200 dark:bg-gray-700 rounded"></div>
+      <div className="flex h-10 items-center gap-3">
+        <Skeleton className="h-4 w-56 rounded-[--radius-control]" />
       </div>
     );
   }
 
-  // Format colors matching the MediaCard component
-  const formatColors: Record<string, { bg: string; text: string; count: string }> = {
-    '4K UHD': {
-      bg: 'bg-blue-100 dark:bg-blue-900',
-      text: 'text-blue-800 dark:text-blue-200',
-      count: 'text-blue-600 dark:text-blue-400'
-    },
-    'Blu-ray': {
-      bg: 'bg-green-100 dark:bg-green-900',
-      text: 'text-green-800 dark:text-green-200',
-      count: 'text-green-600 dark:text-green-400'
-    },
-    'DVD': {
-      bg: 'bg-orange-100 dark:bg-orange-900',
-      text: 'text-orange-800 dark:text-orange-200',
-      count: 'text-orange-600 dark:text-orange-400'
-    },
-    'LaserDisc': {
-      bg: 'bg-purple-100 dark:bg-purple-900',
-      text: 'text-purple-800 dark:text-purple-200',
-      count: 'text-purple-600 dark:text-purple-400'
-    },
-    'VHS': {
-      bg: 'bg-red-100 dark:bg-red-900',
-      text: 'text-red-800 dark:text-red-200',
-      count: 'text-red-600 dark:text-red-400'
-    },
-  };
+  const activeFormats = PHYSICAL_FORMATS.filter((format) => statistics.formatCounts[format] > 0);
 
-  const getFormatColors = (format: string) => formatColors[format] || {
-    bg: 'bg-gray-100 dark:bg-gray-700',
-    text: 'text-gray-800 dark:text-gray-200',
-    count: 'text-gray-600 dark:text-gray-400'
-  };
-
-  const formatOrder = ['4K UHD', 'Blu-ray', 'DVD', 'Digital-HD', 'Digital-SD', 'Digital-UHD', 'LaserDisc', 'VHS'];
-  const activeFormats = formatOrder.filter(format => statistics.formatCounts[format] > 0);
+  const summaryParts = [
+    `${formatCount(statistics.totalPhysicalItems)} items`,
+    `${formatCount(statistics.totalMovies)} movies`,
+  ];
+  if (statistics.totalTVSeasons > 0) {
+    summaryParts.push(`${formatCount(statistics.totalTVSeasons)} TV seasons`);
+  }
 
   return (
-    <div className="card mb-6">
-      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
-        {/* Total Physical Items */}
-        <div className="text-center p-4 rounded-lg bg-primary-50 dark:bg-primary-900/20">
-          <div className="text-2xl font-bold text-primary-600 dark:text-primary-400">
-            {statistics.totalPhysicalItems}
+    <div className="flex h-10 flex-wrap items-center gap-x-3 gap-y-1">
+      <p className="text-sm text-content-muted">{summaryParts.join(' · ')}</p>
+      {activeFormats.length > 0 && (
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => setIsBreakdownOpen(true)}
+          aria-haspopup="dialog"
+        >
+          View breakdown
+        </Button>
+      )}
+      <Button asChild variant="ghost" size="sm">
+        <Link to="/statistics">Full statistics</Link>
+      </Button>
+
+      <Sheet
+        isOpen={isBreakdownOpen}
+        onClose={() => setIsBreakdownOpen(false)}
+        title="Collection breakdown"
+        description="Totals by media type and physical format."
+        position="bottom"
+        size="lg"
+      >
+        <div className="grid grid-cols-2 gap-3 pb-2 sm:grid-cols-3 md:grid-cols-4">
+          <div className="flex flex-col items-center rounded-[--radius-card] bg-primary-50 p-4 text-center dark:bg-primary-900/20">
+            <span className="text-2xl font-bold text-primary-600 dark:text-primary-400">
+              {formatCount(statistics.totalPhysicalItems)}
+            </span>
+            <span className="mt-1 text-sm font-medium text-primary-700 dark:text-primary-300">
+              Physical Items
+            </span>
           </div>
-          <div className="text-sm text-primary-700 dark:text-primary-300">Physical Items</div>
+
+          <div className="flex flex-col items-center rounded-[--radius-card] bg-primary-50 p-4 text-center dark:bg-primary-900/20">
+            <span className="text-2xl font-bold text-primary-600 dark:text-primary-400">
+              {formatCount(statistics.totalMovies)}
+            </span>
+            <span className="mt-1 text-sm font-medium text-primary-700 dark:text-primary-300">
+              Movies
+            </span>
+          </div>
+
+          {statistics.totalTVSeasons > 0 && (
+            <div className="flex flex-col items-center rounded-[--radius-card] bg-purple-50 p-4 text-center dark:bg-purple-900/20">
+              <span className="text-2xl font-bold text-purple-600 dark:text-purple-400">
+                {formatCount(statistics.totalTVSeasons)}
+              </span>
+              <span className="mt-1 text-sm font-medium text-purple-700 dark:text-purple-300">
+                TV Seasons
+              </span>
+            </div>
+          )}
+
+          {activeFormats.map((format) => (
+            <div
+              key={format}
+              className={`flex flex-col items-center rounded-[--radius-card] p-4 text-center ${
+                formatBadgeClasses[format] ?? 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200'
+              }`}
+            >
+              <span className="text-2xl font-bold">{formatCount(statistics.formatCounts[format])}</span>
+              <span className="mt-1 text-sm font-medium">{format}</span>
+            </div>
+          ))}
         </div>
 
-        {/* Total Movies */}
-        <div className="text-center p-4 rounded-lg bg-primary-50 dark:bg-primary-900/20">
-          <div className="text-2xl font-bold text-primary-600 dark:text-primary-400">
-            {statistics.totalMovies}
-          </div>
-          <div className="text-sm text-primary-700 dark:text-primary-300">Movies</div>
+        <div className="mt-4 flex justify-end border-t border-subtle pt-3">
+          <Button asChild variant="secondary" size="sm" onClick={() => setIsBreakdownOpen(false)}>
+            <Link to="/statistics">View full statistics →</Link>
+          </Button>
         </div>
-
-        {/* Total TV Seasons */}
-        {statistics.totalTVSeasons > 0 && (
-          <div className="text-center p-4 rounded-lg bg-purple-50 dark:bg-purple-900/20">
-            <div className="text-2xl font-bold text-purple-600 dark:text-purple-400">
-              {statistics.totalTVSeasons}
-            </div>
-            <div className="text-sm text-purple-700 dark:text-purple-300">TV Seasons</div>
-          </div>
-        )}
-
-        {/* Format Counts - Only show formats with items */}
-        {activeFormats.map((format) => {
-          const { bg, text, count } = getFormatColors(format);
-          return (
-            <div key={format} className={`text-center p-4 rounded-lg ${bg}`}>
-              <div className={`text-2xl font-bold ${count}`}>
-                {statistics.formatCounts[format]}
-              </div>
-              <div className={`text-sm font-medium ${text}`}>{format}</div>
-            </div>
-          );
-        })}
-      </div>
+      </Sheet>
     </div>
   );
 };

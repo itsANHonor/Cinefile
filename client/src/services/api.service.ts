@@ -18,6 +18,8 @@ import {
   BulkPhysicalItemDto,
   BulkCreatePhysicalItemsResponse,
   CollectionStatistics,
+  CollectionDashboardStatistics,
+  CollectionFacets,
   PhysicalLibrary,
   ShelfGroup,
   Shelf,
@@ -25,6 +27,7 @@ import {
   CreateShelfGroupDto,
   UpdateShelfGroupDto,
   CreateShelfDto,
+  BulkCreateShelvesDto,
   UpdateShelfDto,
   ApplySortPreview,
 } from '../types';
@@ -224,7 +227,11 @@ class ApiService {
       if (filterOptions.decades && filterOptions.decades.length > 0) {
         params.decades = filterOptions.decades.join(',');
       }
+      if (filterOptions.editions && filterOptions.editions.length > 0) {
+        params.editions = filterOptions.editions.join(',');
+      }
       if (filterOptions.media_type && filterOptions.media_type !== 'all') params.media_type = filterOptions.media_type;
+      if (filterOptions.archived) params.archived = 'true';
       if (filterOptions.sort_by) params.sort_by = filterOptions.sort_by;
       if (filterOptions.sort_order) params.sort_order = filterOptions.sort_order;
       if (filterOptions.search) params.search = filterOptions.search;
@@ -374,7 +381,9 @@ class ApiService {
     format?: string | string[];
     genres?: number[];
     decades?: string[];
+    editions?: string[];
     search?: string;
+    archived?: boolean;
   }): Promise<CollectionStatistics> {
     const params: any = {};
     if (filters) {
@@ -392,11 +401,22 @@ class ApiService {
       if (filters.decades && filters.decades.length > 0) {
         params.decades = filters.decades.join(',');
       }
+      if (filters.editions && filters.editions.length > 0) {
+        params.editions = filters.editions.join(',');
+      }
       if (filters.search) {
         params.search = filters.search;
       }
+      if (filters.archived) {
+        params.archived = 'true';
+      }
     }
     const response = await this.api.get<CollectionStatistics>('/statistics', { params });
+    return response.data;
+  }
+
+  async getDashboardStatistics(): Promise<CollectionDashboardStatistics> {
+    const response = await this.api.get<CollectionDashboardStatistics>('/statistics/dashboard');
     return response.data;
   }
 
@@ -408,6 +428,15 @@ class ApiService {
 
   async getBulkMetadataStatus(jobId: string): Promise<any> {
     const response = await this.api.get(`/media/bulk-metadata/${jobId}`);
+    return response.data;
+  }
+
+  // =============================================
+  // Facets
+  // =============================================
+
+  async getFacets(): Promise<CollectionFacets> {
+    const response = await this.api.get<CollectionFacets>('/statistics/facets');
     return response.data;
   }
 
@@ -457,6 +486,11 @@ class ApiService {
 
   async createShelf(groupId: number, data: CreateShelfDto): Promise<Shelf> {
     const response = await this.api.post<Shelf>(`/library/groups/${groupId}/shelves`, data);
+    return response.data;
+  }
+
+  async bulkCreateShelves(groupId: number, data: BulkCreateShelvesDto): Promise<Shelf[]> {
+    const response = await this.api.post<Shelf[]>(`/library/groups/${groupId}/shelves/bulk`, data);
     return response.data;
   }
 

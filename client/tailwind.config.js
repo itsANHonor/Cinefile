@@ -9,17 +9,41 @@ export default {
     extend: {
       colors: {
         primary: {
-          50: '#eff6ff',
-          100: '#dbeafe',
-          200: '#bfdbfe',
-          300: '#93c5fd',
-          400: '#60a5fa',
-          500: '#3b82f6',
-          600: '#2563eb',
-          700: '#1d4ed8',
-          800: '#1e40af',
-          900: '#1e3a8a',
+          50: '#f0f7f7',
+          100: '#dbeded',
+          200: '#b9dbdb',
+          300: '#8cc1c1',
+          400: '#5aa2a2',
+          500: '#3d8585',
+          600: '#2d5a5a',
+          700: '#274b4b',
+          800: '#223e3e',
+          900: '#1e3434',
+          950: '#0f1e1e',
         },
+        surface: 'rgb(var(--surface) / <alpha-value>)',
+        'surface-raised': 'rgb(var(--surface-raised) / <alpha-value>)',
+        'surface-sunken': 'rgb(var(--surface-sunken) / <alpha-value>)',
+        content: 'rgb(var(--text) / <alpha-value>)',
+        'content-muted': 'rgb(var(--text-muted) / <alpha-value>)',
+        ring: 'rgb(var(--ring) / <alpha-value>)',
+      },
+      borderColor: {
+        subtle: 'rgb(var(--border-subtle) / <alpha-value>)',
+      },
+      spacing: {
+        'safe-b': 'env(safe-area-inset-bottom, 0px)',
+        'header': 'var(--header-h)',
+        'tabbar': 'var(--tabbar-h)',
+      },
+      minHeight: {
+        touch: '2.75rem',
+      },
+      minWidth: {
+        touch: '2.75rem',
+      },
+      screens: {
+        xs: '400px',
       },
       animation: {
         'fade-in': 'fadeIn 0.5s ease-in-out',

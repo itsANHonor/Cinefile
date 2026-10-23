@@ -457,6 +457,58 @@ class TMDbService {
     if (!credits?.cast) return [];
     return credits.cast.slice(0, limit).map((actor) => actor.name);
   }
+
+  /**
+   * Search for a person (director/actor) on TMDb and return their profile image URL
+   */
+  async searchPerson(
+    name: string
+  ): Promise<{ id: number; name: string; profileUrl: string | null } | null> {
+    const trimmed = name.trim();
+    if (!trimmed) return null;
+
+    this.log(`Searching person: "${trimmed}"`);
+    try {
+      const response = await this.makeRequest(() =>
+        axios.get(`${TMDB_BASE_URL}/search/person`, {
+          params: {
+            api_key: this.apiKey,
+            query: trimmed,
+            page: 1,
+            include_adult: false,
+          },
+        })
+      );
+
+      const results: Array<{
+        id: number;
+        name: string;
+        profile_path: string | null;
+        popularity?: number;
+      }> = response.data?.results || [];
+
+      if (results.length === 0) {
+        return null;
+      }
+
+      const lowerQuery = trimmed.toLowerCase();
+      const exactWithPhoto = results.find(
+        (p) => p.name?.trim().toLowerCase() === lowerQuery && Boolean(p.profile_path)
+      );
+      const exactMatch = results.find((p) => p.name?.trim().toLowerCase() === lowerQuery);
+      const firstWithPhoto = results.find((p) => Boolean(p.profile_path));
+      const best = exactWithPhoto || exactMatch || firstWithPhoto || results[0];
+
+      return {
+        id: best.id,
+        name: best.name || trimmed,
+        profileUrl: this.getImageUrl(best.profile_path, 'w500'),
+      };
+    } catch (error) {
+      this.log(`Person search error for "${trimmed}": ${error}`, 'warn');
+      return null;
+    }
+  }
 }
 
 export const tmdbService = new TMDbService();

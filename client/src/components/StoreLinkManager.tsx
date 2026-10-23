@@ -197,7 +197,7 @@ const StoreLinkManager: React.FC<StoreLinkManagerProps> = ({ links, onChange, di
                 value={newLink.label}
                 onChange={(e) => handleLabelChange(e.target.value)}
                 disabled={disabled}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded-lg focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
               >
                 <option value="">Select a label...</option>
                 {COMMON_LABELS.map(label => (
@@ -211,7 +211,7 @@ const StoreLinkManager: React.FC<StoreLinkManagerProps> = ({ links, onChange, di
                   onChange={(e) => handleCustomLabelChange(e.target.value)}
                   disabled={disabled}
                   placeholder="Enter custom label..."
-                  className="mt-2 w-full px-3 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  className="mt-2 w-full px-3 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded-lg focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
                 />
               )}
             </div>
@@ -225,7 +225,7 @@ const StoreLinkManager: React.FC<StoreLinkManagerProps> = ({ links, onChange, di
                 onChange={(e) => setNewLink({ ...newLink, url: e.target.value })}
                 disabled={disabled}
                 placeholder="https://example.com"
-                className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 ${
+                className={`w-full px-3 py-2 border rounded-lg focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface ${
                   errors.url 
                     ? 'border-red-300 dark:border-red-600 bg-red-50 dark:bg-red-900/20' 
                     : 'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700'
@@ -256,7 +256,7 @@ const StoreLinkManager: React.FC<StoreLinkManagerProps> = ({ links, onChange, di
                 value={newLink.label}
                 onChange={(e) => handleLabelChange(e.target.value)}
                 disabled={disabled}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded-lg focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
               >
                 <option value="">Select a label...</option>
                 {COMMON_LABELS.map(label => (
@@ -270,7 +270,7 @@ const StoreLinkManager: React.FC<StoreLinkManagerProps> = ({ links, onChange, di
                   onChange={(e) => handleCustomLabelChange(e.target.value)}
                   disabled={disabled}
                   placeholder="Enter custom label..."
-                  className="mt-2 w-full px-3 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  className="mt-2 w-full px-3 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded-lg focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
                 />
               )}
               {errors.label && (
@@ -287,7 +287,7 @@ const StoreLinkManager: React.FC<StoreLinkManagerProps> = ({ links, onChange, di
                 onChange={(e) => setNewLink({ ...newLink, url: e.target.value })}
                 disabled={disabled}
                 placeholder="https://example.com"
-                className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 ${
+                className={`w-full px-3 py-2 border rounded-lg focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface ${
                   errors.url 
                     ? 'border-red-300 dark:border-red-600 bg-red-50 dark:bg-red-900/20' 
                     : 'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700'

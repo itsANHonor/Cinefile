@@ -1,37 +1,50 @@
+@import './design/tokens.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 @layer base {
   html {
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-      'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   }
-  
+
   body {
-    @apply bg-gray-50 text-gray-900 dark:bg-gray-900 dark:text-gray-100;
+    background-color: rgb(var(--surface));
+    color: rgb(var(--text));
     transition: background-color 0.3s ease, color 0.3s ease;
+  }
+
+  /* Token-driven focus ring for all keyboard-focused elements. */
+  :focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px rgb(var(--ring-offset)), 0 0 0 4px rgb(var(--ring));
+  }
+
+  /* Remove the default browser outline on elements that already get our ring. */
+  :focus:not(:focus-visible) {
+    outline: none;
   }
 }
 
 @layer components {
   .btn-primary {
-    @apply bg-primary-600 hover:bg-primary-700 text-white font-medium py-2 px-4 rounded-lg transition-colors duration-200;
+    @apply bg-primary-600 hover:bg-primary-700 text-white font-medium py-2 px-4 rounded-[--radius-control] transition-colors duration-200;
   }
-  
+
   .btn-secondary {
-    @apply bg-gray-200 hover:bg-gray-300 text-gray-800 dark:bg-gray-700 dark:hover:bg-gray-600 dark:text-gray-100 font-medium py-2 px-4 rounded-lg transition-colors duration-200;
+    @apply bg-gray-200 hover:bg-gray-300 text-gray-800 dark:bg-gray-700 dark:hover:bg-gray-600 dark:text-gray-100 font-medium py-2 px-4 rounded-[--radius-control] transition-colors duration-200;
   }
-  
+
   .card {
-    @apply bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6 transition-colors duration-200;
+    @apply bg-surface text-content rounded-[--radius-card] shadow-[--shadow-card] border border-subtle p-6 transition-colors duration-200 dark:bg-surface-raised;
   }
-  
+
   /* Sidebar layout classes */
   .sidebar-expanded {
     @apply lg:pl-64;
   }
-  
+
   .sidebar-collapsed {
     @apply lg:pl-16;
   }
@@ -50,5 +63,25 @@
   to {
     opacity: 1;
     transform: translateY(0);
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes sheetIn {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
   }
 }

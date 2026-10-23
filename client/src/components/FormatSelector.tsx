@@ -1,4 +1,6 @@
 import React, { useState } from 'react';
+import { useToast } from '../context/ToastContext';
+import { PHYSICAL_FORMATS } from '../lib/formats';
 
 interface FormatSelectorProps {
   isOpen: boolean;
@@ -16,8 +18,9 @@ const FormatSelector: React.FC<FormatSelectorProps> = ({
   initialFormats = [] 
 }) => {
   const [selectedFormats, setSelectedFormats] = useState<string[]>(initialFormats);
+  const { toast } = useToast();
 
-  const availableFormats = ['4K UHD', '3D Blu-ray', 'Blu-ray', 'DVD', 'Digital-HD', 'Digital-SD', 'Digital-UHD', 'LaserDisc', 'VHS'];
+  const availableFormats = PHYSICAL_FORMATS;
 
   const handleFormatToggle = (format: string) => {
     setSelectedFormats(prev => 
@@ -29,7 +32,7 @@ const FormatSelector: React.FC<FormatSelectorProps> = ({
 
   const handleConfirm = () => {
     if (selectedFormats.length === 0) {
-      alert('Please select at least one format.');
+      toast({ message: 'Please select at least one format.', type: 'warning' });
       return;
     }
     onConfirm(selectedFormats);

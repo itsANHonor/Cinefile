@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
+import { useToast } from '../context/ToastContext';
+import { useConfirm } from '../context/ConfirmContext';
 import Logo from '../components/Logo';
 import { PhysicalItem, SortField, SortOrder } from '../types';
 import { apiService } from '../services/api.service';
@@ -9,6 +11,7 @@ import MediaForm from '../components/MediaForm';
 import SeriesManager from '../components/SeriesManager';
 import BulkAddForm from '../components/BulkAddForm';
 import AdminConsole from '../components/AdminConsole';
+import { SegmentedControl } from '../components/ui/SegmentedControl';
 
 type AdminTab = 'media' | 'series' | 'settings' | 'console';
 
@@ -36,6 +39,9 @@ const AdminPage: React.FC = () => {
   const [importMode, setImportMode] = useState<'add' | 'replace'>('add');
   const [showImportSchema, setShowImportSchema] = useState(false);
   const [importSchema, setImportSchema] = useState<any>(null);
+
+  const { toast } = useToast();
+  const confirm = useConfirm();
 
   useEffect(() => {
     if (isAuthenticated) {
@@ -85,7 +91,7 @@ const AdminPage: React.FC = () => {
       setIsPublic(!isPublic);
     } catch (error) {
       console.error('Failed to update settings:', error);
-      alert('Failed to update settings. Please try again.');
+      toast({ message: 'Failed to update settings. Please try again.', type: 'error' });
     } finally {
       setIsSavingSettings(false);
     }
@@ -99,7 +105,7 @@ const AdminPage: React.FC = () => {
       setTheme(newTheme);
     } catch (error) {
       console.error('Failed to update theme:', error);
-      alert('Failed to update theme. Please try again.');
+      toast({ message: 'Failed to update theme. Please try again.', type: 'error' });
     } finally {
       setIsSavingSettings(false);
     }
@@ -116,7 +122,7 @@ const AdminPage: React.FC = () => {
       setDefaultSortOrder(order);
     } catch (error) {
       console.error('Failed to update sort settings:', error);
-      alert('Failed to update sort settings. Please try again.');
+      toast({ message: 'Failed to update sort settings. Please try again.', type: 'error' });
     } finally {
       setIsSavingSettings(false);
     }
@@ -129,7 +135,7 @@ const AdminPage: React.FC = () => {
       setCollectionTitle(newTitle);
     } catch (error) {
       console.error('Failed to update collection title:', error);
-      alert('Failed to update collection title. Please try again.');
+      toast({ message: 'Failed to update collection title. Please try again.', type: 'error' });
     } finally {
       setIsSavingSettings(false);
     }
@@ -150,7 +156,7 @@ const AdminPage: React.FC = () => {
       window.URL.revokeObjectURL(url);
     } catch (error) {
       console.error('Failed to export collection:', error);
-      alert('Failed to export collection. Please try again.');
+      toast({ message: 'Failed to export collection. Please try again.', type: 'error' });
     } finally {
       setIsExporting(false);
     }
@@ -163,13 +169,15 @@ const AdminPage: React.FC = () => {
     setIsImporting(true);
     try {
       const text = await file.text();
-      
+
       // Validate first
       const validation = await apiService.validateCSV(text);
-      
+
       if (!validation.valid) {
-        const errorMessage = validation.errors.map((e: any) => `Row ${e.row}: ${e.error}`).join('\n');
-        alert(`CSV validation failed:\n\n${errorMessage}`);
+        toast({
+          message: `CSV validation failed. ${validation.errors.length} row(s) have errors.`,
+          type: 'error',
+        });
         setIsImporting(false);
         return;
       }
@@ -177,7 +185,12 @@ const AdminPage: React.FC = () => {
       // Show warnings if any
       if (validation.warnings && validation.warnings.length > 0) {
         const warningMessage = validation.warnings.map((w: any) => `Row ${w.row}: ${w.warning}`).join('\n');
-        const proceed = confirm(`CSV has warnings:\n\n${warningMessage}\n\nDo you want to proceed with import?`);
+        const proceed = await confirm({
+          title: 'CSV warnings',
+          message: `CSV has warnings:\n\n${warningMessage}\n\nDo you want to proceed with import?`,
+          confirmLabel: 'Proceed',
+          cancelLabel: 'Cancel',
+        });
         if (!proceed) {
           setIsImporting(false);
           return;
@@ -187,24 +200,34 @@ const AdminPage: React.FC = () => {
       // Confirm import
       const modeText = importMode === 'replace' ? 'REPLACE your entire collection' : 'ADD to your collection';
       const confirmMessage = `Import ${validation.total_rows} items and ${modeText}?\n\n${importMode === 'replace' ? 'WARNING: This will DELETE all existing items!' : ''}`;
-      
-      if (!confirm(confirmMessage)) {
+
+      const shouldImport = await confirm({
+        title: 'Confirm import',
+        message: confirmMessage,
+        confirmLabel: 'Import',
+        cancelLabel: 'Cancel',
+        variant: 'danger',
+      });
+      if (!shouldImport) {
         setIsImporting(false);
         return;
       }
 
       // Import
       const result = await apiService.importCollection(text, importMode);
-      
+
       if (result.success) {
-        alert(`Import completed!\n\nSuccessful: ${result.results.successful}\nFailed: ${result.results.failed}`);
+        toast({
+          message: `Import completed! Successful: ${result.results.successful}, Failed: ${result.results.failed}`,
+          type: 'success',
+        });
         await loadData(); // Reload the collection
       } else {
-        alert('Import failed. Please check your CSV file and try again.');
+        toast({ message: 'Import failed. Please check your CSV file and try again.', type: 'error' });
       }
     } catch (error) {
       console.error('Failed to import collection:', error);
-      alert('Failed to import collection. Please try again.');
+      toast({ message: 'Failed to import collection. Please try again.', type: 'error' });
     } finally {
       setIsImporting(false);
       // Reset file input
@@ -219,6 +242,7 @@ const AdminPage: React.FC = () => {
         setImportSchema(schema);
       } catch (error) {
         console.error('Failed to load schema:', error);
+        toast({ message: 'Failed to load CSV schema. Please try again.', type: 'error' });
       }
     }
     setShowImportSchema(!showImportSchema);
@@ -244,15 +268,19 @@ const AdminPage: React.FC = () => {
                   Password
                 </label>
                 <input
+                  id="admin-password"
                   type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded-lg focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
                   placeholder="Enter admin password"
+                  autoComplete="current-password"
+                  aria-describedby={loginError ? 'admin-password-error' : undefined}
+                  aria-invalid={loginError ? 'true' : 'false'}
                   autoFocus
                 />
                 {loginError && (
-                  <p className="mt-2 text-sm text-red-600 dark:text-red-400">{loginError}</p>
+                  <p id="admin-password-error" className="mt-2 text-sm text-red-600 dark:text-red-400" aria-live="polite">{loginError}</p>
                 )}
               </div>
 
@@ -309,47 +337,18 @@ const AdminPage: React.FC = () => {
       </div>
 
       {/* Tabs */}
-      <div className="flex border-b border-gray-200 dark:border-gray-700 mb-8">
-        <button
-          onClick={() => setActiveTab('media')}
-          className={`px-6 py-3 font-medium text-sm border-b-2 transition-colors ${
-            activeTab === 'media'
-              ? 'border-primary-600 text-primary-600'
-              : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
-          }`}
-        >
-          Media Collection
-        </button>
-        <button
-          onClick={() => setActiveTab('series')}
-          className={`px-6 py-3 font-medium text-sm border-b-2 transition-colors ${
-            activeTab === 'series'
-              ? 'border-primary-600 text-primary-600'
-              : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
-          }`}
-        >
-          Series
-        </button>
-        <button
-          onClick={() => setActiveTab('settings')}
-          className={`px-6 py-3 font-medium text-sm border-b-2 transition-colors ${
-            activeTab === 'settings'
-              ? 'border-primary-600 text-primary-600'
-              : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
-          }`}
-        >
-          Settings
-        </button>
-        <button
-          onClick={() => setActiveTab('console')}
-          className={`px-6 py-3 font-medium text-sm border-b-2 transition-colors ${
-            activeTab === 'console'
-              ? 'border-primary-600 text-primary-600'
-              : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
-          }`}
-        >
-          Console
-        </button>
+      <div className="mb-8 overflow-x-auto">
+        <SegmentedControl
+          name="Admin tabs"
+          options={[
+            { value: 'media', label: 'Media Collection' },
+            { value: 'series', label: 'Series' },
+            { value: 'settings', label: 'Settings' },
+            { value: 'console', label: 'Console' },
+          ]}
+          value={activeTab}
+          onChange={(value) => setActiveTab(value as AdminTab)}
+        />
       </div>
 
       {/* Media Tab */}
@@ -544,7 +543,7 @@ const AdminPage: React.FC = () => {
                   onBlur={() => handleCollectionTitleChange(collectionTitle)}
                   disabled={isSavingSettings}
                   placeholder="Media Collection"
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
                 />
                 <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
                   e.g., "Alex's Bluray Bonanza" or "My Movie Collection"
@@ -627,7 +626,7 @@ const AdminPage: React.FC = () => {
                     value={defaultSortBy}
                     onChange={(e) => handleSortChange(e.target.value as SortField, defaultSortOrder)}
                     disabled={isSavingSettings}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
                   >
                     <option value="title">Title</option>
                     <option value="series_sort">Series</option>
@@ -644,7 +643,7 @@ const AdminPage: React.FC = () => {
                     value={defaultSortOrder}
                     onChange={(e) => handleSortChange(defaultSortBy, e.target.value as SortOrder)}
                     disabled={isSavingSettings}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
                   >
                     <option value="asc">Ascending (A-Z, 0-9)</option>
                     <option value="desc">Descending (Z-A, 9-0)</option>

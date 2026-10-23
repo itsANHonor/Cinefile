@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { db } from '../database';
+import { applyEditionTagFilter } from '../utils/edition-tags.util';
 
 const router = Router();
 
@@ -37,12 +38,15 @@ interface PhysicalItemWithMedia {
  */
 router.get('/', async (req: Request, res: Response) => {
   try {
-    const { format, genres, decades, sort_by = 'created_at', sort_order = 'desc', search, media_type, page = '1', limit = '24' } = req.query;
+    const { format, genres, decades, editions, edition, sort_by = 'created_at', sort_order = 'desc', search, media_type, page = '1', limit = '24' } = req.query;
 
     // Start with base query - fetch physical items WITHOUT joins first
     // This ensures all items are returned, then we'll filter and attach media separately
     let query = db('physical_items')
-      .select('physical_items.*');
+      .select('physical_items.*')
+      .where(function() {
+        this.where('physical_items.archived', 0).orWhereNull('physical_items.archived');
+      });
 
     // Filter by media_type if specified (include physical item if ANY linked media matches)
     if (media_type && typeof media_type === 'string' && media_type !== 'all') {
@@ -147,6 +151,11 @@ router.get('/', async (req: Request, res: Response) => {
       }
     }
 
+    // Filter by edition tags if specified (multi-select: comma-separated tags)
+    if (editions || edition) {
+      query = applyEditionTagFilter(query, editions || edition);
+    }
+
     // Search functionality
     if (search && typeof search === 'string' && search.trim() !== '') {
       const searchTerm = `%${search.trim()}%`;
@@ -207,7 +216,10 @@ router.get('/', async (req: Request, res: Response) => {
     }
 
     // Get total count for pagination - use same filters but without joins
-    let countQuery = db('physical_items');
+    let countQuery = db('physical_items')
+      .where(function() {
+        this.where('physical_items.archived', 0).orWhereNull('physical_items.archived');
+      });
 
     // Apply the same filters as the main query
     if (media_type && typeof media_type === 'string' && media_type !== 'all') {
@@ -308,6 +320,11 @@ router.get('/', async (req: Request, res: Response) => {
           });
         });
       }
+    }
+
+    // Filter by edition tags in count query
+    if (editions || edition) {
+      countQuery = applyEditionTagFilter(countQuery, editions || edition);
     }
 
     if (search && typeof search === 'string' && search.trim() !== '') {
@@ -480,8 +497,10 @@ router.get('/', async (req: Request, res: Response) => {
         media,
       };
       
-      // Remove notes_public from response (public users don't need to see this flag)
+      // Remove notes_public and archive fields from response (public users don't need to see these)
       delete (cleanedItem as any).notes_public;
+      delete (cleanedItem as any).archived;
+      delete (cleanedItem as any).archive_reason;
 
       return cleanedItem;
     });
@@ -647,7 +666,7 @@ router.get('/:id', async (req: Request, res: Response) => {
 
     const physicalItem = await db('physical_items').where('id', id).first();
 
-    if (!physicalItem) {
+    if (!physicalItem || physicalItem.archived) {
       return res.status(404).json({ error: 'Physical item not found' });
     }
 
@@ -678,8 +697,10 @@ router.get('/:id', async (req: Request, res: Response) => {
       media,
     };
     
-    // Remove notes_public from response (public users don't need to see this flag)
+    // Remove notes_public and archive fields from response (public users don't need to see these)
     delete (result as any).notes_public;
+    delete (result as any).archived;
+    delete (result as any).archive_reason;
 
     res.json(result);
   } catch (error) {

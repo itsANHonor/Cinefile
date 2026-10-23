@@ -17,6 +17,7 @@ services:
       - TMDB_API_KEY=0f528f7dffac88d3c425f144e4409e73
       - ADMIN_PASSWORD=peckpeck
       - SESSION_SECRET=change_me_to_a_long_random_secret
+      - MCP_API_KEY=${MCP_API_KEY:-cinefile_dev_mcp_key}
       - DATABASE_PATH=/data/database.sqlite
       - UPLOAD_DIR=/data/uploads
       - ALLOWED_ORIGIN=http://localhost:3005

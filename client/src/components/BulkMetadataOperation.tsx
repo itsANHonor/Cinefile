@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { apiService } from '../services/api.service';
+import { useToast } from '../context/ToastContext';
 
 interface JobState {
   jobId: string;
@@ -23,6 +24,7 @@ const BulkMetadataOperation: React.FC<BulkMetadataOperationProps> = ({ onComplet
   const [isRunning, setIsRunning] = useState(false);
   const [jobState, setJobState] = useState<JobState | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const { toast } = useToast();
 
   useEffect(() => {
     return () => {
@@ -44,7 +46,7 @@ const BulkMetadataOperation: React.FC<BulkMetadataOperationProps> = ({ onComplet
       
       // If no jobId, it means there are no movies to update
       if (!result.jobId) {
-        alert(result.message || 'No movies found with missing metadata. All movies appear to have complete metadata.');
+        toast({ message: result.message || 'No movies found with missing metadata. All movies appear to have complete metadata.', type: 'info' });
         setIsRunning(false);
         return;
       }
@@ -150,7 +152,10 @@ const BulkMetadataOperation: React.FC<BulkMetadataOperationProps> = ({ onComplet
       readStream();
     } catch (error: any) {
       console.error('[BulkMetadata] Failed to start bulk metadata operation:', error);
-      alert(error.message || error.response?.data?.error || 'Failed to start bulk metadata operation');
+      toast({
+        message: error.message || error.response?.data?.error || 'Failed to start bulk metadata operation',
+        type: 'error',
+      });
       setIsRunning(false);
     }
   };

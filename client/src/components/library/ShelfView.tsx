@@ -3,6 +3,7 @@ import { useDroppable, useDndContext } from '@dnd-kit/core';
 import { SortableContext, horizontalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { Shelf, ShelfPlacement, STANDARD_UNIT_MM } from '../../types';
+import { IconButton } from '../ui/IconButton';
 
 const DEFAULT_SPINE_BG = 'rgba(30, 64, 175, 0.65)';
 const DEFAULT_SPINE_SOLID = '#1e40af';
@@ -36,7 +37,7 @@ interface ShelfViewProps {
   shelf: Shelf;
   isEditMode: boolean;
   onEditShelf?: (shelf: Shelf) => void;
-  onDeleteShelf?: (shelfId: number) => void;
+  onDeleteShelf?: (shelf: Shelf) => void;
   onRemovePlacement?: (placementId: number) => void;
   onItemClick?: (physicalItemId: number) => void;
   onSpineColorEdit?: (physicalItemId: number) => void;
@@ -95,7 +96,7 @@ const SortableShelfItem: React.FC<{
     <div
       ref={setNodeRef}
       style={{ ...style, width: `${spineWidth}px`, height: '260px', zIndex: isHovered ? 20 : 1 }}
-      className={`relative flex-shrink-0 ${isDragging ? 'z-50' : ''}`}
+      className={`relative flex-shrink-0 ${isEditMode ? 'cursor-grab active:cursor-grabbing touch-none' : ''} ${isDragging ? 'z-50' : ''}`}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
       onContextMenu={handleContextMenu}
@@ -103,9 +104,18 @@ const SortableShelfItem: React.FC<{
     >
       {/* Spine (default state) — layered: poster art, frosted overlay, vertical text */}
       <div
-        className="h-full w-full overflow-hidden border-r border-black/10 dark:border-white/10 cursor-pointer relative"
+        role="button"
+        tabIndex={0}
+        aria-label={`Open details for ${item.name}`}
+        className="h-full w-full overflow-hidden border-r border-black/10 dark:border-white/10 cursor-pointer relative focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
         style={{ backgroundColor: !coverUrl ? spineColor : undefined }}
         onClick={() => onClick?.(item.id)}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            onClick?.(item.id);
+          }
+        }}
         title={`${item.name}${thickness > 1 ? ` (${thickness} units)` : ''}`}
       >
         {/* Bottom layer: poster art (if available) */}
@@ -201,17 +211,20 @@ const SortableShelfItem: React.FC<{
       )}
 
       {/* Remove button */}
-      {isEditMode && isHovered && onRemove && (
-        <button
+      {isEditMode && onRemove && (
+        <IconButton
+          size="sm"
+          variant="danger"
+          aria-label={`Remove ${item.name} from shelf`}
           onClick={(e) => {
             e.stopPropagation();
             onRemove(placement.id);
           }}
-          className="absolute -top-2 -right-2 w-5 h-5 bg-red-500 text-white rounded-full text-[10px] leading-none flex items-center justify-center hover:bg-red-600 z-40 shadow-md"
+          className="absolute -top-2 -right-2 z-40 h-6 w-6 rounded-full p-0 opacity-0 shadow-md transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
           title="Remove from shelf"
         >
-          &times;
-        </button>
+          <span aria-hidden="true">&times;</span>
+        </IconButton>
       )}
     </div>
   );
@@ -303,14 +316,16 @@ const ShelfView: React.FC<ShelfViewProps> = ({
         <div className="flex items-center gap-2">
           {/* Drag handle for shelf reordering */}
           {isEditMode && (
-            <div
+            <button
+              type="button"
               {...shelfAttributes}
               {...shelfListeners}
-              className="cursor-grab active:cursor-grabbing text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 p-0.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+              className="cursor-grab active:cursor-grabbing touch-none rounded p-0.5 text-content-muted hover:bg-surface-sunken hover:text-content focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               title="Drag to reorder shelf"
+              aria-label={`Drag to reorder ${shelf.display_name}`}
             >
-              <GripIcon className="w-3.5 h-3.5" />
-            </div>
+              <GripIcon className="h-3.5 w-3.5" />
+            </button>
           )}
           <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300">
             {shelf.display_name}
@@ -329,24 +344,29 @@ const ShelfView: React.FC<ShelfViewProps> = ({
 
         {isEditMode && (
           <div className="flex items-center gap-1">
-            <button
+            <IconButton
+              size="sm"
+              variant="ghost"
+              aria-label={`Edit ${shelf.display_name}`}
               onClick={() => onEditShelf?.(shelf)}
-              className="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
               title="Edit shelf"
             >
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
               </svg>
-            </button>
-            <button
-              onClick={() => onDeleteShelf?.(shelf.id)}
-              className="p-1 text-gray-400 hover:text-red-500 transition-colors"
+            </IconButton>
+            <IconButton
+              size="sm"
+              variant="ghost"
+              aria-label={`Delete ${shelf.display_name}`}
+              onClick={() => onDeleteShelf?.(shelf)}
               title="Delete shelf"
+              className="hover:text-red-600"
             >
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
               </svg>
-            </button>
+            </IconButton>
           </div>
         )}
       </div>

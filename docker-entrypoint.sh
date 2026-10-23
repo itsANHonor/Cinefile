@@ -98,6 +98,12 @@ if [ -z "$SESSION_SECRET" ]; then
     echo "   The full admin API will exit on startup without it."
 fi
 
+if [ -n "$MCP_API_KEY" ]; then
+    echo "🤖 MCP Server Endpoint: ENABLED on Admin Port (/api/mcp)"
+else
+    echo "🤖 MCP Server Endpoint: DISABLED (set MCP_API_KEY to enable)"
+fi
+
 # Run database migrations with safety checks
 echo ""
 echo "🗄️  Running database migrations..."

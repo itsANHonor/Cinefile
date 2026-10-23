@@ -4,12 +4,16 @@ import { PhysicalItem, PhysicalFormat, SortField, SortOrder, CollectionStatistic
 import { apiService } from '../services/api.service';
 import { useAuth } from '../context/AuthContext';
 import { useServerMode } from '../context/ServerModeContext';
+import { useFacets, resetFacetsCache } from '../hooks/useFacets';
+import { useCollectionParams } from '../hooks/useCollectionParams';
+import { useToast } from '../context/ToastContext';
 import MediaGrid from '../components/MediaGrid';
-import FilterBar from '../components/FilterBar';
+import CollectionToolbar from '../components/CollectionToolbar';
 import MediaDetailModal from '../components/MediaDetailModal';
 import MediaForm from '../components/MediaForm';
 import CollectionStatistics from '../components/CollectionStatistics';
-import StickyHeader from '../components/StickyHeader';
+import { Button } from '../components/ui/Button';
+import { EmptyState } from '../components/ui/EmptyState';
 
 const SESSION_SORT_BY_KEY = 'collection_sort_by';
 const SESSION_SORT_ORDER_KEY = 'collection_sort_order';
@@ -24,25 +28,37 @@ const CollectionPage: React.FC = () => {
   const [physicalItems, setPhysicalItems] = useState<PhysicalItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isInitialLoad, setIsInitialLoad] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
+  const [announcement, setAnnouncement] = useState('');
   const [selectedItem, setSelectedItem] = useState<PhysicalItem | null>(null);
   const [isInitialized, setIsInitialized] = useState(false);
   const [collectionTitle, setCollectionTitle] = useState('Media Collection');
+  const { toast } = useToast();
   
-  // Filter state
-  const [format, setFormat] = useState<PhysicalFormat | PhysicalFormat[]>('all');
-  const [selectedGenres, setSelectedGenres] = useState<number[]>([]);
-  const [selectedDecades, setSelectedDecades] = useState<string[]>([]);
-  const [mediaType, setMediaType] = useState<'all' | 'movie' | 'tv_season'>('all');
-  const [sortBy, setSortBy] = useState<SortField>('title');
-  const [sortOrder, setSortOrder] = useState<SortOrder>('asc');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
+  // Default sort (from admin settings / legacy session storage), used until the URL specifies one
+  const [defaultSort, setDefaultSort] = useState<{ sortBy: SortField; sortOrder: SortOrder }>({
+    sortBy: 'title',
+    sortOrder: 'asc',
+  });
+
+  // URL-driven filter/sort/search state
+  const { params, setParams, clearAll } = useCollectionParams({
+    defaultSortBy: defaultSort.sortBy,
+    defaultSortOrder: defaultSort.sortOrder,
+  });
+
+  // Raw search box value, debounced into the URL `q` param
+  const [searchInput, setSearchInput] = useState(params.q);
   
   // Infinite scroll state
   const [currentPage, setCurrentPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [totalCount, setTotalCount] = useState(0);
+  
+  // Facet data (genres / decades from the whole collection)
+  const { facets } = useFacets();
   
   // Admin edit state
   const [showEditForm, setShowEditForm] = useState(false);
@@ -51,9 +67,6 @@ const CollectionPage: React.FC = () => {
   // Statistics state
   const [statistics, setStatistics] = useState<Stats | null>(null);
   const [isLoadingStats, setIsLoadingStats] = useState(true);
-  
-  // Scroll detection state
-  const [isScrolled, setIsScrolled] = useState(false);
   
   // Ref for canceling in-flight statistics requests
   const statsAbortControllerRef = useRef<AbortController | null>(null);
@@ -71,16 +84,20 @@ const CollectionPage: React.FC = () => {
           // Admin user: use server-side default sort settings
           const adminSortBy = (settings.default_sort_by as SortField) || 'created_at';
           const adminSortOrder = (settings.default_sort_order as SortOrder) || 'desc';
-          setSortBy(adminSortBy);
-          setSortOrder(adminSortOrder);
+          setDefaultSort({ sortBy: adminSortBy, sortOrder: adminSortOrder });
         } else {
-          // Public user: check session storage, default to title ascending
+          // Public user: migrate legacy session storage sort preference (one-time),
+          // but only if the URL doesn't already specify a sort.
           const savedSortBy = sessionStorage.getItem(SESSION_SORT_BY_KEY) as SortField | null;
           const savedSortOrder = sessionStorage.getItem(SESSION_SORT_ORDER_KEY) as SortOrder | null;
-          
+
           if (savedSortBy && savedSortOrder) {
-            setSortBy(savedSortBy);
-            setSortOrder(savedSortOrder);
+            const hasUrlSort = new URLSearchParams(window.location.search).has('sort');
+            if (!hasUrlSort) {
+              setDefaultSort({ sortBy: savedSortBy, sortOrder: savedSortOrder });
+            }
+            sessionStorage.removeItem(SESSION_SORT_BY_KEY);
+            sessionStorage.removeItem(SESSION_SORT_ORDER_KEY);
           }
           // else: keep default 'title' and 'asc' from state initialization
         }
@@ -93,20 +110,44 @@ const CollectionPage: React.FC = () => {
     initializeSettings();
   }, [canEdit]);
 
-  // Debounce search query to prevent API calls on every keystroke
+  // Keep the search box in sync with the URL when it changes externally
+  // (e.g. browser back/forward navigation or clearing all filters).
+  useEffect(() => {
+    setSearchInput((current) => (current === params.q ? current : params.q));
+  }, [params.q]);
+
+  // Debounce search input to prevent API calls (and URL updates) on every keystroke
   useEffect(() => {
     const timeoutId = setTimeout(() => {
-      setDebouncedSearchQuery(searchQuery);
+      if (searchInput !== params.q) {
+        setParams({ q: searchInput });
+      }
     }, 300); // 300ms delay
 
     return () => clearTimeout(timeoutId);
-  }, [searchQuery]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchInput]);
 
   useEffect(() => {
     if (isInitialized) {
+      setLoadError(null);
+      setLoadMoreError(null);
       loadInitialData();
     }
-  }, [format, selectedGenres, selectedDecades, mediaType, sortBy, sortOrder, debouncedSearchQuery, isInitialized]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    params.q,
+    params.formats,
+    params.genres,
+    params.decades,
+    params.editions,
+    params.type,
+    params.archived,
+    params.sortBy,
+    params.sortOrder,
+    canEdit,
+    isInitialized,
+  ]);
 
   // Load statistics on mount and when filters change (debounced)
   useEffect(() => {
@@ -123,15 +164,16 @@ const CollectionPage: React.FC = () => {
       setIsLoadingStats(true);
       try {
         // Prepare filter values
-        const formatValue: PhysicalFormat | PhysicalFormat[] | undefined = Array.isArray(format) 
-          ? (format.length === 0 ? undefined : format)
-          : (format === 'all' ? undefined : format);
-        
+        const formatValue: PhysicalFormat | PhysicalFormat[] | undefined =
+          params.formats.length === 0 ? undefined : params.formats;
+
         const stats = await apiService.getStatistics({
           format: formatValue,
-          genres: selectedGenres.length > 0 ? selectedGenres : undefined,
-          decades: selectedDecades.length > 0 ? selectedDecades : undefined,
-          search: debouncedSearchQuery || undefined,
+          genres: params.genres.length > 0 ? params.genres : undefined,
+          decades: params.decades.length > 0 ? params.decades : undefined,
+          editions: params.editions.length > 0 ? params.editions : undefined,
+          search: params.q || undefined,
+          archived: canEdit && params.archived ? true : undefined,
         });
         
         // Only update if request wasn't aborted
@@ -159,24 +201,25 @@ const CollectionPage: React.FC = () => {
       clearTimeout(timeoutId);
       abortController.abort();
     };
-  }, [format, selectedGenres, selectedDecades, debouncedSearchQuery]);
+  }, [params.formats, params.genres, params.decades, params.editions, params.q, params.archived, canEdit]);
 
   const loadInitialData = async () => {
     setIsLoading(true);
+    setLoadError(null);
     try {
-      // Load physical items with filters
-      const formatValue: PhysicalFormat | PhysicalFormat[] | undefined = Array.isArray(format) 
-        ? (format.length === 0 ? undefined : format)
-        : (format === 'all' ? undefined : format);
-      
+      const formatValue: PhysicalFormat | PhysicalFormat[] | undefined =
+        params.formats.length === 0 ? undefined : params.formats;
+
       const response = await apiService.getPhysicalItems({
         format: formatValue,
-        genres: selectedGenres.length > 0 ? selectedGenres : undefined,
-        decades: selectedDecades.length > 0 ? selectedDecades : undefined,
-        media_type: mediaType !== 'all' ? mediaType : undefined,
-        sort_by: sortBy,
-        sort_order: sortOrder,
-        search: debouncedSearchQuery || undefined,
+        genres: params.genres.length > 0 ? params.genres : undefined,
+        decades: params.decades.length > 0 ? params.decades : undefined,
+        editions: params.editions.length > 0 ? params.editions : undefined,
+        media_type: params.type !== 'all' ? params.type : undefined,
+        archived: canEdit && params.archived ? true : undefined,
+        sort_by: params.sortBy,
+        sort_order: params.sortOrder,
+        search: params.q || undefined,
         page: 1,
         limit: 50,
       });
@@ -184,105 +227,90 @@ const CollectionPage: React.FC = () => {
       setCurrentPage(1);
       setHasMore(response.pagination.hasNext);
       setTotalCount(response.pagination.total);
+      setAnnouncement(`Showing ${response.pagination.total} results`);
     } catch (error) {
+      const message = 'Failed to load collection. Please try again.';
+      setLoadError(message);
+      toast({ message, type: 'error', persistent: true });
       console.error('Failed to load collection:', error);
     } finally {
       setIsLoading(false);
-      setIsInitialLoad(false); // Mark initial load complete
+      setIsInitialLoad(false);
     }
   };
 
   const loadMoreItems = useCallback(async () => {
     if (isLoadingMore || !hasMore) return;
-    
+
     setIsLoadingMore(true);
+    setLoadMoreError(null);
     try {
       const nextPage = currentPage + 1;
-      const formatValue: PhysicalFormat | PhysicalFormat[] | undefined = Array.isArray(format) 
-        ? (format.length === 0 ? undefined : format)
-        : (format === 'all' ? undefined : format);
-      
+      const formatValue: PhysicalFormat | PhysicalFormat[] | undefined =
+        params.formats.length === 0 ? undefined : params.formats;
+
       const response = await apiService.getPhysicalItems({
         format: formatValue,
-        genres: selectedGenres.length > 0 ? selectedGenres : undefined,
-        decades: selectedDecades.length > 0 ? selectedDecades : undefined,
-        media_type: mediaType !== 'all' ? mediaType : undefined,
-        sort_by: sortBy,
-        sort_order: sortOrder,
-        search: debouncedSearchQuery || undefined,
+        genres: params.genres.length > 0 ? params.genres : undefined,
+        decades: params.decades.length > 0 ? params.decades : undefined,
+        editions: params.editions.length > 0 ? params.editions : undefined,
+        media_type: params.type !== 'all' ? params.type : undefined,
+        archived: canEdit && params.archived ? true : undefined,
+        sort_by: params.sortBy,
+        sort_order: params.sortOrder,
+        search: params.q || undefined,
         page: nextPage,
         limit: 50,
       });
-      
-      setPhysicalItems(prev => [...prev, ...response.items]);
+
+      setPhysicalItems((prev) => [...prev, ...response.items]);
       setCurrentPage(nextPage);
       setHasMore(response.pagination.hasNext);
     } catch (error) {
+      const message = 'Failed to load more items. Please try again.';
+      setLoadMoreError(message);
       console.error('Failed to load more items:', error);
     } finally {
       setIsLoadingMore(false);
     }
-  }, [isLoadingMore, hasMore, currentPage, format, selectedGenres, selectedDecades, mediaType, sortBy, sortOrder, debouncedSearchQuery]);
-
-  const handleSortChange = (newSortBy: SortField, newSortOrder: SortOrder) => {
-    setSortBy(newSortBy);
-    setSortOrder(newSortOrder);
-    
-    // Save to session storage for public users
-    if (!canEdit) {
-      sessionStorage.setItem(SESSION_SORT_BY_KEY, newSortBy);
-      sessionStorage.setItem(SESSION_SORT_ORDER_KEY, newSortOrder);
-    }
-  };
+  }, [
+    isLoadingMore,
+    hasMore,
+    currentPage,
+    params.formats,
+    params.genres,
+    params.decades,
+    params.editions,
+    params.type,
+    params.archived,
+    canEdit,
+    params.sortBy,
+    params.sortOrder,
+    params.q,
+  ]);
 
   const handleSearchChange = (query: string) => {
-    setSearchQuery(query);
+    setSearchInput(query);
   };
 
   const handleClearFilters = () => {
-    setFormat('all');
-    setSelectedGenres([]);
-    setSelectedDecades([]);
-    setMediaType('all');
-    setSearchQuery('');
-    // Reset to default sort for public users
-    if (!canEdit) {
-      setSortBy('title');
-      setSortOrder('asc');
-    }
+    setSearchInput('');
+    clearAll();
   };
 
-  // Extract available genres and decades from collection
-  const availableGenres = React.useMemo(() => {
-    const genreMap = new Map<number, { id: number; name: string }>();
-    physicalItems.forEach(item => {
-      item.media.forEach(media => {
-        if (media.genres) {
-          media.genres.forEach(genre => {
-            if (!genreMap.has(genre.id)) {
-              genreMap.set(genre.id, genre);
-            }
-          });
-        }
-      });
-    });
-    return Array.from(genreMap.values()).sort((a, b) => a.name.localeCompare(b.name));
-  }, [physicalItems]);
+  // Available genres, decades, and edition tags come from server-side facets
+  const availableGenres = React.useMemo(() => facets?.genres ?? [], [facets]);
+  const availableDecades = React.useMemo(
+    () => (facets?.decades ?? []).map((d) => d.decade),
+    [facets]
+  );
+  const availableEditions = React.useMemo(() => facets?.editions ?? [], [facets]);
 
-  const availableDecades = React.useMemo(() => {
-    const decadeSet = new Set<string>();
-    physicalItems.forEach(item => {
-      item.media.forEach(media => {
-        if (media.release_date) {
-          const year = new Date(media.release_date).getFullYear();
-          const decade = Math.floor(year / 10) * 10;
-          decadeSet.add(decade.toString());
-        }
-      });
-    });
-    return Array.from(decadeSet).sort((a, b) => parseInt(a) - parseInt(b));
-  }, [physicalItems]);
 
+  const handleAddItem = () => {
+    setEditingItem(null);
+    setShowEditForm(true);
+  };
 
   const handleEditItem = (item: PhysicalItem) => {
     setEditingItem(item);
@@ -292,12 +320,32 @@ const CollectionPage: React.FC = () => {
   const handleDeleteItem = async (itemId: number) => {
     try {
       await apiService.deletePhysicalItem(itemId);
+      resetFacetsCache();
       // Reload data to refresh the list
       await loadInitialData();
       refreshStatistics(); // Refresh statistics
     } catch (error) {
       console.error('Failed to delete physical item:', error);
-      alert('Failed to delete item. Please try again.');
+      toast({ message: 'Failed to delete item. Please try again.', type: 'error' });
+    }
+  };
+
+  const handleArchiveItem = async (itemId: number, archived: boolean, archiveReason: string | null) => {
+    try {
+      await apiService.updatePhysicalItem(itemId, {
+        archived,
+        archive_reason: archived ? archiveReason : null,
+      });
+      resetFacetsCache();
+      toast({
+        message: archived ? 'Item archived.' : 'Item returned to collection.',
+        type: 'success',
+      });
+      await loadInitialData();
+      refreshStatistics();
+    } catch (error) {
+      console.error('Failed to update archive state:', error);
+      toast({ message: 'Failed to update archive status. Please try again.', type: 'error' });
     }
   };
 
@@ -313,15 +361,16 @@ const CollectionPage: React.FC = () => {
     try {
       setIsLoadingStats(true);
       // Prepare filter values
-      const formatValue: PhysicalFormat | PhysicalFormat[] | undefined = Array.isArray(format) 
-        ? (format.length === 0 ? undefined : format)
-        : (format === 'all' ? undefined : format);
-      
+      const formatValue: PhysicalFormat | PhysicalFormat[] | undefined =
+        params.formats.length === 0 ? undefined : params.formats;
+
       const stats = await apiService.getStatistics({
         format: formatValue,
-        genres: selectedGenres.length > 0 ? selectedGenres : undefined,
-        decades: selectedDecades.length > 0 ? selectedDecades : undefined,
-        search: debouncedSearchQuery || undefined,
+        genres: params.genres.length > 0 ? params.genres : undefined,
+        decades: params.decades.length > 0 ? params.decades : undefined,
+        editions: params.editions.length > 0 ? params.editions : undefined,
+        search: params.q || undefined,
+        archived: canEdit && params.archived ? true : undefined,
       });
       
       if (!abortController.signal.aborted) {
@@ -344,34 +393,6 @@ const CollectionPage: React.FC = () => {
     loadInitialData(); // Reload data to show changes
     refreshStatistics(); // Refresh statistics
   };
-
-  // Scroll detection for sticky header
-  useEffect(() => {
-    const handleScroll = () => {
-      const scrollThreshold = 100; // Start sticking after 100px scroll
-      setIsScrolled(window.scrollY > scrollThreshold);
-    };
-
-    // Throttle scroll events - runs immediately and then at most every 16ms
-    let isThrottled = false;
-    const throttledHandleScroll = () => {
-      if (!isThrottled) {
-        handleScroll();
-        isThrottled = true;
-        setTimeout(() => {
-          isThrottled = false;
-        }, 16); // ~60fps
-      }
-    };
-
-    window.addEventListener('scroll', throttledHandleScroll);
-    // Check initial scroll position
-    handleScroll();
-    
-    return () => {
-      window.removeEventListener('scroll', throttledHandleScroll);
-    };
-  }, []);
 
   // Infinite scroll effect
   useEffect(() => {
@@ -400,186 +421,199 @@ const CollectionPage: React.FC = () => {
     };
   }, [isLoading, isLoadingMore, hasMore, loadMoreItems]);
 
-  if (isLoading && isInitialLoad) {
-    return (
-      <div className="container mx-auto px-4 py-8">
-        <div className="flex items-center justify-center py-32">
-          <div className="text-center">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto mb-4"></div>
-            <p className="text-gray-600 dark:text-gray-300">Loading collection...</p>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  const showSkeletons = physicalItems.length === 0 && (isLoading || isInitialLoad);
+  const isEmptyCollection =
+    totalCount === 0 &&
+    !params.q &&
+    params.formats.length === 0 &&
+    params.genres.length === 0 &&
+    params.decades.length === 0 &&
+    params.editions.length === 0 &&
+    params.type === 'all' &&
+    !params.archived &&
+    !isLoading;
+  const isNoResults = physicalItems.length === 0 && !isLoading && !loadError && !isEmptyCollection;
 
   return (
-    <div className="container mx-auto px-4 py-8">
-      {/* Sticky Header - Only shows when scrolled */}
-      {isScrolled && (
-        <StickyHeader
-          statistics={statistics}
-          isLoadingStats={isLoadingStats}
-          searchQuery={searchQuery}
-          format={format}
-          sortBy={sortBy}
-          sortOrder={sortOrder}
-          selectedGenres={selectedGenres}
-          selectedDecades={selectedDecades}
-          availableGenres={availableGenres}
-          availableDecades={availableDecades}
-          mediaType={mediaType}
-          onSearchChange={handleSearchChange}
-          onFormatChange={setFormat}
-          onSortChange={handleSortChange}
-          onGenresChange={setSelectedGenres}
-          onDecadesChange={setSelectedDecades}
-          onMediaTypeChange={setMediaType}
-          onClearFilters={handleClearFilters}
-        />
-      )}
-
-      {/* Header */}
-      <div className="mb-8">
-        <div className="flex items-center justify-between mb-2">
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100">{collectionTitle}</h1>
-          {/* View toggle */}
-          <div className="flex items-center bg-gray-100 dark:bg-gray-700 rounded-lg p-0.5">
-            <button
-              className="px-3 py-1.5 text-sm font-medium rounded-md bg-white dark:bg-gray-600 text-gray-900 dark:text-gray-100 shadow-sm"
-              disabled
-            >
-              Virtual
-            </button>
-            <button
-              onClick={() => navigate('/library')}
-              className="px-3 py-1.5 text-sm font-medium rounded-md text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 transition-colors"
-            >
-              Physical
-            </button>
-          </div>
-        </div>
+    <main className="container mx-auto px-4 py-6 sm:py-8">
+      {/* Live region for collection status announcements */}
+      <div aria-live="polite" aria-atomic="true" className="sr-only">
+        {announcement}
       </div>
 
-      {/* Statistics */}
-      {statistics && (
-        <CollectionStatistics 
-          statistics={statistics} 
-          isLoading={isLoadingStats}
-        />
-      )}
-
-      {/* Filter Bar */}
-      <FilterBar
-        format={format}
-        sortBy={sortBy}
-        sortOrder={sortOrder}
-        searchQuery={searchQuery}
-        selectedGenres={selectedGenres}
-        selectedDecades={selectedDecades}
+      <CollectionToolbar
+        params={params}
+        setParams={setParams}
+        clearAll={clearAll}
+        searchInput={searchInput}
+        onSearchChange={handleSearchChange}
         availableGenres={availableGenres}
         availableDecades={availableDecades}
-        mediaType={mediaType}
-        onFormatChange={setFormat}
-        onGenresChange={setSelectedGenres}
-        onDecadesChange={setSelectedDecades}
-        onSortChange={handleSortChange}
-        onSearchChange={handleSearchChange}
-        onMediaTypeChange={setMediaType}
-        onClearFilters={handleClearFilters}
+        availableEditions={availableEditions}
+        resultCount={totalCount}
+        isLoading={isLoading}
+        showArchivedFilter={canEdit}
       />
 
-      {/* Media Grid or Empty State */}
-      <div className="relative">
-        {isLoading && !isInitialLoad && (
-          <div className="absolute inset-0 bg-white/50 dark:bg-gray-900/50 backdrop-blur-sm z-10 flex items-center justify-center rounded-lg">
-            <div className="flex items-center gap-2 text-gray-600 dark:text-gray-300">
-              <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary-600"></div>
-              <span>Searching...</span>
-            </div>
-          </div>
-        )}
-        
-        {physicalItems.length === 0 ? (
-        <div className="card text-center py-16">
-          <div className="w-16 h-16 bg-gray-100 dark:bg-gray-700 rounded-lg flex items-center justify-center mx-auto mb-6">
-            <svg className="w-8 h-8 text-gray-400 dark:text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <rect width="18" height="18" x="3" y="3" rx="2"/>
-              <path d="M7 3v18"/>
-              <path d="M3 7.5h4"/>
-              <path d="M3 12h18"/>
-              <path d="M3 16.5h4"/>
-              <path d="M17 3v18"/>
-              <path d="M17 7.5h4"/>
-              <path d="M17 16.5h4"/>
-            </svg>
-          </div>
-          
-          {/* Check if this is truly empty collection or filtered results */}
-          {totalCount === 0 && !debouncedSearchQuery && format === 'all' ? (
-            // Truly empty collection
-            <>
-              <h3 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-2">No Media Found</h3>
-              <p className="text-gray-600 dark:text-gray-300 mb-6">
-                Start building your collection by adding your first movie or TV show
-              </p>
-              {canEdit && (
-                <a href="/admin" className="btn-primary inline-block">
-                  Add Your First Item
-                </a>
-              )}
-            </>
-          ) : (
-            // Zero results from search/filters
-            <>
-              <h3 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-2">No Results Found</h3>
-              <p className="text-gray-600 dark:text-gray-300 mb-6">
-                {debouncedSearchQuery 
-                  ? `No items match "${debouncedSearchQuery}". Try adjusting your search or filters.`
-                  : format !== 'all' 
-                    ? `No items match the selected filter. Try changing your filter settings.`
-                    : 'No items found. Try adjusting your search or filters.'
-                }
-              </p>
-              <button 
-                onClick={handleClearFilters}
-                className="btn-secondary inline-block"
-              >
-                Clear Filters & Search
-              </button>
-            </>
-          )}
+      {/* Header */}
+      <header className="mb-4 mt-4 flex items-center justify-between sm:mb-6">
+        <h1 className="text-2xl font-bold text-content sm:text-3xl">{collectionTitle}</h1>
+        <div className="flex items-center rounded-[--radius-control] bg-surface-sunken p-0.5">
+          <button
+            className="px-3 py-1.5 text-sm font-medium rounded-[calc(var(--radius-control)-0.25rem)] bg-surface-raised text-content shadow-sm"
+            disabled
+          >
+            Virtual
+          </button>
+          <button
+            onClick={() => navigate('/library')}
+            className="px-3 py-1.5 text-sm font-medium rounded-[calc(var(--radius-control)-0.25rem)] text-content-muted hover:text-content transition-colors"
+          >
+            Physical
+          </button>
         </div>
-      ) : (
-        <>
-          <MediaGrid 
-            physicalItems={physicalItems} 
-            onItemClick={setSelectedItem}
-            isEditMode={canEdit}
-            isAuthenticated={canEdit}
-            onEditItem={canEdit ? handleEditItem : undefined}
-            onDeleteItem={canEdit ? handleDeleteItem : undefined}
+      </header>
+
+      {/* Collection summary — one line, full breakdown opens in a sheet */}
+      <section aria-label="Collection statistics" className="mb-4">
+        <CollectionStatistics statistics={statistics} isLoading={isLoadingStats} />
+      </section>
+
+      {/* Media Grid or Empty State */}
+      <section aria-label="Collection results" className="relative min-h-[12rem]">
+        {loadError && (
+          <EmptyState
+            title="Couldn’t load collection"
+            description={loadError}
+            action={
+              <Button onClick={() => loadInitialData()} variant="secondary">
+                Try again
+              </Button>
+            }
+            icon={
+              <svg className="h-8 w-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M12 4a8 8 0 100 16 8 8 0 000-16z" />
+              </svg>
+            }
           />
-          
-          {/* Loading indicator */}
-          {isLoadingMore && (
-            <div className="flex justify-center py-8">
-              <div className="flex items-center gap-2 text-gray-600 dark:text-gray-300">
-                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-primary-600"></div>
-                Loading more items...
+        )}
+
+        {!loadError && isEmptyCollection && (
+          <EmptyState
+            title="No media found"
+            description="Start building your collection by adding your first movie or TV show."
+            action={
+              canEdit ? (
+                <Button onClick={handleAddItem}>
+                  Add your first item
+                </Button>
+              ) : undefined
+            }
+            icon={
+              <svg className="h-8 w-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <rect width="18" height="18" x="3" y="3" rx="2" />
+                <path d="M7 3v18" />
+                <path d="M3 12h18" />
+              </svg>
+            }
+          />
+        )}
+
+        {!loadError && isNoResults && (
+          <EmptyState
+            title="No results found"
+            description={
+              params.q
+                ? `No items match "${params.q}". Try adjusting your search or filters.`
+                : params.formats.length > 0
+                  ? 'No items match the selected filter. Try changing your filter settings.'
+                  : 'No items found. Try adjusting your search or filters.'
+            }
+            action={
+              <Button onClick={handleClearFilters} variant="secondary">
+                Clear filters & search
+              </Button>
+            }
+            icon={
+              <svg className="h-8 w-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+            }
+          />
+        )}
+
+        {!loadError && (physicalItems.length > 0 || showSkeletons) && (
+          <>
+            <MediaGrid
+              physicalItems={physicalItems}
+              onItemClick={setSelectedItem}
+              isEditMode={canEdit}
+              isAuthenticated={canEdit}
+              onEditItem={canEdit ? handleEditItem : undefined}
+              onArchiveItem={canEdit ? handleArchiveItem : undefined}
+              skeletonCount={showSkeletons ? 8 : 0}
+            />
+
+            {loadMoreError && (
+              <div className="mt-6 flex flex-col items-center gap-3 rounded-[--radius-card] border border-subtle bg-surface-raised p-4 text-center">
+                <p className="text-sm text-content">{loadMoreError}</p>
+                <Button onClick={() => loadMoreItems()} variant="secondary" size="sm">
+                  Try again
+                </Button>
               </div>
-            </div>
-          )}
-        </>
-      )}
-      </div>
+            )}
+
+            {isLoadingMore && !loadMoreError && (
+              <div className="mt-6 flex items-center justify-center gap-2 text-content-muted">
+                <svg className="h-5 w-5 animate-spin" fill="none" viewBox="0 0 24 24" aria-hidden="true">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                </svg>
+                <span className="text-sm">Loading more items…</span>
+              </div>
+            )}
+          </>
+        )}
+      </section>
 
       {/* Detail Modal */}
       <MediaDetailModal
         physicalItem={selectedItem}
         isOpen={!!selectedItem}
         onClose={() => setSelectedItem(null)}
+        onEdit={
+          canEdit
+            ? (item) => {
+                setSelectedItem(null);
+                handleEditItem(item);
+              }
+            : undefined
+        }
       />
+
+      {canEdit && (
+        <button
+          type="button"
+          onClick={handleAddItem}
+          className="fixed bottom-[calc(var(--tabbar-h)+var(--safe-b)+1rem)] lg:bottom-6 right-4 sm:right-6 z-30 inline-flex min-h-touch items-center gap-2 rounded-full bg-primary-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg transition-all duration-200 hover:bg-primary-700 hover:shadow-xl active:bg-primary-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+        >
+          <svg
+            className="h-5 w-5"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+            aria-hidden="true"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M12 6v6m0 0v6m0-6h6m-6 0H6"
+            />
+          </svg>
+          <span>Add item</span>
+        </button>
+      )}
 
       {/* Edit Form Modal - only show if can edit */}
       {canEdit && (
@@ -591,9 +625,10 @@ const CollectionPage: React.FC = () => {
           }}
           onSuccess={handleEditSuccess}
           editItem={editingItem}
+          onDelete={handleDeleteItem}
         />
       )}
-    </div>
+    </main>
   );
 };
 

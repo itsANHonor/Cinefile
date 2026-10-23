@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Media, Series } from '../types';
 import { apiService } from '../services/api.service';
+import { useToast } from '../context/ToastContext';
 import PosterSelector from './PosterSelector';
 
 interface MediaEditModalProps {
@@ -30,7 +31,8 @@ const MediaEditModal: React.FC<MediaEditModalProps> = ({ media, isOpen, onClose,
   const [selectedFields, setSelectedFields] = useState<string[]>([]);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [showPosterSelector, setShowPosterSelector] = useState(false);
-  
+  const { toast } = useToast();
+
   // Series management state
   const [availableSeries, setAvailableSeries] = useState<Series[]>([]);
   const [selectedSeriesIds, setSelectedSeriesIds] = useState<number[]>([]);
@@ -108,7 +110,7 @@ const MediaEditModal: React.FC<MediaEditModalProps> = ({ media, isOpen, onClose,
       setTmdbData(data);
     } catch (error) {
       console.error('Failed to refresh TMDB data:', error);
-      alert('Failed to refresh TMDB data. Please try again.');
+      toast({ message: 'Failed to refresh TMDB data. Please try again.', type: 'error' });
     } finally {
       setIsRefreshing(false);
     }
@@ -133,7 +135,7 @@ const MediaEditModal: React.FC<MediaEditModalProps> = ({ media, isOpen, onClose,
       setSelectedFields([]);
     } catch (error) {
       console.error('Failed to apply TMDB fields:', error);
-      alert('Failed to apply TMDB fields. Please try again.');
+      toast({ message: 'Failed to apply TMDB fields. Please try again.', type: 'error' });
     } finally {
       setIsSaving(false);
     }
@@ -161,7 +163,7 @@ const MediaEditModal: React.FC<MediaEditModalProps> = ({ media, isOpen, onClose,
       onClose();
     } catch (error) {
       console.error('Failed to save media:', error);
-      alert('Failed to save media. Please try again.');
+      toast({ message: 'Failed to save media. Please try again.', type: 'error' });
     } finally {
       setIsSaving(false);
     }
@@ -198,7 +200,7 @@ const MediaEditModal: React.FC<MediaEditModalProps> = ({ media, isOpen, onClose,
   const handleSelectPosterClick = () => {
     const hasTmdbLink = media?.tmdb_id || (media?.media_type === 'tv_season' && media?.tv_show_tmdb_id);
     if (!hasTmdbLink) {
-      alert('This media item is not linked to TMDB.');
+      toast({ message: 'This media item is not linked to TMDB.', type: 'warning' });
       return;
     }
     setShowPosterSelector(true);
@@ -347,7 +349,7 @@ const MediaEditModal: React.FC<MediaEditModalProps> = ({ media, isOpen, onClose,
                       type="text"
                       value={formData.title}
                       onChange={(e) => handleInputChange('title', e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 dark:bg-gray-700 dark:text-gray-100"
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface dark:bg-gray-700 dark:text-gray-100"
                     />
                   </div>
 
@@ -373,7 +375,7 @@ const MediaEditModal: React.FC<MediaEditModalProps> = ({ media, isOpen, onClose,
                       type="text"
                       value={formData.director}
                       onChange={(e) => handleInputChange('director', e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 dark:bg-gray-700 dark:text-gray-100"
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface dark:bg-gray-700 dark:text-gray-100"
                     />
                   </div>
 
@@ -385,7 +387,7 @@ const MediaEditModal: React.FC<MediaEditModalProps> = ({ media, isOpen, onClose,
                       type="date"
                       value={formData.release_date}
                       onChange={(e) => handleInputChange('release_date', e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 dark:bg-gray-700 dark:text-gray-100"
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface dark:bg-gray-700 dark:text-gray-100"
                     />
                   </div>
 
@@ -408,7 +410,7 @@ const MediaEditModal: React.FC<MediaEditModalProps> = ({ media, isOpen, onClose,
                       type="url"
                       value={formData.cover_art_url}
                       onChange={(e) => handleInputChange('cover_art_url', e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 dark:bg-gray-700 dark:text-gray-100"
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface dark:bg-gray-700 dark:text-gray-100"
                     />
                     {formData.cover_art_url && (
                       <img
@@ -433,7 +435,7 @@ const MediaEditModal: React.FC<MediaEditModalProps> = ({ media, isOpen, onClose,
                       value={formData.synopsis}
                       onChange={(e) => handleInputChange('synopsis', e.target.value)}
                       rows={6}
-                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 dark:bg-gray-700 dark:text-gray-100"
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface dark:bg-gray-700 dark:text-gray-100"
                     />
                   </div>
 
@@ -448,7 +450,7 @@ const MediaEditModal: React.FC<MediaEditModalProps> = ({ media, isOpen, onClose,
                             type="text"
                             value={member}
                             onChange={(e) => handleCastChange(index, e.target.value)}
-                            className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 dark:bg-gray-700 dark:text-gray-100"
+                            className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface dark:bg-gray-700 dark:text-gray-100"
                             placeholder="Cast member name"
                           />
                           <button
@@ -575,7 +577,7 @@ const MediaEditModal: React.FC<MediaEditModalProps> = ({ media, isOpen, onClose,
                           setTimeout(() => setShowSeriesDropdown(false), 200);
                         }}
                         placeholder="Search and add series..."
-                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 dark:bg-gray-700 dark:text-gray-100"
+                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface dark:bg-gray-700 dark:text-gray-100"
                       />
                       
                       {/* Dropdown */}

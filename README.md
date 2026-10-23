@@ -156,6 +156,47 @@ Cinefile runs two servers in one container:
 
 Both servers share the same database, but the read-only server cannot modify data by design.
 
+## Model Context Protocol (MCP) Server
+
+Cinefile includes a built-in **Streamable HTTP MCP endpoint** (`/api/mcp` and `/mcp`) on the **Admin Port (`3001`)** so you can connect AI agents (Claude Desktop, Cursor, Windsurf, Devin, OpenWebUI, etc.) directly to your physical media collection.
+
+### Enabling MCP
+
+Set `MCP_API_KEY` in your `.env` or `docker-compose.yml`:
+
+```env
+MCP_API_KEY=your_long_random_mcp_api_key
+```
+
+If `MCP_API_KEY` is not set, `/api/mcp` fails closed with `503 Service Unavailable`. The public read-only port (`3000`/`3005`) never exposes the MCP endpoint.
+
+### Example Client Configuration
+
+Connect any Streamable HTTP-capable MCP client to `http://<your-host>:3001/api/mcp`:
+
+```json
+{
+  "mcpServers": {
+    "cinefile": {
+      "type": "streamable-http",
+      "url": "http://localhost:3001/api/mcp",
+      "headers": {
+        "Authorization": "Bearer your_long_random_mcp_api_key"
+      }
+    }
+  }
+}
+```
+
+### Exposed MCP Capabilities
+
+- **Collection Search & Mood Discovery**: `search_collection`, `get_item_details`, `recommend_for_mood`, `get_collection_facets`
+- **Statistics & Insights**: `get_collection_stats`, `get_recent_acquisitions`
+- **Series & TMDB Franchise Intelligence**: `list_series`, `get_series_details`, `check_series_completeness`, `search_tmdb`
+- **Physical Library & Shelf Location**: `get_shelf_layout`, `find_item_on_shelf`, `place_item_on_shelf`
+- **Collection CRUD**: `add_physical_item` (auto-fetches TMDB metadata & spine colors), `update_physical_item`, `delete_physical_item`
+- **Resources & Prompts**: `cinefile://stats/summary`, `cinefile://facets`, `cinefile://library/shelves`, and prompts (`movie-night-picker`, `franchise-gap-analysis`, `collection-curator-report`)
+
 ## AI Disclosure
 Cinefile was generated almost entirely by a combination of Cursor's Compooser and Google's Gemini 2.5 and 3.0 and Claude Ops 4.5 models. As a hobby project, I am deliberately using it as a testing ground to 'feel' out the capabilities of current LLM models. If this is not to your taste or preferences, I completely understand but I am disclosing this for transparency reasons. I'm committed to building a good products, and this is a low stakes way for me to try new tools. 
 

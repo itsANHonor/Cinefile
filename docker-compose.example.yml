@@ -27,6 +27,8 @@ services:
       # Set a secure password for the admin panel
       - ADMIN_PASSWORD=${ADMIN_PASSWORD}
       - SESSION_SECRET=${SESSION_SECRET}
+      # Optional: API key to enable the MCP endpoint (/api/mcp) on the Admin Port (3001)
+      - MCP_API_KEY=${MCP_API_KEY:-}
       - DATABASE_PATH=/data/database.sqlite
       - UPLOAD_DIR=/data/uploads
     volumes:

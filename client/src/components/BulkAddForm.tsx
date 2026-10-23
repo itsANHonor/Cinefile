@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { apiService } from '../services/api.service';
 import { BulkSearchResponse, TMDbMovieDetails, BulkPhysicalItemDto } from '../types';
+import { PHYSICAL_FORMATS } from '../lib/formats';
+import { useToast } from '../context/ToastContext';
 
 interface BulkAddFormProps {
   onSuccess: () => void;
@@ -15,8 +17,9 @@ const BulkAddForm: React.FC<BulkAddFormProps> = ({ onSuccess }) => {
   const [bulkFormat, setBulkFormat] = useState<string>('');
   const [isImporting, setIsImporting] = useState(false);
   const [importResults, setImportResults] = useState<any>(null);
+  const { toast } = useToast();
 
-  const availableFormats = ['4K UHD', '3D Blu-ray', 'Blu-ray', 'DVD', 'Digital-HD', 'Digital-SD', 'Digital-UHD', 'LaserDisc', 'VHS'];
+  const availableFormats = PHYSICAL_FORMATS;
 
   const handleSearch = async () => {
     if (!movieTitles.trim()) return;
@@ -50,7 +53,7 @@ const BulkAddForm: React.FC<BulkAddFormProps> = ({ onSuccess }) => {
       setSelectedFormats(newSelectedFormats);
     } catch (error) {
       console.error('Search failed:', error);
-      alert('Failed to search movies. Please try again.');
+      toast({ message: 'Failed to search movies. Please try again.', type: 'error' });
     } finally {
       setIsSearching(false);
     }
@@ -101,9 +104,7 @@ const BulkAddForm: React.FC<BulkAddFormProps> = ({ onSuccess }) => {
       const formats = selectedFormats.get(match.originalTitle) || [];
       
       if (selectedMovie && formats.length > 0) {
-        // Auto-generate name: Title + Primary Format
-        const primaryFormat = formats[0];
-        const itemName = `${selectedMovie.title} ${primaryFormat}`;
+        const itemName = selectedMovie.title;
         
         physicalItems.push({
           name: itemName,
@@ -126,7 +127,7 @@ const BulkAddForm: React.FC<BulkAddFormProps> = ({ onSuccess }) => {
     });
 
     if (physicalItems.length === 0) {
-      alert('Please select at least one format for the movies you want to import.');
+      toast({ message: 'Please select at least one format for the movies you want to import.', type: 'warning' });
       return;
     }
 
@@ -140,7 +141,7 @@ const BulkAddForm: React.FC<BulkAddFormProps> = ({ onSuccess }) => {
       }
     } catch (error) {
       console.error('Import failed:', error);
-      alert('Failed to import movies. Please try again.');
+      toast({ message: 'Failed to import movies. Please try again.', type: 'error' });
     } finally {
       setIsImporting(false);
     }
@@ -231,7 +232,7 @@ const BulkAddForm: React.FC<BulkAddFormProps> = ({ onSuccess }) => {
               onChange={(e) => setMovieTitles(e.target.value)}
               placeholder="Enter movie titles, one per line:&#10;The Matrix&#10;Inception&#10;Interstellar"
               rows={8}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:border-primary-500 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
             />
             <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
               Enter each movie title on a separate line. Maximum 200 titles per search.
@@ -287,7 +288,7 @@ const BulkAddForm: React.FC<BulkAddFormProps> = ({ onSuccess }) => {
                 <select
                   value={bulkFormat}
                   onChange={(e) => setBulkFormat(e.target.value)}
-                  className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+                  className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:border-primary-500 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                 >
                   <option value="">Select format...</option>
                   {availableFormats.map(format => (
@@ -349,7 +350,7 @@ const BulkAddForm: React.FC<BulkAddFormProps> = ({ onSuccess }) => {
                                       handleMatchSelection(match.originalTitle, movie);
                                     }
                                   }}
-                                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+                                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:border-primary-500 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                                 >
                                   {match.matches.map(movie => (
                                     <option key={movie.id} value={movie.id}>

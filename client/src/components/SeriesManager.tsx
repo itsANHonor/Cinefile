@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Series, Media } from '../types';
 import { apiService } from '../services/api.service';
+import { useToast } from '../context/ToastContext';
+import { useConfirm } from '../context/ConfirmContext';
 
 interface SeriesFormData {
   name: string;
@@ -29,6 +31,7 @@ const SeriesForm: React.FC<{
   const [sortOrders, setSortOrders] = useState<Record<number, number | null>>({});
   const [hasSortOrderChanges, setHasSortOrderChanges] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const { toast } = useToast();
   const formRef = useRef<HTMLDivElement>(null);
 
   // Load movies when editing an existing series
@@ -77,7 +80,7 @@ const SeriesForm: React.FC<{
       setSeriesMovies(movies);
     } catch (error) {
       console.error('Failed to save sort orders:', error);
-      alert('Failed to save sort orders. Please try again.');
+      toast({ message: 'Failed to save sort orders. Please try again.', type: 'error' });
     }
   };
 
@@ -107,7 +110,7 @@ const SeriesForm: React.FC<{
       onSave();
     } catch (error) {
       console.error('Failed to save series:', error);
-      alert('Failed to save series. Please try again.');
+      toast({ message: 'Failed to save series. Please try again.', type: 'error' });
     } finally {
       setIsSaving(false);
     }
@@ -141,7 +144,7 @@ const SeriesForm: React.FC<{
               type="text"
               value={formData.name}
               onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
               required
               autoFocus
             />
@@ -156,7 +159,7 @@ const SeriesForm: React.FC<{
               type="text"
               value={formData.sort_name}
               onChange={(e) => setFormData({ ...formData, sort_name: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
               required
             />
           </div>
@@ -170,7 +173,7 @@ const SeriesForm: React.FC<{
               type="number"
               value={formData.tmdb_collection_id}
               onChange={(e) => setFormData({ ...formData, tmdb_collection_id: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
             />
           </div>
 
@@ -181,7 +184,7 @@ const SeriesForm: React.FC<{
             <select
               value={formData.internal_sort_method}
               onChange={(e) => setFormData({ ...formData, internal_sort_method: e.target.value as 'chronological' | 'custom' | 'alphabetical' })}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
               required
             >
               <option value="chronological">Chronological (by release date)</option>
@@ -233,7 +236,7 @@ const SeriesForm: React.FC<{
                           type="number"
                           value={sortOrders[movie.id] ?? ''}
                           onChange={(e) => handleSortOrderChange(movie.id, e.target.value)}
-                          className="w-16 px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                          className="w-16 px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
                           placeholder="#"
                         />
                       </div>
@@ -306,6 +309,8 @@ const SeriesManager: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [editingSeriesId, setEditingSeriesId] = useState<number | null>(null);
   const [isCreating, setIsCreating] = useState(false);
+  const { toast } = useToast();
+  const confirm = useConfirm();
 
   useEffect(() => {
     loadSeries();
@@ -318,20 +323,28 @@ const SeriesManager: React.FC = () => {
       setSeries(data);
     } catch (error) {
       console.error('Failed to load series:', error);
-      alert('Failed to load series. Please try again.');
+      toast({ message: 'Failed to load series. Please try again.', type: 'error' });
     } finally {
       setIsLoading(false);
     }
   };
 
   const handleDelete = async (id: number) => {
-    if (!confirm('Are you sure you want to delete this series? This will remove it from all movies.')) return;
+    const confirmed = await confirm({
+      title: 'Delete series',
+      message: 'Are you sure you want to delete this series? This will remove it from all movies.',
+      confirmLabel: 'Delete',
+      cancelLabel: 'Cancel',
+      variant: 'danger',
+    });
+    if (!confirmed) return;
     try {
       await apiService.deleteSeries(id);
+      toast({ message: 'Series deleted.', type: 'success' });
       await loadSeries();
     } catch (error) {
       console.error('Failed to delete series:', error);
-      alert('Failed to delete series. Please try again.');
+      toast({ message: 'Failed to delete series. Please try again.', type: 'error' });
     }
   };
 

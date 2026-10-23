@@ -14,6 +14,7 @@ import seriesRoutes from './routes/series.routes';
 import importExportRoutes from './routes/import-export.routes';
 import statisticsRoutes from './routes/statistics.routes';
 import libraryRoutes from './routes/library.routes';
+import mcpRoutes from './routes/mcp.routes';
 
 if (!process.env.SESSION_SECRET?.trim()) {
   console.error('FATAL: SESSION_SECRET must be set (signs admin JWTs). See server/env.example.');
@@ -31,10 +32,15 @@ const corsOptions = {
 };
 
 // Middleware
-app.use(cors(corsOptions));
 // Increase body size limit to 50MB for large CSV imports
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+
+// Mount MCP routes before restrictive browser CORS so MCP clients & preflights use MCP CORS headers
+app.use('/api/mcp', mcpRoutes);
+app.use('/mcp', mcpRoutes);
+
+app.use(cors(corsOptions));
 
 // Initialize database
 setupDatabase();

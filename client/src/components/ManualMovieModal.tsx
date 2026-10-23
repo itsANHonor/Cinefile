@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import type { ManualMovieData } from '../types';
 import { apiService } from '../services/api.service';
+import { useToast } from '../context/ToastContext';
 
 interface ManualMovieModalProps {
   isOpen: boolean;
@@ -25,6 +26,7 @@ const ManualMovieModal: React.FC<ManualMovieModalProps> = ({
   });
   const [castMember, setCastMember] = useState('');
   const [uploadingImage, setUploadingImage] = useState(false);
+  const { toast } = useToast();
 
   useEffect(() => {
     if (isOpen) {
@@ -68,7 +70,7 @@ const ManualMovieModal: React.FC<ManualMovieModalProps> = ({
       updateField('cover_art_url', result.url);
     } catch (error) {
       console.error('Manual movie image upload failed:', error);
-      alert('Failed to upload image. Please try again.');
+      toast({ message: 'Failed to upload image. Please try again.', type: 'error' });
     } finally {
       setUploadingImage(false);
       event.target.value = '';

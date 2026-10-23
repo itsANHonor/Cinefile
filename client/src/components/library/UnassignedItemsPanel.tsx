@@ -66,7 +66,7 @@ const DraggableUnassignedItem: React.FC<{
     <div
       ref={setNodeRef}
       style={{ ...style, width: `${spineWidth}px`, zIndex: isHovered ? 20 : 1 }}
-      className={`relative flex-shrink-0 h-[200px] cursor-grab active:cursor-grabbing ${isDragging ? 'z-50' : ''}`}
+      className={`relative flex-shrink-0 h-[200px] cursor-grab active:cursor-grabbing touch-none ${isDragging ? 'z-50' : ''}`}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
       {...attributes}
@@ -228,7 +228,7 @@ const UnassignedItemsPanel: React.FC<UnassignedItemsPanelProps> = ({
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search unassigned items..."
-              className="w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-primary-500"
+              className="w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
             />
           </div>
 

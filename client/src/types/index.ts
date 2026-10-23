@@ -101,6 +101,8 @@ export interface PhysicalItem {
   edition_notes?: string;
   notes?: string;
   notes_public?: boolean;
+  archived?: boolean;
+  archive_reason?: string | null;
   custom_image_url?: string;
   purchase_date?: string;
   store_links?: Array<{label: string; url: string}>;
@@ -127,6 +129,8 @@ export interface CreatePhysicalItemDto {
   edition_notes?: string;
   notes?: string;
   notes_public?: boolean;
+  archived?: boolean;
+  archive_reason?: string | null;
   custom_image_url?: string;
   purchase_date?: string;
   store_links?: Array<{label: string; url: string}>;
@@ -269,7 +273,9 @@ export interface FilterOptions {
   format?: PhysicalFormat | PhysicalFormat[]; // Support multi-select
   genres?: number[]; // Array of genre IDs for multi-select
   decades?: string[]; // Array of decade strings like ["1990", "2000"] for multi-select
+  editions?: string[]; // Array of edition tag strings for multi-select
   media_type?: 'all' | 'movie' | 'tv_season';
+  archived?: boolean;
   sort_by?: SortField;
   sort_order?: SortOrder;
   search?: string;
@@ -343,6 +349,142 @@ export interface CollectionStatistics {
   formatCounts: Record<string, number>;
 }
 
+export interface FormatStatItem {
+  format: string;
+  itemCount: number;
+  titleCount: number;
+  itemPercentage: number;
+  titlePercentage: number;
+}
+
+export interface EditionStatItem {
+  tag: string;
+  itemCount: number;
+  titleCount: number;
+  itemPercentage: number;
+  titlePercentage: number;
+}
+
+export interface DecadeStatItem {
+  decade: string;
+  movieCount: number;
+  tvSeasonCount: number;
+  titleCount: number;
+  itemCount: number;
+}
+
+export interface ReleaseExtreme {
+  title: string;
+  year: number;
+  releaseDate: string;
+}
+
+export interface GenreStatItem {
+  id: number;
+  name: string;
+  itemCount: number;
+  titleCount: number;
+  percentage: number;
+}
+
+export interface PersonTitlePreview {
+  id: number;
+  title: string;
+  year?: number | null;
+  coverArtUrl?: string | null;
+}
+
+export interface PersonStatItem {
+  name: string;
+  count: number;
+  profileUrl?: string | null;
+  titles?: PersonTitlePreview[];
+}
+
+export interface SeriesStatItem {
+  id: number;
+  name: string;
+  ownedCount: number;
+}
+
+export interface ShelfUtilizationItem {
+  id: number;
+  displayName: string;
+  groupName: string;
+  usedUnits: number;
+  capacityUnits: number;
+  itemCount: number;
+  utilizationPercent: number;
+}
+
+export interface SpinePaletteItem {
+  color: string;
+  count: number;
+  percentage: number;
+}
+
+export interface DoubleDipItem {
+  mediaId: number;
+  title: string;
+  itemCount: number;
+  formats: string[];
+}
+
+export interface AcquisitionTimelinePoint {
+  period: string;
+  purchasedCount: number;
+  addedCount: number;
+}
+
+export interface StoreStatItem {
+  store: string;
+  count: number;
+}
+
+export interface CollectionDashboardStatistics {
+  overview: {
+    totalPhysicalItems: number;
+    totalMovies: number;
+    totalTVSeasons: number;
+    totalTVShows: number;
+    totalEpisodes: number;
+    multiTitleItemsCount: number;
+    totalSeries: number;
+    itemsWithEditionTags?: number;
+  };
+  formats: FormatStatItem[];
+  editions?: EditionStatItem[];
+  content: {
+    decades: DecadeStatItem[];
+    oldestRelease: ReleaseExtreme | null;
+    newestRelease: ReleaseExtreme | null;
+    genres: GenreStatItem[];
+    topDirectors: PersonStatItem[];
+    topCast: PersonStatItem[];
+    topSeries: SeriesStatItem[];
+  };
+  physicalLibrary: {
+    totalGroups: number;
+    totalShelves: number;
+    totalCapacityUnits: number;
+    usedUnits: number;
+    utilizationPercent: number;
+    placedItemsCount: number;
+    unassignedItemsCount: number;
+    totalLinearMm: number;
+    totalThicknessUnits: number;
+    shelves: ShelfUtilizationItem[];
+    spinePalette?: SpinePaletteItem[];
+    doubleDips?: DoubleDipItem[];
+  };
+  acquisitions: {
+    itemsWithPurchaseDate: number;
+    byYear: AcquisitionTimelinePoint[];
+    byMonth: AcquisitionTimelinePoint[];
+    topStores: StoreStatItem[];
+  };
+}
+
 // =============================================
 // Physical Library types
 // =============================================
@@ -410,6 +552,13 @@ export interface CreateShelfDto {
   depth_mm?: number;
 }
 
+export interface BulkCreateShelvesDto {
+  count: number;
+  capacity_units: number;
+  width_mm?: number;
+  depth_mm?: number;
+}
+
 export interface UpdateShelfDto {
   name?: string;
   display_name?: string;
@@ -438,4 +587,33 @@ export interface ApplySortPreview {
     physical_item_name: string;
     thickness_units: number;
   }>;
+}
+
+// Collection facets (full-collection filter options, independent of the loaded page)
+export interface CollectionFacetGenre {
+  id: number;
+  name: string;
+  count: number;
+}
+
+export interface CollectionFacetDecade {
+  decade: string;
+  count: number;
+}
+
+export interface CollectionFacetFormat {
+  format: string;
+  count: number;
+}
+
+export interface CollectionFacetEdition {
+  tag: string;
+  count: number;
+}
+
+export interface CollectionFacets {
+  genres: CollectionFacetGenre[];
+  decades: CollectionFacetDecade[];
+  formats: CollectionFacetFormat[];
+  editions?: CollectionFacetEdition[];
 }

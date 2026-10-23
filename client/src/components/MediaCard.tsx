@@ -1,6 +1,11 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { PhysicalItem } from '../types';
 import { useDisplayPreferences } from '../context/DisplayPreferencesContext';
+import { useConfirm } from '../context/ConfirmContext';
+import { IconButton } from './ui/IconButton';
+import { Sheet } from './ui/Sheet';
+import { Button } from './ui/Button';
+import { formatBadgeClasses } from '../lib/formats';
 
 interface MediaCardProps {
   physicalItem: PhysicalItem;
@@ -8,66 +13,123 @@ interface MediaCardProps {
   isEditMode?: boolean;
   isAuthenticated?: boolean;
   onEdit?: (item: PhysicalItem) => void;
-  onDelete?: (itemId: number) => void;
+  onArchive?: (itemId: number, archived: boolean, archiveReason: string | null) => Promise<void> | void;
 }
 
-const MediaCard: React.FC<MediaCardProps> = ({ 
-  physicalItem, 
-  onClick, 
-  isEditMode = false, 
+const MediaCard: React.FC<MediaCardProps> = ({
+  physicalItem,
+  onClick,
+  isEditMode = false,
   isAuthenticated = false,
   onEdit,
-  onDelete
+  onArchive,
 }) => {
   const { showFormatBadges } = useDisplayPreferences();
-  // Get primary media for display
+  const confirm = useConfirm();
+  const [imageFailed, setImageFailed] = useState(false);
+  const [showArchiveModal, setShowArchiveModal] = useState(false);
+  const [archiveReason, setArchiveReason] = useState('');
+  const [isArchiving, setIsArchiving] = useState(false);
+
   const primaryMedia = physicalItem.media[0];
   const imageUrl = physicalItem.custom_image_url || primaryMedia?.cover_art_url;
-  const formatColors: Record<string, string> = {
-    '4K UHD': 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200',
-    'Blu-ray': 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200',
-    'DVD': 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200',
-    'LaserDisc': 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200',
-    'VHS': 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200',
-  };
+  const getFormatColor = (format: string) =>
+    formatBadgeClasses[format] || 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200';
 
-  const getFormatColor = (format: string) => formatColors[format] || 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200';
+  const metadataParts: string[] = [];
+  if (primaryMedia?.release_date) {
+    metadataParts.push(String(new Date(primaryMedia.release_date).getFullYear()));
+  }
+  if (primaryMedia?.media_type === 'tv_season' && primaryMedia.tv_show_name) {
+    metadataParts.push(
+      `${primaryMedia.tv_show_name}${primaryMedia.season_number != null ? ` - Season ${primaryMedia.season_number}` : ''}`
+    );
+  }
+  if (primaryMedia?.series && primaryMedia.series.length > 0) {
+    metadataParts.push(primaryMedia.series.map((s) => s.name).join(', '));
+  }
+  if (physicalItem.edition_notes) {
+    metadataParts.push(physicalItem.edition_notes);
+  }
+  if (physicalItem.archived && physicalItem.archive_reason) {
+    metadataParts.push(`Archived: ${physicalItem.archive_reason}`);
+  }
+  const metadataText = metadataParts.join(' · ');
 
   const handleEditClick = (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (onEdit) {
-      onEdit(physicalItem);
+    onEdit?.(physicalItem);
+  };
+
+  const handleArchiveClick = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (physicalItem.archived) {
+      const confirmed = await confirm({
+        title: 'Unarchive item?',
+        message: `Move "${physicalItem.name}" back to your active collection?`,
+        confirmLabel: 'Unarchive',
+        cancelLabel: 'Cancel',
+      });
+      if (confirmed) {
+        await onArchive?.(physicalItem.id, false, null);
+      }
+      return;
+    }
+    setArchiveReason(physicalItem.archive_reason || '');
+    setShowArchiveModal(true);
+  };
+
+  const handleArchiveSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmed = archiveReason.trim();
+    if (!trimmed) return;
+    setIsArchiving(true);
+    try {
+      await onArchive?.(physicalItem.id, true, trimmed);
+      setShowArchiveModal(false);
+    } finally {
+      setIsArchiving(false);
     }
   };
 
-  const handleDeleteClick = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (onDelete && confirm('Are you sure you want to delete this physical item?')) {
-      onDelete(physicalItem.id);
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.target !== e.currentTarget) return;
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      onClick?.();
     }
   };
 
   return (
     <div
-      className="card cursor-pointer hover:shadow-lg transition-shadow duration-200 overflow-hidden p-0 relative group"
+      role="button"
+      tabIndex={onClick ? 0 : -1}
+      aria-label={`Open details for ${physicalItem.name}`}
       onClick={onClick}
+      onKeyDown={handleKeyDown}
+      className="card group relative flex h-full cursor-pointer flex-col overflow-hidden p-0 text-left transition-shadow duration-200 hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
     >
       {/* Cover Image */}
-      <div className="relative aspect-[2/3] bg-gray-200 dark:bg-gray-700 overflow-hidden">
-        {imageUrl ? (
+      <div className="relative aspect-[2/3] overflow-hidden bg-surface-sunken">
+        {imageUrl && !imageFailed ? (
           <img
             src={imageUrl}
             alt={physicalItem.name}
-            className="w-full h-full object-cover"
+            width={300}
+            height={450}
+            decoding="async"
             loading="lazy"
+            onError={() => setImageFailed(true)}
+            className="h-full w-full object-cover"
           />
         ) : (
-          <div className="w-full h-full flex items-center justify-center">
+          <div className="flex h-full w-full items-center justify-center">
             <svg
-              className="w-16 h-16 text-gray-400 dark:text-gray-500"
+              className="h-16 w-16 text-content-muted"
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"
+              aria-hidden="true"
             >
               <path
                 strokeLinecap="round"
@@ -78,48 +140,73 @@ const MediaCard: React.FC<MediaCardProps> = ({
             </svg>
           </div>
         )}
-        
+
         {/* Admin Controls Overlay */}
         {isAuthenticated && isEditMode && (
-          <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-            <button
+          <div className="absolute right-2 top-2 flex gap-1 opacity-0 transition-opacity duration-200 group-focus-within:opacity-100 group-hover:opacity-100">
+            <IconButton
+              size="sm"
+              variant="secondary"
+              aria-label={`Edit ${physicalItem.name}`}
               onClick={handleEditClick}
-              className="p-1.5 bg-blue-600 text-white rounded-full hover:bg-blue-700 transition-colors"
-              title="Edit item"
+              className="bg-surface-raised/90 backdrop-blur-sm"
             >
-              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
               </svg>
-            </button>
-            <button
-              onClick={handleDeleteClick}
-              className="p-1.5 bg-red-600 text-white rounded-full hover:bg-red-700 transition-colors"
-              title="Delete item"
+            </IconButton>
+            <IconButton
+              size="sm"
+              variant="secondary"
+              aria-label={physicalItem.archived ? `Unarchive ${physicalItem.name}` : `Archive ${physicalItem.name}`}
+              onClick={handleArchiveClick}
+              className={
+                physicalItem.archived
+                  ? 'bg-amber-600/90 text-white hover:bg-amber-700 backdrop-blur-sm'
+                  : 'bg-surface-raised/90 backdrop-blur-sm'
+              }
             >
-              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"
+                />
               </svg>
-            </button>
+            </IconButton>
           </div>
         )}
-        
+
         {/* Format Badges */}
         {showFormatBadges && (
-          <div className="absolute top-2 left-2 flex flex-col gap-1 items-start">
+          <div className="absolute left-2 top-2 flex flex-col items-start gap-1">
+            {physicalItem.archived && (
+              <span className="rounded bg-amber-600/95 px-2 py-1 text-xs font-semibold text-white shadow-sm">
+                Archived
+              </span>
+            )}
             {physicalItem.physical_format.map((format, idx) => (
-              <span key={idx} className={`${getFormatColor(format)} text-xs font-medium px-2 py-1 rounded shadow-sm`}>
+              <span key={idx} className={`${getFormatColor(format)} rounded px-2 py-1 text-xs font-medium shadow-sm`}>
                 {format}
               </span>
             ))}
           </div>
         )}
-        
+        {!showFormatBadges && physicalItem.archived && (
+          <div className="absolute left-2 top-2">
+            <span className="rounded bg-amber-600/95 px-2 py-1 text-xs font-semibold text-white shadow-sm">
+              Archived
+            </span>
+          </div>
+        )}
+
         {/* Multi-item indicator */}
         {physicalItem.media.length > 1 && (
           <div className="absolute bottom-2 left-2">
-            <span className="bg-black bg-opacity-75 text-white text-xs font-medium px-2 py-1 rounded">
+            <span className="rounded bg-black/75 px-2 py-1 text-xs font-medium text-white">
               {(() => {
-                const tvCount = physicalItem.media.filter(m => m.media_type === 'tv_season').length;
+                const tvCount = physicalItem.media.filter((m) => m.media_type === 'tv_season').length;
                 const movieCount = physicalItem.media.length - tvCount;
                 if (tvCount > 0 && movieCount === 0) return `${tvCount} season${tvCount !== 1 ? 's' : ''}`;
                 if (movieCount > 0 && tvCount === 0) return `${movieCount} movie${movieCount !== 1 ? 's' : ''}`;
@@ -132,41 +219,76 @@ const MediaCard: React.FC<MediaCardProps> = ({
         {/* TV type badge */}
         {primaryMedia?.media_type === 'tv_season' && (
           <div className="absolute bottom-2 right-2">
-            <span className="bg-purple-600 bg-opacity-90 text-white text-xs font-medium px-1.5 py-0.5 rounded">
-              TV
-            </span>
+            <span className="rounded bg-purple-600/90 px-1.5 py-0.5 text-xs font-medium text-white">TV</span>
           </div>
         )}
       </div>
 
       {/* Info */}
-      <div className="p-4">
-        <h3 className="font-semibold text-gray-900 dark:text-gray-100 line-clamp-2 mb-1">
+      <div className="flex flex-1 flex-col justify-between p-3 sm:p-4">
+        <h3
+          title={physicalItem.name}
+          className="line-clamp-2 min-h-[2.5rem] font-semibold leading-5 text-content"
+        >
           {physicalItem.name}
         </h3>
-        {primaryMedia?.media_type === 'tv_season' && primaryMedia.tv_show_name && (
-          <p className="text-xs text-purple-600 dark:text-purple-400 line-clamp-1">
-            {primaryMedia.tv_show_name}
-            {primaryMedia.season_number != null && ` - Season ${primaryMedia.season_number}`}
-          </p>
-        )}
-        {primaryMedia?.release_date && (
-          <p className="text-sm text-gray-500 dark:text-gray-400">
-            {new Date(primaryMedia.release_date).getFullYear()}
-          </p>
-        )}
-        {primaryMedia?.series && primaryMedia.series.length > 0 && (
-          <p className="text-xs text-primary-600 dark:text-primary-400 mt-1 line-clamp-1">
-            {primaryMedia.series.map(s => s.name).join(', ')}
-          </p>
-        )}
-        {physicalItem.edition_notes && (
-          <p className="text-xs text-gray-600 dark:text-gray-300 mt-2 italic line-clamp-1">{physicalItem.edition_notes}</p>
-        )}
+        <p
+          title={metadataText || undefined}
+          className="mt-1 h-4 truncate text-xs leading-4 text-content-muted"
+        >
+          {metadataText}
+        </p>
       </div>
+
+      {/* Archive Reason Prompt Modal */}
+      <Sheet
+        isOpen={showArchiveModal}
+        onClose={() => !isArchiving && setShowArchiveModal(false)}
+        title="Archive Physical Item"
+        description={`Why is "${physicalItem.name}" being archived?`}
+        position="center"
+        size="sm"
+      >
+        <form onSubmit={handleArchiveSubmit} onClick={(e) => e.stopPropagation()} className="space-y-4">
+          <div>
+            <label htmlFor={`archive-reason-${physicalItem.id}`} className="mb-1 block text-sm font-medium text-content">
+              Archive Reason *
+            </label>
+            <input
+              id={`archive-reason-${physicalItem.id}`}
+              type="text"
+              required
+              maxLength={500}
+              placeholder="e.g., Given away, sold, trashed"
+              value={archiveReason}
+              onChange={(e) => setArchiveReason(e.target.value)}
+              className="w-full rounded-[--radius-control] border border-subtle bg-surface px-3 py-2 text-sm text-content placeholder-content-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+            />
+            <p className="mt-1 text-xs text-content-muted">
+              Archived items are removed from shelves and hidden from the main collection unless the Archived filter is selected.
+            </p>
+          </div>
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={isArchiving}
+              onClick={() => setShowArchiveModal(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              disabled={isArchiving || !archiveReason.trim()}
+              isLoading={isArchiving}
+            >
+              Archive Item
+            </Button>
+          </div>
+        </form>
+      </Sheet>
     </div>
   );
 };
 
 export default MediaCard;
-

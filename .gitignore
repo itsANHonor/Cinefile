@@ -61,4 +61,6 @@ temp/
 
 # AI Skills - allow workflow files
 !.windsurf/workflows/*.md
+!.devin/skills/**/*.md
+.devin/*.local.json
 

@@ -1,0 +1,58 @@
+/**
+ * Cinefile design tokens
+ *
+ * Semantic CSS custom properties that drive both Tailwind config and plain CSS.
+ * Color values are stored as space-separated RGB triples so Tailwind can apply
+ * opacity via rgb(var(--name) / <alpha-value>).
+ */
+
+:root {
+  /* Surfaces */
+  --surface: 255 255 255;
+  --surface-raised: 255 255 255;
+  --surface-sunken: 249 250 251;
+
+  /* Content */
+  --text: 17 24 39;
+  --text-muted: 107 114 128;
+
+  /* Borders & focus */
+  --border-subtle: 229 231 235;
+  --ring: 45 90 90;
+  --ring-offset: 255 255 255;
+
+  /* Radius */
+  --radius-card: 0.75rem;
+  --radius-control: 0.625rem;
+
+  /* Shadows */
+  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.06), 0 1px 3px rgb(0 0 0 / 0.10);
+
+  /* Layout */
+  --header-h: 3.5rem;
+  --tabbar-h: 3.5rem;
+  --safe-b: env(safe-area-inset-bottom, 0px);
+}
+
+.dark {
+  --surface: 17 24 39;
+  --surface-raised: 31 41 55;
+  --surface-sunken: 11 17 27;
+  --text: 243 244 246;
+  --text-muted: 156 163 175;
+  --border-subtle: 55 65 81;
+  --ring: 90 165 165;
+  --ring-offset: 17 24 39;
+  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.20), 0 1px 3px rgb(0 0 0 / 0.35);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

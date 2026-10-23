@@ -2,6 +2,10 @@ import { Router, Request, Response } from 'express';
 import { db } from '../database';
 import { authMiddleware } from '../middleware/auth.middleware';
 import { calculateSortName } from '../utils/sort-name.util';
+import {
+  buildCanonicalEditionTagMap,
+  normalizeEditionNotes,
+} from '../utils/edition-tags.util';
 
 const router = Router();
 
@@ -27,6 +31,8 @@ interface MediaExportRow {
   edition_notes: string | null;
   notes: string | null;
   notes_public: boolean | number | null;
+  archived: boolean | number | null;
+  archive_reason: string | null;
   purchase_date: string | null;
   store_links: string | null;
   custom_image_url: string | null;
@@ -55,6 +61,8 @@ interface MediaImportRow {
   edition_notes?: string;
   notes?: string;
   notes_public?: string | boolean;
+  archived?: string | boolean;
+  archive_reason?: string;
   purchase_date?: string;
   store_links?: string;
   custom_image_url?: string;
@@ -286,6 +294,20 @@ router.get('/schema', (req: Request, res: Response) => {
         example: 'true',
       },
       {
+        name: 'archived',
+        type: 'boolean',
+        required: false,
+        description: 'Whether the physical item is archived (no longer in collection). Defaults to false.',
+        example: 'false',
+      },
+      {
+        name: 'archive_reason',
+        type: 'text',
+        required: false,
+        description: 'Reason why the physical item was archived (e.g., given away, sold, trashed).',
+        example: 'Given away to a friend',
+      },
+      {
         name: 'purchase_date',
         type: 'date',
         required: false,
@@ -349,6 +371,8 @@ router.get('/export', authMiddleware, async (req: Request, res: Response) => {
         'physical_items.edition_notes',
         'physical_items.notes',
         'physical_items.notes_public',
+        'physical_items.archived',
+        'physical_items.archive_reason',
         'physical_items.purchase_date',
         'physical_items.store_links',
         'physical_items.custom_image_url',
@@ -380,6 +404,8 @@ router.get('/export', authMiddleware, async (req: Request, res: Response) => {
         'physical_items.edition_notes',
         'physical_items.notes',
         'physical_items.notes_public',
+        'physical_items.archived',
+        'physical_items.archive_reason',
         'physical_items.purchase_date',
         'physical_items.store_links',
         'physical_items.custom_image_url',
@@ -427,6 +453,8 @@ router.get('/export', authMiddleware, async (req: Request, res: Response) => {
       'edition_notes',
       'notes',
       'notes_public',
+      'archived',
+      'archive_reason',
       'purchase_date',
       'store_links',
       'custom_image_url',
@@ -468,6 +496,8 @@ router.get('/export', authMiddleware, async (req: Request, res: Response) => {
         escapeCSV(item.edition_notes),
         escapeCSV(item.notes),
         escapeCSV(item.notes_public ? 'true' : 'false'),
+        escapeCSV(item.archived ? 'true' : 'false'),
+        escapeCSV(item.archive_reason),
         escapeCSV(item.purchase_date),
         escapeCSV(item.store_links), // Already JSON string in DB
         escapeCSV(item.custom_image_url),
@@ -745,14 +775,22 @@ router.post('/import', authMiddleware, async (req: Request, res: Response) => {
             // Parse notes_public - accept 'true', '1', true, or 1 as true values
             const notesPublicValue = movies[0].notes_public;
             const isNotesPublic = isCsvTruthy(notesPublicValue);
+            const isArchived = isCsvTruthy(movies[0].archived);
             
+            const existingEditionRows = await trx('physical_items')
+              .whereNotNull('edition_notes')
+              .select('edition_notes');
+            const canonicalTagMap = buildCanonicalEditionTagMap(existingEditionRows);
+
             const physicalItemData = {
               name: itemName,
               sort_name: calculateSortName(itemName) || null,
               physical_format: JSON.stringify([]), // Will be updated after processing movies
-              edition_notes: movies[0].edition_notes || null,
+              edition_notes: normalizeEditionNotes(movies[0].edition_notes, canonicalTagMap),
               notes: movies[0].notes || null,
               notes_public: isNotesPublic ? 1 : 0,
+              archived: isArchived ? 1 : 0,
+              archive_reason: isArchived ? (movies[0].archive_reason || 'Archived via import') : null,
               purchase_date: movies[0].purchase_date || null,
               store_links: movies[0].store_links || null,
               custom_image_url: movies[0].custom_image_url || null,

@@ -5,9 +5,13 @@
  */
 process.env.ADMIN_PASSWORD = 'testpass';
 process.env.SESSION_SECRET = '01234567890123456789012345678901';
+process.env.MCP_API_KEY = 'test-mcp-api-key-12345';
 
 const path = require('path');
-const { verifyPassword } = require(path.join(__dirname, '../dist/middleware/auth.middleware.js'));
+const { verifyPassword, verifyMcpApiKey } = require(path.join(
+  __dirname,
+  '../dist/middleware/auth.middleware.js',
+));
 const { signSessionToken, verifySessionToken } = require(path.join(
   __dirname,
   '../dist/services/jwt-auth.service.js',
@@ -19,6 +23,15 @@ if (!verifyPassword('testpass')) {
 }
 if (verifyPassword('wrong')) {
   console.error('FAIL: verifyPassword should reject wrong password');
+  process.exit(1);
+}
+
+if (!verifyMcpApiKey('test-mcp-api-key-12345')) {
+  console.error('FAIL: verifyMcpApiKey should accept correct MCP API key');
+  process.exit(1);
+}
+if (verifyMcpApiKey('wrong-mcp-key')) {
+  console.error('FAIL: verifyMcpApiKey should reject wrong MCP API key');
   process.exit(1);
 }
 

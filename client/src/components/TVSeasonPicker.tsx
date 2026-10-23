@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { TMDbTVShowDetails, TMDbTVSeason } from '../types';
 import { apiService } from '../services/api.service';
+import { useToast } from '../context/ToastContext';
+import { PHYSICAL_FORMATS } from '../lib/formats';
 
 interface SelectedSeason {
   title: string;
@@ -26,7 +28,7 @@ interface TVSeasonPickerProps {
   tvShowName: string;
 }
 
-const availableFormats = ['4K UHD', '3D Blu-ray', 'Blu-ray', 'DVD', 'Digital-HD', 'Digital-SD', 'Digital-UHD', 'LaserDisc', 'VHS'];
+const availableFormats = PHYSICAL_FORMATS;
 
 const TVSeasonPicker: React.FC<TVSeasonPickerProps> = ({
   isOpen,
@@ -40,6 +42,7 @@ const TVSeasonPicker: React.FC<TVSeasonPickerProps> = ({
   const [selectedFormats, setSelectedFormats] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { toast } = useToast();
 
   useEffect(() => {
     if (isOpen && tvShowId) {
@@ -103,7 +106,7 @@ const TVSeasonPicker: React.FC<TVSeasonPickerProps> = ({
   const handleConfirm = () => {
     if (!tvDetails || selectedSeasonIds.size === 0) return;
     if (selectedFormats.length === 0) {
-      alert('Please select at least one format.');
+      toast({ message: 'Please select at least one format.', type: 'warning' });
       return;
     }
 

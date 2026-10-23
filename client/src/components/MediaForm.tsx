@@ -1,17 +1,24 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { PhysicalItem, TMDbMovie, Media, UnifiedSearchResult, Series, ManualMovieData } from '../types';
 import { apiService } from '../services/api.service';
+import { useToast } from '../context/ToastContext';
+import { useConfirm } from '../context/ConfirmContext';
+import { useFacets, resetFacetsCache } from '../hooks/useFacets';
 import UnifiedSearchModal from './UnifiedSearchModal';
 import StoreLinkManager from './StoreLinkManager';
 import MediaEditModal from './MediaEditModal';
 import FormatSelector from './FormatSelector';
 import PosterSelector from './PosterSelector';
+import EditionTagInput from './EditionTagInput';
+import { Sheet } from './ui/Sheet';
+import { Button } from './ui/Button';
 
 interface MediaFormProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess: () => void;
   editItem?: PhysicalItem | null;
+  onDelete?: (itemId: number) => Promise<void> | void;
 }
 
 interface MovieWithFormats {
@@ -29,7 +36,7 @@ interface MovieWithFormats {
   genres?: { id: number; name: string }[];
 }
 
-const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editItem }) => {
+const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editItem, onDelete }) => {
   console.log('🎬 MediaForm rendered:', { isOpen, editItemId: editItem?.id, editItemName: editItem?.name });
   
   const [showUnifiedSearch, setShowUnifiedSearch] = useState(false);
@@ -48,6 +55,12 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
   const [showPosterSelector, setShowPosterSelector] = useState(false);
   const [posterSelectorMovieId, setPosterSelectorMovieId] = useState<number | null>(null);
   const [showMovieSelectionForPoster, setShowMovieSelectionForPoster] = useState(false);
+  const [showArchivePrompt, setShowArchivePrompt] = useState(false);
+  const [archivePromptReason, setArchivePromptReason] = useState('');
+  const [isDeleting, setIsDeleting] = useState(false);
+  const { toast } = useToast();
+  const confirm = useConfirm();
+  const { facets } = useFacets();
 
   const [formData, setFormData] = useState({
     // Physical item fields
@@ -56,6 +69,8 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
     edition_notes: '',
     notes: '',
     notes_public: false,
+    archived: false,
+    archive_reason: '',
     custom_image_url: '',
     purchase_date: '',
     thickness_units: 1,
@@ -67,6 +82,20 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
   });
   const [showDimensions, setShowDimensions] = useState(false);
   const [availableSeries, setAvailableSeries] = useState<Series[]>([]);
+  const autoOpenedSearchRef = useRef(false);
+
+  // Auto-open the search dialog once per open in create mode, so the
+  // first (and required) step is front and center. Closing the search
+  // without selecting lands on the guided empty state instead.
+  useEffect(() => {
+    if (isOpen && !editItem && !autoOpenedSearchRef.current) {
+      autoOpenedSearchRef.current = true;
+      setShowUnifiedSearch(true);
+    }
+    if (!isOpen) {
+      autoOpenedSearchRef.current = false;
+    }
+  }, [isOpen, editItem]);
 
   useEffect(() => {
     // Load available series
@@ -91,6 +120,8 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
         edition_notes: editItem.edition_notes || '',
         notes: editItem.notes || '',
         notes_public: editItem.notes_public || false,
+        archived: Boolean(editItem.archived),
+        archive_reason: editItem.archive_reason || '',
         custom_image_url: editItem.custom_image_url || '',
         purchase_date: editItem.purchase_date || '',
         thickness_units: editItem.thickness_units || 1,
@@ -166,6 +197,8 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
         edition_notes: '',
         notes: '',
         notes_public: false,
+        archived: false,
+        archive_reason: '',
         custom_image_url: '',
         purchase_date: '',
         thickness_units: 1,
@@ -376,25 +409,28 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
     }
     
     // Editing existing item - call API
-    const confirmed = confirm(
-      `Remove "${movieWithFormats.movie.title}" from this physical item?\n\n` +
-      `The movie will remain in your database but won't be linked to this item.`
-    );
-    
+    const confirmed = await confirm({
+      title: 'Remove movie link',
+      message: `Remove "${movieWithFormats.movie.title}" from this physical item?\n\nThe movie will remain in your database but won't be linked to this item.`,
+      confirmLabel: 'Remove',
+      cancelLabel: 'Cancel',
+      variant: 'danger',
+    });
+
     if (!confirmed) return;
-    
+
     try {
       await apiService.removeMediaLink(editItem.id, movieWithFormats.mediaDbId!);
       setSelectedMovies(prev => prev.filter(m => m.mediaDbId !== movieWithFormats.mediaDbId));
-      // Show success message
+      toast({ message: 'Movie removed from physical item.', type: 'success' });
     } catch (error) {
-      alert('Failed to remove movie. Please try again.');
+      toast({ message: 'Failed to remove movie. Please try again.', type: 'error' });
     }
   };
 
   const handleEditMovie = async (movieWithFormats: MovieWithFormats) => {
     if (!movieWithFormats.mediaDbId) {
-      alert('Cannot edit: Movie not yet saved to database');
+      toast({ message: 'Cannot edit: Movie not yet saved to database', type: 'warning' });
       return;
     }
     
@@ -452,7 +488,7 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
         }
       } catch (error) {
         console.error('Failed to update movie formats:', error);
-        alert('Failed to update movie formats. Please try again.');
+        toast({ message: 'Failed to update movie formats. Please try again.', type: 'error' });
         // Revert the local state change on error
         setSelectedMovies(prev => 
           prev.map(movie => 
@@ -471,12 +507,12 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
 
   const handleSelectPosterClick = () => {
     if (selectedMovies.length === 0) {
-      alert('Please select a movie first to choose a poster.');
+      toast({ message: 'Please select a movie first to choose a poster.', type: 'warning' });
       return;
     }
 
     if (selectedMovies.length === 1 && selectedMovies[0].isManual) {
-      alert('Manual movies can use a cover image from the manual movie form or an upload.');
+      toast({ message: 'Manual movies can use a cover image from the manual movie form or an upload.', type: 'warning' });
       return;
     }
 
@@ -536,18 +572,11 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
         }
       }
       
-      const format = movies[0].formats.length === 1 ? movies[0].formats[0] : 'Multi-format';
-      return `${title} [${format}]`;
+      return title;
     }
     
     // Movies or mixed - use titles
-    const titles = movies.map(m => m.movie.title).join(' / ');
-    
-    if (movies.length === 1 && movies[0].formats.length === 1) {
-      return `${titles} [${movies[0].formats[0]}]`;
-    } else {
-      return `${titles} [Multi-format]`;
-    }
+    return movies.map(m => m.movie.title).join(' / ');
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -560,7 +589,7 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
       setFormData({ ...formData, custom_image_url: result.url });
     } catch (error) {
       console.error('Upload failed:', error);
-      alert('Failed to upload image. Please try again.');
+      toast({ message: 'Failed to upload image. Please try again.', type: 'error' });
     } finally {
       setUploadingImage(false);
     }
@@ -577,7 +606,12 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
     
     // Validate at least one movie is selected
     if (selectedMovies.length === 0) {
-      alert('Please select at least one media item.');
+      toast({ message: 'Please select at least one media item.', type: 'warning' });
+      return;
+    }
+
+    if (formData.archived && !formData.archive_reason.trim()) {
+      toast({ message: 'Please enter a reason for archiving this item.', type: 'warning' });
       return;
     }
     
@@ -597,6 +631,8 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
           edition_notes: formData.edition_notes,
           notes: formData.notes || undefined,
           notes_public: formData.notes_public,
+          archived: formData.archived,
+          archive_reason: formData.archived ? formData.archive_reason.trim() : null,
           custom_image_url: formData.custom_image_url,
           purchase_date: formData.purchase_date,
           thickness_units: formData.thickness_units,
@@ -742,6 +778,7 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
           media: mediaArray,
         } as any);
       }
+      resetFacetsCache();
       onSuccess();
       onClose();
     } catch (error: any) {
@@ -749,7 +786,7 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
       // #region agent log
       fetch('http://localhost:7242/ingest/8b2e7252-624c-479a-86a6-74b0ba1b2bf3',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'0162e4'},body:JSON.stringify({sessionId:'0162e4',location:'MediaForm.tsx:700',message:'handleSubmit catch error',data:{errorMessage:error?.message,errorResponse:error?.response?.data,errorStatus:error?.response?.status},timestamp:Date.now()})}).catch(()=>{});
       // #endregion
-      alert('Failed to save physical item. Please try again.');
+      toast({ message: 'Failed to save physical item. Please try again.', type: 'error' });
     } finally {
       setIsSubmitting(false);
     }
@@ -760,6 +797,10 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
   // Get image URL - prioritize custom, then first selected movie's poster
   const imageUrl = formData.custom_image_url || 
     (selectedMovies.length > 0 ? selectedMovies[0].details?.poster_url : null);
+
+  // Guided empty state: in create mode with nothing selected, selecting
+  // media is the required first step, so it becomes the entire UI.
+  const showEmptyState = !editItem && selectedMovies.length === 0;
 
   return (
     <>
@@ -786,6 +827,42 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
 
             {/* Form */}
             <form onSubmit={handleSubmit} className="p-6">
+              {showEmptyState ? (
+                <div className="flex flex-col items-center justify-center text-center py-16 px-6">
+                  <div className="w-16 h-16 rounded-full bg-primary-50 dark:bg-primary-900/30 flex items-center justify-center mb-5">
+                    <svg className="w-8 h-8 text-primary-600 dark:text-primary-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-4.35-4.35m1.6-4.65a7 7 0 11-14 0 7 7 0 0114 0z" />
+                    </svg>
+                  </div>
+                  <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-2">
+                    What are you adding?
+                  </h3>
+                  <p className="text-sm text-gray-500 dark:text-gray-400 max-w-sm mb-6">
+                    Search TMDb and your library to find a movie or TV season — we'll autofill the details, poster, and formats for you.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setShowUnifiedSearch(true)}
+                    className="btn-primary flex items-center gap-2"
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-4.35-4.35m1.6-4.65a7 7 0 11-14 0 7 7 0 0114 0z" />
+                    </svg>
+                    Search for media
+                  </button>
+                  <p className="mt-4 text-xs text-gray-400 dark:text-gray-500">
+                    Can't find it? You can create it manually from the search dialog.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={onClose}
+                    className="mt-6 text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              ) : (
+              <>
               <div className="grid md:grid-cols-2 gap-6">
                 {/* Left Column - Image */}
                 <div>
@@ -807,7 +884,7 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
                       onClick={() => setShowUnifiedSearch(true)}
                       className="btn-secondary text-sm w-full"
                     >
-                      + Add Media
+                      + Add another title
                     </button>
                   </div>
 
@@ -924,7 +1001,7 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
                       </div>
                     ) : (
                       <p className="text-sm text-gray-500 dark:text-gray-400 mb-3">
-                        No media selected. Click "+ Add Media" to search for movies or TV shows.
+                        No media selected. Click "+ Add another title" to search for movies or TV shows.
                       </p>
                     )}
                   </div>
@@ -940,10 +1017,10 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
                       value={formData.name || updatePhysicalItemName(selectedMovies)}
                       onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                       placeholder={updatePhysicalItemName(selectedMovies)}
-                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
                     />
                     <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                      Auto-generated from movie titles and formats. Customize if needed.
+                      Auto-generated from movie titles. Customize if needed.
                     </p>
                   </div>
 
@@ -957,7 +1034,7 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
                       value={formData.sort_name || ''}
                       onChange={(e) => setFormData({ ...formData, sort_name: e.target.value })}
                       placeholder="Auto-calculated from name (e.g., 'The Batman' → 'Batman')"
-                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
                     />
                     <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
                       Used for sorting. Automatically calculated from name if left empty. Override if needed.
@@ -973,7 +1050,7 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
                       type="date"
                       value={formData.purchase_date}
                       onChange={(e) => setFormData({ ...formData, purchase_date: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
                     />
                   </div>
 
@@ -1041,7 +1118,7 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
                             value={formData.width_mm ?? ''}
                             onChange={(e) => setFormData({ ...formData, width_mm: e.target.value ? parseFloat(e.target.value) : undefined })}
                             placeholder="Auto"
-                            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
                           />
                         </div>
                         <div>
@@ -1054,7 +1131,7 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
                             value={formData.height_mm ?? ''}
                             onChange={(e) => setFormData({ ...formData, height_mm: e.target.value ? parseFloat(e.target.value) : undefined })}
                             placeholder="Auto"
-                            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
                           />
                         </div>
                         <div>
@@ -1067,7 +1144,7 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
                             value={formData.depth_mm ?? ''}
                             onChange={(e) => setFormData({ ...formData, depth_mm: e.target.value ? parseFloat(e.target.value) : undefined })}
                             placeholder="Auto"
-                            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
                           />
                         </div>
                         <p className="col-span-3 text-xs text-gray-500 dark:text-gray-400">
@@ -1086,7 +1163,7 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
                       <select
                         value={formData.media_primary_series_id || ''}
                         onChange={(e) => setFormData({ ...formData, media_primary_series_id: e.target.value ? parseInt(e.target.value) : undefined })}
-                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
                       >
                         <option value="">None</option>
                         {availableSeries.map(series => (
@@ -1113,7 +1190,7 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
                       <select
                         value={formData.sort_series_id || ''}
                         onChange={(e) => setFormData({ ...formData, sort_series_id: e.target.value ? parseInt(e.target.value) : undefined })}
-                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
                       >
                         <option value="">None</option>
                         {availableSeries.map(series => (
@@ -1130,16 +1207,22 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
 
                   {/* Edition Notes */}
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    <label
+                      htmlFor="media-form-edition-notes"
+                      className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
+                    >
                       Edition Notes
                     </label>
-                    <input
-                      type="text"
-                      placeholder="e.g., Steelbook, Collector's Edition, 3D"
+                    <EditionTagInput
+                      id="media-form-edition-notes"
+                      placeholder="e.g., Steelbook, Collector's Edition, Criterion"
                       value={formData.edition_notes}
-                      onChange={(e) => setFormData({ ...formData, edition_notes: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                      onChange={(edition_notes) => setFormData({ ...formData, edition_notes })}
+                      availableTags={facets?.editions ?? []}
                     />
+                    <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                      Press Enter, Tab, or comma to add a tag. Start typing to match existing tags.
+                    </p>
                   </div>
 
                   {/* Personal Notes */}
@@ -1156,7 +1239,7 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
                         }
                       }}
                       rows={3}
-                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-primary-500 resize-none"
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface resize-none"
                     />
                     <div className="flex justify-between items-center mt-1">
                       <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
@@ -1191,19 +1274,117 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
               </div>
 
               {/* Actions */}
-              <div className="flex justify-end gap-3 mt-6 pt-6 border-t border-gray-200 dark:border-gray-700">
-                <button type="button" onClick={onClose} className="btn-secondary">
-                  Cancel
-                </button>
-                <button 
-                  type="submit" 
-                  disabled={isSubmitting} 
-                  className="btn-primary"
-                  onClick={() => console.log('🔘 Save button clicked!', { selectedMoviesCount: selectedMovies.length })}
-                >
-                  {isSubmitting ? 'Saving...' : editItem ? 'Update' : 'Add Media'}
-                </button>
+              <div className="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-between gap-3 mt-6 pt-6 border-t border-gray-200 dark:border-gray-700">
+                {editItem ? (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      disabled={isSubmitting || isDeleting}
+                      onClick={() => {
+                        if (formData.archived) {
+                          setFormData({ ...formData, archived: false, archive_reason: '' });
+                        } else {
+                          setArchivePromptReason(formData.archive_reason || '');
+                          setShowArchivePrompt(true);
+                        }
+                      }}
+                      className={`inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border transition-colors ${
+                        formData.archived
+                          ? 'border-amber-500 bg-amber-50 text-amber-800 hover:bg-amber-100 dark:border-amber-600 dark:bg-amber-950/50 dark:text-amber-200 dark:hover:bg-amber-900/50'
+                          : 'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600'
+                      }`}
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"
+                        />
+                      </svg>
+                      {formData.archived ? 'Unarchive Item' : 'Archive Item'}
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={isSubmitting || isDeleting}
+                      onClick={async () => {
+                        const confirmed = await confirm({
+                          title: 'Delete physical item?',
+                          message: `Are you sure you want to permanently delete "${editItem.name}"? This action cannot be undone.`,
+                          confirmLabel: 'Delete',
+                          cancelLabel: 'Cancel',
+                          variant: 'danger',
+                        });
+                        if (!confirmed) return;
+                        setIsDeleting(true);
+                        try {
+                          if (onDelete) {
+                            await onDelete(editItem.id);
+                          } else {
+                            await apiService.deletePhysicalItem(editItem.id);
+                            onSuccess();
+                          }
+                          onClose();
+                        } catch (error) {
+                          console.error('Failed to delete physical item:', error);
+                          toast({ message: 'Failed to delete item. Please try again.', type: 'error' });
+                        } finally {
+                          setIsDeleting(false);
+                        }
+                      }}
+                      className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg bg-red-600 text-white hover:bg-red-700 transition-colors disabled:opacity-50"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                        />
+                      </svg>
+                      {isDeleting ? 'Deleting...' : 'Delete Item'}
+                    </button>
+                  </div>
+                ) : (
+                  <div />
+                )}
+
+                <div className="flex justify-end gap-3">
+                  <button type="button" onClick={onClose} className="btn-secondary">
+                    Cancel
+                  </button>
+                  <button 
+                    type="submit" 
+                    disabled={isSubmitting || isDeleting} 
+                    className="btn-primary"
+                    onClick={() => console.log('🔘 Save button clicked!', { selectedMoviesCount: selectedMovies.length })}
+                  >
+                    {isSubmitting ? 'Saving...' : editItem ? 'Update' : 'Add Media'}
+                  </button>
+                </div>
               </div>
+
+              {editItem && formData.archived && (
+                <div className="mt-4 flex items-center justify-between gap-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm text-amber-900 dark:border-amber-700/60 dark:bg-amber-950/40 dark:text-amber-200">
+                  <div>
+                    <span className="font-semibold">Marked as Archived:</span>{' '}
+                    <span>{formData.archive_reason}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setArchivePromptReason(formData.archive_reason);
+                      setShowArchivePrompt(true);
+                    }}
+                    className="text-xs font-medium underline hover:no-underline"
+                  >
+                    Edit reason
+                  </button>
+                </div>
+              )}
+              </>
+              )}
             </form>
           </div>
         </div>
@@ -1241,6 +1422,54 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
         movieTitle={editingFormatsFor ? selectedMovies.find(m => m.movie.id === editingFormatsFor)?.movie.title || '' : ''}
         initialFormats={editingFormatsFor ? selectedMovies.find(m => m.movie.id === editingFormatsFor)?.formats || [] : []}
       />
+
+      {/* Archive Reason Prompt Modal */}
+      <Sheet
+        isOpen={showArchivePrompt}
+        onClose={() => setShowArchivePrompt(false)}
+        title="Archive Physical Item"
+        description={`Why is "${editItem?.name || formData.name}" being archived?`}
+        position="center"
+        size="sm"
+      >
+        <form
+          onSubmit={async (e) => {
+            e.preventDefault();
+            const trimmed = archivePromptReason.trim();
+            if (!trimmed) return;
+            setFormData({ ...formData, archived: true, archive_reason: trimmed });
+            setShowArchivePrompt(false);
+          }}
+          className="space-y-4"
+        >
+          <div>
+            <label htmlFor="edit-form-archive-reason" className="mb-1 block text-sm font-medium text-content">
+              Archive Reason *
+            </label>
+            <input
+              id="edit-form-archive-reason"
+              type="text"
+              required
+              maxLength={500}
+              placeholder="e.g., Given away, sold, trashed"
+              value={archivePromptReason}
+              onChange={(e) => setArchivePromptReason(e.target.value)}
+              className="w-full rounded-[--radius-control] border border-subtle bg-surface px-3 py-2 text-sm text-content placeholder-content-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+            />
+            <p className="mt-1 text-xs text-content-muted">
+              Click Update on the form to save changes.
+            </p>
+          </div>
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <Button type="button" variant="secondary" onClick={() => setShowArchivePrompt(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={!archivePromptReason.trim()}>
+              Set Archived
+            </Button>
+          </div>
+        </form>
+      </Sheet>
 
       {/* Poster Selector */}
       {showPosterSelector && posterSelectorMovieId && (
