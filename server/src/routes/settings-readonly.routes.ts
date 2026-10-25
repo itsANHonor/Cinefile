@@ -12,7 +12,7 @@ router.get('/', async (req: Request, res: Response) => {
     const settings = await db('settings').select('*');
     
     // Only expose safe settings that are meant for public viewing
-    const safeSettings = ['collection_public', 'site_title', 'collection_title'];
+    const safeSettings = ['collection_public', 'site_title', 'collection_title', 'default_theme'];
     
     // Convert to key-value object, filtering to only safe settings
     const settingsObj: Record<string, string> = {};
@@ -38,7 +38,7 @@ router.get('/:key', async (req: Request, res: Response) => {
     const { key } = req.params;
     
     // Only allow access to safe settings
-    const safeSettings = ['collection_public', 'site_title', 'collection_title'];
+    const safeSettings = ['collection_public', 'site_title', 'collection_title', 'default_theme'];
     if (!safeSettings.includes(key)) {
       return res.status(404).json({ error: 'Setting not found' });
     }

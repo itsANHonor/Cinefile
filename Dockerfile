@@ -1,15 +1,15 @@
 # ============================================
 # Stage 1: Build Frontend
 # ============================================
-FROM node:18-alpine AS frontend-builder
+FROM node:20-alpine AS frontend-builder
 
 WORKDIR /app/client
 
 # Copy frontend package files
 COPY client/package*.json ./
 
-# Install frontend dependencies
-RUN npm install && npm cache clean --force
+# Install frontend dependencies deterministically
+RUN npm ci && npm cache clean --force
 
 # Copy frontend source
 COPY client/ ./
@@ -20,7 +20,7 @@ RUN npm run build
 # ============================================
 # Stage 2: Build Backend
 # ============================================
-FROM node:18-alpine AS backend-builder
+FROM node:20-alpine AS backend-builder
 
 WORKDIR /app/server
 
@@ -31,27 +31,25 @@ RUN apk add --no-cache python3 make g++
 COPY server/package*.json ./
 
 # Install backend dependencies (including dev for TypeScript)
-RUN npm install && npm cache clean --force
+RUN npm ci
 
 # Copy backend source
 COPY server/ ./
 
-# Build TypeScript backend
-RUN npm run build
+# Build TypeScript backend and prune devDependencies for production
+RUN npm run build && npm prune --omit=dev && npm cache clean --force
 
 # ============================================
 # Stage 3: Production Image
 # ============================================
-FROM node:18-alpine
+FROM node:20-alpine
 
 WORKDIR /app
 
-# Copy backend build and dependencies
+# Copy backend build and pruned production dependencies
 COPY --from=backend-builder /app/server/dist ./dist
 COPY --from=backend-builder /app/server/package*.json ./
-
-# Install production dependencies
-RUN npm install --only=production && npm cache clean --force
+COPY --from=backend-builder /app/server/node_modules ./node_modules
 
 # Copy JavaScript migration files
 COPY --from=backend-builder /app/server/migrations/*.js ./migrations/

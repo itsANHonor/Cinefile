@@ -220,13 +220,42 @@ router.get('/:id', async (req: Request, res: Response) => {
   }
 });
 
+const ALLOWED_MEDIA_FIELDS = [
+  'title',
+  'tmdb_id',
+  'synopsis',
+  'cover_art_url',
+  'release_date',
+  'director',
+  'cast',
+  'genres',
+  'physical_format',
+  'primary_series_id',
+  'media_type',
+  'tv_show_tmdb_id',
+  'tv_show_name',
+  'season_number',
+  'episode_count',
+] as const;
+
+function pickAllowedMediaFields(raw: Record<string, any>): Record<string, any> {
+  const picked: Record<string, any> = {};
+  for (const key of ALLOWED_MEDIA_FIELDS) {
+    if (raw[key] !== undefined) {
+      picked[key] = raw[key];
+    }
+  }
+  return picked;
+}
+
 /**
  * POST /api/media
  * Create a new media item (protected)
  */
 router.post('/', authMiddleware, async (req: Request, res: Response) => {
   try {
-    const { series_associations, ...mediaData }: any = req.body;
+    const { series_associations, ...rawMediaData }: any = req.body;
+    const mediaData = pickAllowedMediaFields(rawMediaData);
 
     // Validate required fields
     if (!mediaData.title) {
@@ -284,7 +313,8 @@ router.post('/', authMiddleware, async (req: Request, res: Response) => {
 router.put('/:id', authMiddleware, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { series_associations, primary_series_id, ...mediaData }: any = req.body;
+    const { series_associations, primary_series_id, ...rawMediaData }: any = req.body;
+    const mediaData = pickAllowedMediaFields(rawMediaData);
 
     // Check if media exists
     const existingMedia = await db('media').where({ id }).first();
@@ -485,8 +515,8 @@ router.post('/bulk', authMiddleware, async (req: Request, res: Response) => {
           throw new Error('At least one physical format is required');
         }
 
-        const processedMediaData = {
-          ...mediaData,
+        const processedMediaData: Record<string, any> = {
+          ...pickAllowedMediaFields(mediaData),
           physical_format: JSON.stringify(formatArray)
         };
 

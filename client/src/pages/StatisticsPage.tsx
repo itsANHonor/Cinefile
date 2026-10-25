@@ -187,6 +187,7 @@ const StatisticsPage: React.FC = () => {
   const [data, setData] = useState<CollectionDashboardStatistics | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isPrivateCollection, setIsPrivateCollection] = useState(false);
 
   const [formatBasis, setFormatBasis] = useState<'titles' | 'items'>('titles');
   const [timelineBasis, setTimelineBasis] = useState<'added' | 'purchased'>('added');
@@ -212,15 +213,20 @@ const StatisticsPage: React.FC = () => {
   const loadDashboard = useCallback(async () => {
     setIsLoading(true);
     setError(null);
+    setIsPrivateCollection(false);
     try {
       const stats = await apiService.getDashboardStatistics();
       setData(stats);
       if (stats.acquisitions.itemsWithPurchaseDate > 0) {
         setTimelineBasis('purchased');
       }
-    } catch (err) {
-      console.error('Failed to load dashboard statistics:', err);
-      setError('Could not load collection statistics. Please try again.');
+    } catch (err: any) {
+      if (err?.response?.status === 403 && err?.response?.data?.collection_public === false) {
+        setIsPrivateCollection(true);
+      } else {
+        console.error('Failed to load dashboard statistics:', err);
+        setError('Could not load collection statistics. Please try again.');
+      }
     } finally {
       setIsLoading(false);
     }
@@ -247,6 +253,34 @@ const StatisticsPage: React.FC = () => {
             <Skeleton key={i} className="h-72 w-full rounded-[--radius-card]" />
           ))}
         </div>
+      </div>
+    );
+  }
+
+  if (isPrivateCollection && !canEdit) {
+    return (
+      <div className="container mx-auto px-4 py-12">
+        <EmptyState
+          title="This collection is private"
+          description="The owner has set this media collection and its statistics to private."
+          action={
+            !isReadOnly ? (
+              <Button asChild>
+                <Link to="/admin">Sign in as Admin</Link>
+              </Button>
+            ) : undefined
+          }
+          icon={
+            <svg className="h-8 w-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
+              />
+            </svg>
+          }
+        />
       </div>
     );
   }

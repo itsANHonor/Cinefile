@@ -2027,6 +2027,14 @@ export async function addPhysicalItem(input: AddPhysicalItemInput) {
     }),
   );
 
+  if (input.store_links) {
+    for (const link of input.store_links) {
+      if (!link?.label?.trim() || !link?.url || !/^https?:\/\/.+/i.test(link.url)) {
+        throw new Error('Invalid store_links: each entry requires a label and an http(s):// URL');
+      }
+    }
+  }
+
   const itemName = input.name?.trim() || enrichedMediaList[0].title || 'Untitled Item';
   const existingEditions = await db('physical_items').whereNotNull('edition_notes').select('edition_notes');
   const canonicalEditionMap = buildCanonicalEditionTagMap(existingEditions);
@@ -2220,6 +2228,13 @@ export async function updatePhysicalItem(input: UpdatePhysicalItemInput) {
     updateData.sort_series_id = input.sort_series_id;
   }
   if (input.store_links !== undefined) {
+    if (input.store_links) {
+      for (const link of input.store_links) {
+        if (!link?.label?.trim() || !link?.url || !/^https?:\/\/.+/i.test(link.url)) {
+          throw new Error('Invalid store_links: each entry requires a label and an http(s):// URL');
+        }
+      }
+    }
     updateData.store_links = input.store_links ? JSON.stringify(input.store_links) : null;
   }
   if (input.physical_format !== undefined) {

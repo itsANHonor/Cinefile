@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { timingSafeEqual } from 'crypto';
 import { verifySessionToken } from '../services/jwt-auth.service';
+import { db } from '../database';
 
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
 
@@ -23,11 +24,83 @@ export function parseBearerToken(authHeader: string | undefined): string | null 
 }
 
 /**
+ * Verify per-launch desktop session token (timing-safe when lengths match).
+ * If DESKTOP_SESSION_TOKEN is configured, requests must supply a matching
+ * X-Cinefile-Desktop-Token header or Bearer token.
+ */
+export function verifyDesktopToken(token: string | undefined | null): boolean {
+  const configuredToken = process.env.DESKTOP_SESSION_TOKEN?.trim();
+  if (!configuredToken) {
+    // Fallback if running DESKTOP_MODE manually without Electron main.ts setting a token:
+    // require no Origin header or a loopback Origin header to block external cross-origin sites
+    return false;
+  }
+  if (typeof token !== 'string' || !token) {
+    return false;
+  }
+  try {
+    const a = Buffer.from(token, 'utf8');
+    const b = Buffer.from(configuredToken, 'utf8');
+    if (a.length !== b.length) {
+      return false;
+    }
+    return timingSafeEqual(a, b);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Checks whether a request in DESKTOP_MODE is authorized.
+ */
+export function isDesktopRequestAuthorized(req: Request): boolean {
+  if (!isDesktopMode()) return false;
+
+  const configuredToken = process.env.DESKTOP_SESSION_TOKEN?.trim();
+  if (configuredToken) {
+    const headerToken =
+      typeof req.headers['x-cinefile-desktop-token'] === 'string'
+        ? req.headers['x-cinefile-desktop-token'].trim()
+        : null;
+    const bearerToken = parseBearerToken(req.headers.authorization);
+    return verifyDesktopToken(headerToken) || verifyDesktopToken(bearerToken);
+  }
+
+  // When DESKTOP_MODE is run without DESKTOP_SESSION_TOKEN, reject cross-origin browser requests
+  const origin = req.headers.origin;
+  const secFetchSite = req.headers['sec-fetch-site'];
+  if (secFetchSite && secFetchSite !== 'same-origin' && secFetchSite !== 'none') {
+    return false;
+  }
+  if (origin && !origin.startsWith('http://127.0.0.1:') && !origin.startsWith('http://localhost:')) {
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Determines whether an incoming request is authenticated as admin
+ * (via valid Bearer JWT or authorized Desktop Mode session).
+ */
+export function isRequestAdmin(req: Request): boolean {
+  if (isDesktopMode()) {
+    return isDesktopRequestAuthorized(req);
+  }
+  const token = parseBearerToken(req.headers.authorization);
+  return Boolean(token && verifySessionToken(token));
+}
+
+/**
  * Validates JWT issued by POST /api/auth/login. Admin password is only sent on login.
- * In DESKTOP_MODE, requests on the local server are automatically authenticated.
+ * In DESKTOP_MODE, validates the per-launch desktop session token.
  */
 export function authMiddleware(req: AuthRequest, res: Response, next: NextFunction) {
   if (isDesktopMode()) {
+    if (!isDesktopRequestAuthorized(req)) {
+      return res.status(401).json({
+        error: 'Unauthorized desktop request',
+      });
+    }
     req.isAuthenticated = true;
     return next();
   }
@@ -46,6 +119,37 @@ export function authMiddleware(req: AuthRequest, res: Response, next: NextFuncti
 
   req.isAuthenticated = true;
   next();
+}
+
+/**
+ * Enforces the `collection_public` setting on collection read routes.
+ * Authenticated admins (or authorized Desktop requests) always have access.
+ * Unauthenticated callers are blocked with 403 when `collection_public === 'false'`.
+ */
+export async function requirePublicCollectionOrAuth(
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction,
+) {
+  if (isRequestAdmin(req)) {
+    req.isAuthenticated = true;
+    return next();
+  }
+
+  try {
+    const row = await db('settings').where({ key: 'collection_public' }).first();
+    // Default to public ('true') unless explicitly set to 'false'
+    if (row && row.value === 'false') {
+      return res.status(403).json({
+        error: 'This collection is private.',
+        collection_public: false,
+      });
+    }
+    return next();
+  } catch (error) {
+    console.error('Error checking collection_public setting:', error);
+    return res.status(500).json({ error: 'Failed to verify collection visibility' });
+  }
 }
 
 /**

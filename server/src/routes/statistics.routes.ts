@@ -1,7 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { db } from '../database';
-import { parseBearerToken } from '../middleware/auth.middleware';
-import { verifySessionToken } from '../services/jwt-auth.service';
+import { isRequestAdmin } from '../middleware/auth.middleware';
 import {
   applyEditionTagFilter,
   buildCanonicalEditionTagMap,
@@ -28,8 +27,7 @@ router.get('/', async (req: Request, res: Response) => {
   try {
     const { format, genres, decades, editions, edition, search, archived } = req.query;
 
-    const token = parseBearerToken(req.headers.authorization);
-    const isAdmin = Boolean(token && verifySessionToken(token));
+    const isAdmin = isRequestAdmin(req);
     const showArchived = isAdmin && (archived === 'true' || archived === '1');
 
     const applyArchivedFilter = (query: any) => {

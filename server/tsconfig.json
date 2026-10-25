@@ -13,10 +13,9 @@
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true,
-    "baseUrl": ".",
     "paths": {
       "@modelcontextprotocol/sdk/server/*.js": [
-        "node_modules/@modelcontextprotocol/sdk/dist/cjs/server/*.d.ts"
+        "./node_modules/@modelcontextprotocol/sdk/dist/cjs/server/*.d.ts"
       ]
     }
   },

@@ -1,94 +1,9 @@
-import express from 'express';
-import cors from 'cors';
-import 'dotenv/config';
-import fs from 'fs';
-import path from 'path';
-import { setupDatabase } from './database';
-import { isDesktopMode } from './middleware/auth.middleware';
+import { startFullServer } from './index-full';
 
-// Import routes
-import authRoutes from './routes/auth.routes';
-import mediaRoutes from './routes/media.routes';
-import physicalItemsRoutes from './routes/physical-items.routes';
-import settingsRoutes from './routes/settings.routes';
-import searchRoutes from './routes/search.routes';
-import seriesRoutes from './routes/series.routes';
-import importExportRoutes from './routes/import-export.routes';
-import statisticsRoutes from './routes/statistics.routes';
-import libraryRoutes from './routes/library.routes';
-import mcpRoutes from './routes/mcp.routes';
+const PORT = Number(process.env.PORT) || 3000;
 
-if (!isDesktopMode() && !process.env.SESSION_SECRET?.trim()) {
-  console.error('FATAL: SESSION_SECRET must be set (signs admin JWTs). See server/env.example.');
+startFullServer({ port: PORT }).catch((err) => {
+  console.error('❌ Failed to start Cinefile server:', err);
   process.exit(1);
-}
-
-const app = express();
-const PORT = process.env.PORT || 3000;
-
-// CORS configuration - restrict to allowed origin for security
-const corsOptions = {
-  origin: isDesktopMode() ? true : (process.env.ALLOWED_ORIGIN || 'http://localhost:3005'), // Default to frontend URL
-  credentials: false,
-  optionsSuccessStatus: 200,
-};
-
-// Middleware
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ extended: true, limit: '50mb' }));
-
-// Mount MCP routes before restrictive browser CORS so MCP clients & preflights use MCP CORS headers
-app.use('/api/mcp', mcpRoutes);
-app.use('/mcp', mcpRoutes);
-
-app.use(cors(corsOptions));
-
-// Initialize database
-setupDatabase();
-
-// Serve uploaded files statically (must be before API routes for proper handling)
-const uploadDir = process.env.UPLOAD_DIR || path.join(__dirname, '../uploads');
-fs.mkdirSync(uploadDir, { recursive: true });
-app.use('/uploads', express.static(uploadDir));
-
-// API Routes
-app.get('/api', (req, res) => {
-  res.json({ message: 'Hello World from Cinefile API!' });
 });
 
-app.get('/api/health', (req, res) => {
-  res.json({
-    status: 'healthy',
-    mode: 'full',
-    desktop: isDesktopMode(),
-    timestamp: new Date().toISOString(),
-    version: '2.0.0',
-  });
-});
-
-app.use('/api/auth', authRoutes);
-app.use('/api/media', mediaRoutes);
-app.use('/api/physical-items', physicalItemsRoutes);
-app.use('/api/settings', settingsRoutes);
-app.use('/api/search', searchRoutes);
-app.use('/api/series', seriesRoutes);
-app.use('/api/import-export', importExportRoutes);
-app.use('/api/statistics', statisticsRoutes);
-app.use('/api/library', libraryRoutes);
-
-// Serve static frontend files (React build)
-// This must come AFTER API routes so API routes take precedence
-const publicDir = path.join(__dirname, '../public');
-app.use(express.static(publicDir));
-
-// SPA fallback - serve index.html for all other routes
-// This handles client-side routing for React Router
-app.get('*', (req, res) => {
-  res.sendFile(path.join(publicDir, 'index.html'));
-});
-
-// Start server
-app.listen(PORT, () => {
-  console.log(`🎬 Cinefile server running on port ${PORT}`);
-  console.log(`📱 API available at http://localhost:${PORT}/api`);
-});

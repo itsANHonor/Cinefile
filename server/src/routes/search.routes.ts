@@ -1,7 +1,11 @@
 import { Router, Request, Response } from 'express';
+import { authMiddleware } from '../middleware/auth.middleware';
 import { tmdbService } from '../services/tmdb.service';
 
 const router = Router();
+
+// All TMDb search/proxy endpoints require admin authentication
+router.use(authMiddleware);
 
 /**
  * GET /api/search/movies

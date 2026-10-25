@@ -14,8 +14,11 @@ if [ "$(id -u)" = "0" ]; then
   # Fix ownership to nodejs user (UID 1001, GID 1001)
   chown -R 1001:1001 /data 2>/dev/null || true
   
-  # Ensure directories are writable
-  chmod -R 755 /data 2>/dev/null || true
+  # Restrict directory permissions (no world-write, restrict world-read on database files)
+  chmod 750 /data "$DB_DIR" /data/uploads 2>/dev/null || true
+  if [ -f "${DATABASE_PATH:-/data/database.sqlite}" ]; then
+    chmod 600 "${DATABASE_PATH:-/data/database.sqlite}"* 2>/dev/null || true
+  fi
   
   echo "✅ Permissions fixed. Dropping to nodejs user..."
   
@@ -132,6 +135,7 @@ if [ -f "$DATABASE_PATH" ]; then
     echo "💾 Creating backup before migration..."
     BACKUP_PATH="${DATABASE_PATH}.backup.$(date +%Y%m%d_%H%M%S)"
     cp "$DATABASE_PATH" "$BACKUP_PATH" 2>/dev/null || true
+    chmod 600 "$BACKUP_PATH" 2>/dev/null || true
     echo "✅ Backup created: $(basename $BACKUP_PATH)"
   fi
 fi
@@ -194,6 +198,7 @@ fi
 
 # Check database
 if [ -f "$DATABASE_PATH" ]; then
+    chmod 600 "$DATABASE_PATH" 2>/dev/null || true
     DB_SIZE=$(du -h "$DATABASE_PATH" | cut -f1)
     echo "✅ Database found: $DATABASE_PATH ($DB_SIZE)"
 else

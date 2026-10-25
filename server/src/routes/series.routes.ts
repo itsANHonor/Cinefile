@@ -122,25 +122,33 @@ router.get('/:id/movies', async (req: Request, res: Response) => {
   }
 });
 
+const VALID_SORT_METHODS = ['chronological', 'custom', 'alphabetical'] as const;
+
 /**
  * POST /api/series
  * Create a new series (protected)
  */
 router.post('/', authMiddleware, async (req: Request, res: Response) => {
   try {
-    const seriesData: Series = req.body;
+    const { name, sort_name, tmdb_collection_id, internal_sort_method } = req.body || {};
 
     // Validate required fields
-    if (!seriesData.name || !seriesData.sort_name) {
+    if (!name || !sort_name) {
       return res.status(400).json({ error: 'Name and sort_name are required' });
     }
 
-    // Default internal_sort_method to 'chronological' if not provided
-    if (!seriesData.internal_sort_method) {
-      seriesData.internal_sort_method = 'chronological';
-    }
+    const sortMethod = VALID_SORT_METHODS.includes(internal_sort_method)
+      ? internal_sort_method
+      : 'chronological';
 
-    const [id] = await db('series').insert(seriesData);
+    const insertData: Series = {
+      name: String(name),
+      sort_name: String(sort_name),
+      tmdb_collection_id: tmdb_collection_id ?? null,
+      internal_sort_method: sortMethod,
+    };
+
+    const [id] = await db('series').insert(insertData);
     const newSeries = await db('series').where({ id }).first();
 
     res.status(201).json(newSeries);
@@ -157,7 +165,7 @@ router.post('/', authMiddleware, async (req: Request, res: Response) => {
 router.put('/:id', authMiddleware, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const seriesData: Partial<Series> = req.body;
+    const { name, sort_name, tmdb_collection_id, internal_sort_method } = req.body || {};
 
     // Check if series exists
     const existingSeries = await db('series').where({ id }).first();
@@ -165,15 +173,17 @@ router.put('/:id', authMiddleware, async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'Series not found' });
     }
 
-    // Remove id and timestamps from update data
-    delete seriesData.id;
-    delete (seriesData as any).created_at;
-    delete (seriesData as any).updated_at;
-
-    await db('series').where({ id }).update({
-      ...seriesData,
+    const updateData: Record<string, any> = {
       updated_at: db.fn.now(),
-    });
+    };
+    if (name !== undefined) updateData.name = String(name);
+    if (sort_name !== undefined) updateData.sort_name = String(sort_name);
+    if (tmdb_collection_id !== undefined) updateData.tmdb_collection_id = tmdb_collection_id;
+    if (internal_sort_method !== undefined && VALID_SORT_METHODS.includes(internal_sort_method)) {
+      updateData.internal_sort_method = internal_sort_method;
+    }
+
+    await db('series').where({ id }).update(updateData);
 
     const updatedSeries = await db('series').where({ id }).first();
 

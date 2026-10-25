@@ -1,4 +1,98 @@
 import axios from 'axios';
+import fs from 'fs';
+import net from 'net';
+import path from 'path';
+
+const MAX_IMAGE_BYTES = 10 * 1024 * 1024; // 10MB max image buffer
+
+function isPrivateOrLoopbackHost(hostname: string): boolean {
+  const lower = hostname.toLowerCase().replace(/^\[|\]$/g, '');
+  if (
+    lower === 'localhost' ||
+    lower.endsWith('.localhost') ||
+    lower.endsWith('.local') ||
+    lower.endsWith('.internal') ||
+    lower === '0.0.0.0' ||
+    lower === '::1' ||
+    lower === '::'
+  ) {
+    return true;
+  }
+
+  const ipVersion = net.isIP(lower);
+  if (ipVersion === 4) {
+    const parts = lower.split('.').map((p) => parseInt(p, 10));
+    if (parts.length !== 4 || parts.some((n) => Number.isNaN(n))) return true;
+    const [a, b] = parts;
+    if (a === 0 || a === 10 || a === 127) return true;
+    if (a === 169 && b === 254) return true; // link-local / cloud metadata
+    if (a === 172 && b >= 16 && b <= 31) return true;
+    if (a === 192 && b === 168) return true;
+    if (a === 100 && b >= 64 && b <= 127) return true; // CGNAT
+    if (a >= 224) return true; // multicast / reserved
+    return false;
+  }
+
+  if (ipVersion === 6) {
+    if (
+      lower.startsWith('fc') ||
+      lower.startsWith('fd') ||
+      lower.startsWith('fe80') ||
+      lower.startsWith('::ffff:127.') ||
+      lower.startsWith('::ffff:10.') ||
+      lower.startsWith('::ffff:192.168.') ||
+      lower.startsWith('::ffff:169.254.')
+    ) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+async function loadImageBuffer(imageUrl: string): Promise<Buffer> {
+  const trimmed = imageUrl.trim();
+
+  // Handle local uploads path safely without making an outbound HTTP request
+  if (trimmed.startsWith('/uploads/')) {
+    const uploadDir = path.resolve(process.env.UPLOAD_DIR || path.join(__dirname, '../../uploads'));
+    const relativeName = path.basename(trimmed.slice('/uploads/'.length));
+    const candidatePath = path.resolve(uploadDir, relativeName);
+    if (!candidatePath.startsWith(uploadDir + path.sep)) {
+      throw new Error('Invalid upload file path');
+    }
+    const stat = await fs.promises.stat(candidatePath);
+    if (!stat.isFile() || stat.size > MAX_IMAGE_BYTES) {
+      throw new Error('Upload file is invalid or exceeds size limit');
+    }
+    return fs.promises.readFile(candidatePath);
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    throw new Error('Invalid image URL');
+  }
+
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+    throw new Error('Unsupported URL protocol');
+  }
+
+  if (isPrivateOrLoopbackHost(parsed.hostname)) {
+    throw new Error('Blocked private or loopback image URL');
+  }
+
+  const response = await axios.get(parsed.toString(), {
+    responseType: 'arraybuffer',
+    timeout: 10000,
+    maxContentLength: MAX_IMAGE_BYTES,
+    maxBodyLength: MAX_IMAGE_BYTES,
+    maxRedirects: 2,
+  });
+
+  return Buffer.from(response.data);
+}
 
 /**
  * Color extraction service for spine display.
@@ -89,13 +183,7 @@ export async function extractSpineColors(imageUrl: string, itemName: string): Pr
       return getFallbackColors(itemName);
     }
 
-    // Fetch image as buffer
-    const response = await axios.get(imageUrl, {
-      responseType: 'arraybuffer',
-      timeout: 10000,
-    });
-
-    const imageBuffer = Buffer.from(response.data);
+    const imageBuffer = await loadImageBuffer(imageUrl);
 
     // Resize to small sample for fast color analysis
     const { data, info } = await sharp(imageBuffer)

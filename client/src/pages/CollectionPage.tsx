@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { Link } from 'react-router-dom';
 import { PhysicalItem, PhysicalFormat, SortField, SortOrder, CollectionStatistics as Stats } from '../types';
 import { apiService } from '../services/api.service';
 import { useAuth } from '../context/AuthContext';
@@ -31,6 +32,7 @@ const CollectionPage: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [isInitialLoad, setIsInitialLoad] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [isPrivateCollection, setIsPrivateCollection] = useState(false);
   const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
   const [announcement, setAnnouncement] = useState('');
   const [selectedItem, setSelectedItem] = useState<PhysicalItem | null>(null);
@@ -213,6 +215,7 @@ const CollectionPage: React.FC = () => {
   const loadInitialData = async () => {
     setIsLoading(true);
     setLoadError(null);
+    setIsPrivateCollection(false);
     try {
       const formatValue: PhysicalFormat | PhysicalFormat[] | undefined =
         params.formats.length === 0 ? undefined : params.formats;
@@ -236,11 +239,17 @@ const CollectionPage: React.FC = () => {
       setHasMore(response.pagination.hasNext);
       setTotalCount(response.pagination.total);
       setAnnouncement(`Showing ${response.pagination.total} results`);
-    } catch (error) {
-      const message = 'Failed to load collection. Please try again.';
-      setLoadError(message);
-      toast({ message, type: 'error', persistent: true });
-      console.error('Failed to load collection:', error);
+    } catch (error: any) {
+      if (error?.response?.status === 403 && error?.response?.data?.collection_public === false) {
+        setIsPrivateCollection(true);
+        setPhysicalItems([]);
+        setTotalCount(0);
+      } else {
+        const message = 'Failed to load collection. Please try again.';
+        setLoadError(message);
+        toast({ message, type: 'error', persistent: true });
+        console.error('Failed to load collection:', error);
+      }
     } finally {
       setIsLoading(false);
       setIsInitialLoad(false);
@@ -495,8 +504,9 @@ const CollectionPage: React.FC = () => {
     [hasActiveFilters, matchingIds]
   );
 
-  const showSkeletons = physicalItems.length === 0 && (isLoading || isInitialLoad);
+  const showSkeletons = physicalItems.length === 0 && (isLoading || isInitialLoad) && !isPrivateCollection;
   const isEmptyCollection =
+    !isPrivateCollection &&
     totalCount === 0 &&
     !params.q &&
     params.formats.length === 0 &&
@@ -506,7 +516,40 @@ const CollectionPage: React.FC = () => {
     params.type === 'all' &&
     !params.archived &&
     !isLoading;
-  const isNoResults = physicalItems.length === 0 && !isLoading && !loadError && !isEmptyCollection;
+  const isNoResults =
+    !isPrivateCollection &&
+    physicalItems.length === 0 &&
+    !isLoading &&
+    !loadError &&
+    !isEmptyCollection;
+
+  if (isPrivateCollection && !canEdit) {
+    return (
+      <main className="container mx-auto px-4 py-12">
+        <EmptyState
+          title="This collection is private"
+          description="The owner has set this media collection to private."
+          action={
+            !isReadOnly ? (
+              <Button asChild>
+                <Link to="/admin">Sign in as Admin</Link>
+              </Button>
+            ) : undefined
+          }
+          icon={
+            <svg className="h-8 w-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
+              />
+            </svg>
+          }
+        />
+      </main>
+    );
+  }
 
   return (
     <main className="container mx-auto px-4 py-6 sm:py-8">

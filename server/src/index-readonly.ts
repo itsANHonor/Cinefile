@@ -4,6 +4,7 @@ import 'dotenv/config';
 import path from 'path';
 import rateLimit from 'express-rate-limit';
 import { setupDatabase } from './database';
+import { requirePublicCollectionOrAuth } from './middleware/auth.middleware';
 
 // Import read-only routes
 import mediaReadOnlyRoutes from './routes/media-readonly.routes';
@@ -16,6 +17,28 @@ import libraryReadOnlyRoutes from './routes/library-readonly.routes';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+app.disable('x-powered-by');
+
+if (process.env.TRUST_PROXY) {
+  const proxyVal =
+    process.env.TRUST_PROXY === 'true'
+      ? 1
+      : process.env.TRUST_PROXY === 'false'
+        ? false
+        : Number.isNaN(Number(process.env.TRUST_PROXY))
+          ? process.env.TRUST_PROXY
+          : Number(process.env.TRUST_PROXY);
+  app.set('trust proxy', proxyVal);
+}
+
+// Baseline HTTP security headers
+app.use((_req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  next();
+});
 
 // Rate limiting middleware
 const apiLimiter = rateLimit({
@@ -48,9 +71,10 @@ app.use(
   express.static(uploadDir, {
     dotfiles: 'deny', // Deny access to dotfiles
     index: false, // Disable directory indexing
-    setHeaders: (res, filePath) => {
+    setHeaders: (res) => {
       // Set security headers for uploaded files
       res.set('X-Content-Type-Options', 'nosniff');
+      res.set('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'");
     },
   }),
 );
@@ -72,13 +96,13 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-app.use('/api/media', mediaReadOnlyRoutes);
-app.use('/api/physical-items', physicalItemsReadOnlyRoutes);
 app.use('/api/settings', settingsReadOnlyRoutes);
-app.use('/api/series', seriesReadOnlyRoutes);
 app.use('/api/import-export', importExportReadOnlyRoutes);
-app.use('/api/statistics', statisticsRoutes);
-app.use('/api/library', libraryReadOnlyRoutes);
+app.use('/api/media', requirePublicCollectionOrAuth, mediaReadOnlyRoutes);
+app.use('/api/physical-items', requirePublicCollectionOrAuth, physicalItemsReadOnlyRoutes);
+app.use('/api/series', requirePublicCollectionOrAuth, seriesReadOnlyRoutes);
+app.use('/api/statistics', requirePublicCollectionOrAuth, statisticsRoutes);
+app.use('/api/library', requirePublicCollectionOrAuth, libraryReadOnlyRoutes);
 
 // Serve static frontend files (React build)
 // This must come AFTER API routes so API routes take precedence

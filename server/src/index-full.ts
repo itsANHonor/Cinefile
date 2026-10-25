@@ -5,7 +5,7 @@ import fs from 'fs';
 import http from 'http';
 import path from 'path';
 import { setupDatabase } from './database';
-import { isDesktopMode } from './middleware/auth.middleware';
+import { isDesktopMode, requirePublicCollectionOrAuth } from './middleware/auth.middleware';
 
 // Import routes
 import authRoutes from './routes/auth.routes';
@@ -27,17 +27,43 @@ if (!isDesktopMode() && !process.env.SESSION_SECRET?.trim()) {
 export const app = express();
 const DEFAULT_PORT = Number(process.env.PORT) || 3001;
 
-// CORS configuration - restrict to allowed origin for security
+app.disable('x-powered-by');
+
+if (process.env.TRUST_PROXY) {
+  const proxyVal =
+    process.env.TRUST_PROXY === 'true'
+      ? 1
+      : process.env.TRUST_PROXY === 'false'
+        ? false
+        : Number.isNaN(Number(process.env.TRUST_PROXY))
+          ? process.env.TRUST_PROXY
+          : Number(process.env.TRUST_PROXY);
+  app.set('trust proxy', proxyVal);
+}
+
+// Baseline HTTP security headers
+app.use((_req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  next();
+});
+
+// CORS configuration - restrict to allowed origin for security;
+// in Desktop Mode disable cross-origin browser access (frontend is served from same 127.0.0.1 origin)
 const corsOptions = {
-  origin: isDesktopMode() ? true : (process.env.ALLOWED_ORIGIN || 'http://localhost:3005'), // Default to frontend URL
+  origin: isDesktopMode() ? false : (process.env.ALLOWED_ORIGIN || 'http://localhost:3005'),
   credentials: false,
   optionsSuccessStatus: 200,
 };
 
-// Middleware
-// Increase body size limit to 50MB for large CSV imports
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+// Apply 50MB body limit specifically to CSV import/export routes
+app.use('/api/import-export', express.json({ limit: '50mb' }));
+app.use('/api/import-export', express.urlencoded({ extended: true, limit: '50mb' }));
+
+// Default body size limit for all other routes
+app.use(express.json({ limit: '2mb' }));
+app.use(express.urlencoded({ extended: true, limit: '2mb' }));
 
 // Mount MCP routes before restrictive browser CORS so MCP clients & preflights use MCP CORS headers
 app.use('/api/mcp', mcpRoutes);
@@ -45,10 +71,20 @@ app.use('/mcp', mcpRoutes);
 
 app.use(cors(corsOptions));
 
-// Serve uploaded files statically (must be before API routes for proper handling)
+// Serve uploaded files statically with security options (must be before API routes)
 const uploadDir = process.env.UPLOAD_DIR || path.join(__dirname, '../uploads');
 fs.mkdirSync(uploadDir, { recursive: true });
-app.use('/uploads', express.static(uploadDir));
+app.use(
+  '/uploads',
+  express.static(uploadDir, {
+    dotfiles: 'deny',
+    index: false,
+    setHeaders: (res) => {
+      res.set('X-Content-Type-Options', 'nosniff');
+      res.set('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'");
+    },
+  }),
+);
 
 // API Routes
 app.get('/api', (req, res) => {
@@ -66,14 +102,14 @@ app.get('/api/health', (req, res) => {
 });
 
 app.use('/api/auth', authRoutes);
-app.use('/api/media', mediaRoutes);
-app.use('/api/physical-items', physicalItemsRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/search', searchRoutes);
-app.use('/api/series', seriesRoutes);
 app.use('/api/import-export', importExportRoutes);
-app.use('/api/statistics', statisticsRoutes);
-app.use('/api/library', libraryRoutes);
+app.use('/api/media', requirePublicCollectionOrAuth, mediaRoutes);
+app.use('/api/physical-items', requirePublicCollectionOrAuth, physicalItemsRoutes);
+app.use('/api/series', requirePublicCollectionOrAuth, seriesRoutes);
+app.use('/api/statistics', requirePublicCollectionOrAuth, statisticsRoutes);
+app.use('/api/library', requirePublicCollectionOrAuth, libraryRoutes);
 
 // Serve static frontend files (React build)
 // This must come AFTER API routes so API routes take precedence

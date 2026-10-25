@@ -1,30 +1,37 @@
+import crypto from 'crypto';
 import fs from 'fs';
 import multer from 'multer';
-import path from 'path';
 import { Request } from 'express';
 
 const UPLOAD_DIR = process.env.UPLOAD_DIR || './uploads';
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
-// Configure storage
+const ALLOWED_MIME_TO_EXT: Record<string, string> = {
+  'image/jpeg': '.jpg',
+  'image/jpg': '.jpg',
+  'image/png': '.png',
+  'image/gif': '.gif',
+  'image/webp': '.webp',
+};
+
+// Configure storage with random UUID filenames and MIME-derived extensions
+// (never trust client-supplied originalname or extension)
 const storage = multer.diskStorage({
-  destination: (req: Request, file: Express.Multer.File, cb) => {
+  destination: (_req: Request, _file: Express.Multer.File, cb) => {
     cb(null, UPLOAD_DIR);
   },
-  filename: (req: Request, file: Express.Multer.File, cb) => {
-    // Generate unique filename: timestamp-randomstring-originalname
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    const ext = path.extname(file.originalname);
-    const basename = path.basename(file.originalname, ext);
-    cb(null, `${basename}-${uniqueSuffix}${ext}`);
-  }
+  filename: (_req: Request, file: Express.Multer.File, cb) => {
+    const ext = ALLOWED_MIME_TO_EXT[file.mimetype] || '.jpg';
+    const randomId = crypto.randomUUID
+      ? crypto.randomUUID()
+      : `${Date.now()}-${crypto.randomBytes(12).toString('hex')}`;
+    cb(null, `${randomId}${ext}`);
+  },
 });
 
 // File filter for images only
-const fileFilter = (req: Request, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
-  const allowedMimes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
-  
-  if (allowedMimes.includes(file.mimetype)) {
+const fileFilter = (_req: Request, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
+  if (Object.prototype.hasOwnProperty.call(ALLOWED_MIME_TO_EXT, file.mimetype)) {
     cb(null, true);
   } else {
     cb(new Error('Invalid file type. Only JPEG, PNG, GIF, and WebP images are allowed.'));
@@ -37,6 +44,6 @@ export const upload = multer({
   fileFilter,
   limits: {
     fileSize: 10 * 1024 * 1024, // 10MB max file size
-  }
+  },
 });
 

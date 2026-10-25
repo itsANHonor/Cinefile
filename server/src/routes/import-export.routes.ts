@@ -727,9 +727,26 @@ router.post('/import', authMiddleware, async (req: Request, res: Response) => {
 
         if (rowData.store_links) {
           try {
-            JSON.parse(rowData.store_links); // Validate JSON
-          } catch {
-            throw new Error(`Invalid JSON in store_links: ${rowData.store_links}`);
+            const parsedLinks = JSON.parse(rowData.store_links);
+            if (!Array.isArray(parsedLinks)) {
+              throw new Error('store_links must be a JSON array');
+            }
+            for (const link of parsedLinks) {
+              if (
+                typeof link === 'object' &&
+                link !== null &&
+                typeof link.url === 'string' &&
+                !/^https?:\/\/.+/i.test(link.url)
+              ) {
+                throw new Error('Each store link URL must start with http:// or https://');
+              }
+            }
+          } catch (e) {
+            throw new Error(
+              e instanceof Error && e.message.includes('store link')
+                ? e.message
+                : `Invalid JSON in store_links: ${rowData.store_links}`,
+            );
           }
         }
 

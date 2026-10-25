@@ -501,8 +501,8 @@ router.put('/shelves/reorder', authMiddleware, async (req: Request, res: Respons
 // Shelf Placements
 // =============================================
 
-// GET /api/library/unassigned - Get items not on any shelf
-router.get('/unassigned', async (req: Request, res: Response) => {
+// GET /api/library/unassigned - Get items not on any shelf (protected)
+router.get('/unassigned', authMiddleware, async (req: Request, res: Response) => {
   try {
     const { search } = req.query;
 

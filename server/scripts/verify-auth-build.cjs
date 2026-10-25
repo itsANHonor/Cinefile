@@ -6,9 +6,10 @@
 process.env.ADMIN_PASSWORD = 'testpass';
 process.env.SESSION_SECRET = '01234567890123456789012345678901';
 process.env.MCP_API_KEY = 'test-mcp-api-key-12345';
+process.env.DESKTOP_SESSION_TOKEN = 'test-desktop-session-token-1234567890';
 
 const path = require('path');
-const { verifyPassword, verifyMcpApiKey } = require(path.join(
+const { verifyPassword, verifyMcpApiKey, verifyDesktopToken } = require(path.join(
   __dirname,
   '../dist/middleware/auth.middleware.js',
 ));
@@ -32,6 +33,15 @@ if (!verifyMcpApiKey('test-mcp-api-key-12345')) {
 }
 if (verifyMcpApiKey('wrong-mcp-key')) {
   console.error('FAIL: verifyMcpApiKey should reject wrong MCP API key');
+  process.exit(1);
+}
+
+if (!verifyDesktopToken('test-desktop-session-token-1234567890')) {
+  console.error('FAIL: verifyDesktopToken should accept correct desktop session token');
+  process.exit(1);
+}
+if (verifyDesktopToken('wrong-desktop-token')) {
+  console.error('FAIL: verifyDesktopToken should reject wrong desktop session token');
   process.exit(1);
 }
 

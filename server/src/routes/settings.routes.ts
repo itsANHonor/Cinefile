@@ -1,11 +1,20 @@
 import { Router, Request, Response } from 'express';
 import { db } from '../database';
-import { authMiddleware } from '../middleware/auth.middleware';
+import { authMiddleware, isRequestAdmin } from '../middleware/auth.middleware';
 import { tmdbService } from '../services/tmdb.service';
 
 const router = Router();
 
 const SENSITIVE_SETTING_KEYS = new Set(['tmdb_api_key']);
+const ALLOWED_SETTING_KEYS = new Set([
+  'collection_public',
+  'site_title',
+  'collection_title',
+  'default_theme',
+  'default_sort_by',
+  'default_sort_order',
+  'tmdb_api_key',
+]);
 
 function maskApiKey(rawKey: string | undefined | null): string {
   const trimmed = rawKey?.trim() || '';
@@ -14,7 +23,7 @@ function maskApiKey(rawKey: string | undefined | null): string {
   return `••••••••${trimmed.slice(-4)}`;
 }
 
-async function buildPublicSettingsResponse(): Promise<Record<string, string>> {
+async function buildSettingsResponse(isAdmin: boolean): Promise<Record<string, string>> {
   const settings = await db('settings').select('*');
   const settingsObj: Record<string, string> = {};
   let dbTmdbKey = '';
@@ -24,7 +33,7 @@ async function buildPublicSettingsResponse(): Promise<Record<string, string>> {
       dbTmdbKey = setting.value?.trim() || '';
       return;
     }
-    if (!SENSITIVE_SETTING_KEYS.has(setting.key)) {
+    if (!SENSITIVE_SETTING_KEYS.has(setting.key) && ALLOWED_SETTING_KEYS.has(setting.key)) {
       settingsObj[setting.key] = setting.value;
     }
   });
@@ -32,19 +41,23 @@ async function buildPublicSettingsResponse(): Promise<Record<string, string>> {
   const envTmdbKey = process.env.TMDB_API_KEY?.trim() || '';
   const activeKey = dbTmdbKey || envTmdbKey;
   settingsObj.tmdb_configured = activeKey ? 'true' : 'false';
-  settingsObj.tmdb_key_source = dbTmdbKey ? 'database' : envTmdbKey ? 'env' : 'none';
-  settingsObj.tmdb_api_key_masked = maskApiKey(activeKey);
+
+  if (isAdmin) {
+    settingsObj.tmdb_key_source = dbTmdbKey ? 'database' : envTmdbKey ? 'env' : 'none';
+    settingsObj.tmdb_api_key_masked = maskApiKey(activeKey);
+  }
 
   return settingsObj;
 }
 
 /**
  * GET /api/settings
- * Get all settings (sensitive keys are masked)
+ * Get all settings (sensitive keys are masked and admin-only metadata is gated)
  */
 router.get('/', async (req: Request, res: Response) => {
   try {
-    const settingsObj = await buildPublicSettingsResponse();
+    const isAdmin = isRequestAdmin(req);
+    const settingsObj = await buildSettingsResponse(isAdmin);
     res.json(settingsObj);
   } catch (error) {
     console.error('Error fetching settings:', error);
@@ -62,6 +75,9 @@ router.get('/:key', async (req: Request, res: Response) => {
 
     if (SENSITIVE_SETTING_KEYS.has(key)) {
       return res.status(403).json({ error: 'Access to sensitive setting is restricted' });
+    }
+    if (!ALLOWED_SETTING_KEYS.has(key)) {
+      return res.status(404).json({ error: 'Setting not found' });
     }
 
     const setting = await db('settings').where({ key }).first();
@@ -85,6 +101,10 @@ router.put('/:key', authMiddleware, async (req: Request, res: Response) => {
   try {
     const { key } = req.params;
     const { value } = req.body;
+
+    if (!ALLOWED_SETTING_KEYS.has(key)) {
+      return res.status(400).json({ error: `Invalid setting key: ${key}` });
+    }
 
     if (value === undefined) {
       return res.status(400).json({ error: 'Value is required' });
@@ -113,7 +133,7 @@ router.put('/:key', authMiddleware, async (req: Request, res: Response) => {
 
     if (key === 'tmdb_api_key') {
       tmdbService.invalidateApiKeyCache();
-      const settingsObj = await buildPublicSettingsResponse();
+      const settingsObj = await buildSettingsResponse(true);
       return res.json({
         key: 'tmdb_api_key',
         value: settingsObj.tmdb_api_key_masked,
@@ -138,8 +158,14 @@ router.post('/', authMiddleware, async (req: Request, res: Response) => {
   try {
     const settings = req.body;
 
-    if (typeof settings !== 'object' || Array.isArray(settings)) {
+    if (typeof settings !== 'object' || settings === null || Array.isArray(settings)) {
       return res.status(400).json({ error: 'Settings must be an object' });
+    }
+
+    for (const key of Object.keys(settings)) {
+      if (!ALLOWED_SETTING_KEYS.has(key)) {
+        return res.status(400).json({ error: `Invalid setting key: ${key}` });
+      }
     }
 
     // Update each setting
@@ -166,7 +192,7 @@ router.post('/', authMiddleware, async (req: Request, res: Response) => {
       }
     }
 
-    const settingsObj = await buildPublicSettingsResponse();
+    const settingsObj = await buildSettingsResponse(true);
     res.json(settingsObj);
   } catch (error) {
     console.error('Error updating settings:', error);

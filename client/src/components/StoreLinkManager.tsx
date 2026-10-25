@@ -147,7 +147,7 @@ const StoreLinkManager: React.FC<StoreLinkManagerProps> = ({ links, onChange, di
                 <div className="flex items-center gap-2">
                   <span className="font-medium text-gray-900 dark:text-gray-100">{link.label}</span>
                   <a
-                    href={link.url}
+                    href={/^https?:\/\//i.test(link.url || '') ? link.url : '#'}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-primary-600 dark:text-primary-400 hover:text-primary-700 dark:hover:text-primary-300 text-sm truncate"

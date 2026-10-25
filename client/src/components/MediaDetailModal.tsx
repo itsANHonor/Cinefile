@@ -610,7 +610,9 @@ const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
                       Store / release links
                     </h3>
                     <div className="flex flex-wrap gap-1.5">
-                      {physicalItem.store_links!.map((link, idx) => (
+                      {physicalItem.store_links!
+                        .filter((link) => /^https?:\/\//i.test(link.url || ''))
+                        .map((link, idx) => (
                         <a
                           key={idx}
                           href={link.url}

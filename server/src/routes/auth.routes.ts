@@ -1,6 +1,11 @@
 import { Router, Request, Response } from 'express';
 import rateLimit from 'express-rate-limit';
-import { verifyPassword, authMiddleware, isDesktopMode } from '../middleware/auth.middleware';
+import {
+  verifyPassword,
+  authMiddleware,
+  isDesktopMode,
+  isDesktopRequestAuthorized,
+} from '../middleware/auth.middleware';
 import { signSessionToken } from '../services/jwt-auth.service';
 
 const router = Router();
@@ -19,6 +24,9 @@ const loginLimiter = rateLimit({
  */
 router.post('/login', loginLimiter, (req: Request, res: Response) => {
   if (isDesktopMode()) {
+    if (!isDesktopRequestAuthorized(req)) {
+      return res.status(401).json({ error: 'Unauthorized desktop request' });
+    }
     return res.json({
       success: true,
       message: 'Authentication successful (Desktop Mode)',

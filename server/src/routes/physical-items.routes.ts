@@ -1,7 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { db } from '../database';
-import { authMiddleware, parseBearerToken } from '../middleware/auth.middleware';
-import { verifySessionToken } from '../services/jwt-auth.service';
+import { authMiddleware, isRequestAdmin } from '../middleware/auth.middleware';
 import { calculateSortName } from '../utils/sort-name.util';
 import {
   applyEditionTagFilter,
@@ -53,8 +52,7 @@ router.get('/', async (req: Request, res: Response) => {
   try {
     const { format, genres, decades, editions, edition, sort_by = 'created_at', sort_order = 'desc', search, media_type, archived, page = '1', limit = '24' } = req.query;
 
-    const token = parseBearerToken(req.headers.authorization);
-    const isAdmin = Boolean(token && verifySessionToken(token));
+    const isAdmin = isRequestAdmin(req);
     const showArchived = isAdmin && (archived === 'true' || archived === '1');
 
     // Start with base query - fetch physical items WITHOUT joins first
@@ -575,9 +573,11 @@ router.get('/', async (req: Request, res: Response) => {
       });
 
       // Clean up the aggregated fields from the main query
-      const cleanedItem = {
+      const cleanedItem: any = {
         ...item,
-        archived: Boolean(item.archived),
+        notes: isAdmin ? item.notes : (item.notes_public ? item.notes : undefined),
+        notes_public: isAdmin ? Boolean(item.notes_public) : undefined,
+        archived: isAdmin ? Boolean(item.archived) : undefined,
         archive_reason: isAdmin ? (item.archive_reason || null) : undefined,
         physical_format: item.physical_format ? (typeof item.physical_format === 'string' ? JSON.parse(item.physical_format) : item.physical_format) : [],
         store_links: item.store_links ? (typeof item.store_links === 'string' ? JSON.parse(item.store_links) : item.store_links) : [],
@@ -585,6 +585,12 @@ router.get('/', async (req: Request, res: Response) => {
         shelf_placement: placementByItemId.get(item.id) || null,
         media,
       };
+
+      if (!isAdmin) {
+        delete cleanedItem.notes_public;
+        delete cleanedItem.archived;
+        delete cleanedItem.archive_reason;
+      }
 
       return cleanedItem;
     });
@@ -748,8 +754,7 @@ router.get('/', async (req: Request, res: Response) => {
 router.get('/:id', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const token = parseBearerToken(req.headers.authorization);
-    const isAdmin = Boolean(token && verifySessionToken(token));
+    const isAdmin = isRequestAdmin(req);
 
     const physicalItem = await db('physical_items').where('id', id).first();
 
@@ -824,9 +829,11 @@ router.get('/:id', async (req: Request, res: Response) => {
       };
     });
 
-    const result: PhysicalItemWithMedia = {
+    const result: any = {
       ...physicalItem,
-      archived: Boolean(physicalItem.archived),
+      notes: isAdmin ? physicalItem.notes : (physicalItem.notes_public ? physicalItem.notes : undefined),
+      notes_public: isAdmin ? Boolean(physicalItem.notes_public) : undefined,
+      archived: isAdmin ? Boolean(physicalItem.archived) : undefined,
       archive_reason: isAdmin ? (physicalItem.archive_reason || null) : undefined,
       physical_format: JSON.parse(physicalItem.physical_format),
       store_links: physicalItem.store_links ? JSON.parse(physicalItem.store_links) : [],
@@ -834,6 +841,12 @@ router.get('/:id', async (req: Request, res: Response) => {
       shelf_placement: placement || null,
       media,
     };
+
+    if (!isAdmin) {
+      delete result.notes_public;
+      delete result.archived;
+      delete result.archive_reason;
+    }
 
     res.json(result);
   } catch (error) {
@@ -998,9 +1011,6 @@ router.post('/', authMiddleware, async (req: Request, res: Response) => {
             mediaData.genres = typeof mediaItem.genres === 'string' ? mediaItem.genres : JSON.stringify(mediaItem.genres);
           }
 
-          // #region agent log
-          console.log('[DEBUG-0162e4]', JSON.stringify({location:'physical-items.routes.ts:912',message:'media INSERT data',data:{mediaData,mediaItemKeys:Object.keys(mediaItem)}}));
-          // #endregion
           const [newMediaId] = await trx('media').insert(mediaData);
           mediaId = newMediaId;
         }
@@ -1111,10 +1121,7 @@ router.post('/', authMiddleware, async (req: Request, res: Response) => {
     res.status(201).json(result);
   } catch (error: any) {
     console.error('Error creating physical item:', error);
-    // #region agent log
-    console.log('[DEBUG-0162e4]', JSON.stringify({location:'physical-items.routes.ts:1018',message:'POST / catch error',data:{errorMessage:error?.message,errorCode:error?.code,reqBodyKeys:Object.keys(req.body||{}),mediaCount:Array.isArray(req.body?.media)?req.body.media.length:0,firstMedia:Array.isArray(req.body?.media)?req.body.media[0]:req.body?.media}}));
-    // #endregion
-    res.status(500).json({ error: 'Failed to create physical item', details: error?.message });
+    res.status(500).json({ error: 'Failed to create physical item' });
   }
 });
 
@@ -1133,8 +1140,6 @@ router.put('/:id', authMiddleware, async (req: Request, res: Response) => {
       media_primary_series_id, // When set, adds all media to this series and sets it as their primary
       archived, archive_reason
     } = req.body;
-
-    console.log('PUT /api/physical-items/:id', { id, body: req.body });
 
     // Validate notes length (max 2000 characters)
     if (notes !== undefined && notes !== null && typeof notes === 'string' && notes.length > 2000) {
