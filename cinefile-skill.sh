@@ -87,9 +87,6 @@ show_urls() {
     echo "Public Interface: http://localhost:3005"
     echo "Admin Interface:  http://localhost:3001"
     echo ""
-    echo "📝 Admin Login:"
-    echo "   Password: peckpeck"
-    echo ""
 }
 
 # Function to show troubleshooting info
