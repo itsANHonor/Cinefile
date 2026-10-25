@@ -2,6 +2,8 @@ name: Build and Release Desktop App
 
 on:
   push:
+    branches:
+      - development
     tags:
       - 'v*'
   workflow_dispatch:
