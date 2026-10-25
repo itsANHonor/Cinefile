@@ -5,6 +5,7 @@ export interface Series {
   sort_name: string;
   tmdb_collection_id?: number;
   internal_sort_method?: 'chronological' | 'custom' | 'alphabetical';
+  movie_count?: number;
   created_at?: string;
   updated_at?: string;
 }

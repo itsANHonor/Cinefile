@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { CollectionParams } from '../hooks/useCollectionParams';
+import { CollectionParams, CollectionViewMode } from '../hooks/useCollectionParams';
 import { SortField } from '../types';
 import FilterPanel, { countActiveFilters } from './FilterPanel';
 import { Chip } from './ui/Chip';
@@ -16,6 +16,8 @@ export interface CollectionToolbarProps {
   resultCount?: number;
   isLoading?: boolean;
   showArchivedFilter?: boolean;
+  viewMode?: CollectionViewMode;
+  shelfActions?: React.ReactNode;
 }
 
 const MEDIA_TYPE_LABELS: Record<'all' | 'movie' | 'tv_season', string> = {
@@ -47,6 +49,8 @@ const CollectionToolbar: React.FC<CollectionToolbarProps> = ({
   resultCount,
   isLoading,
   showArchivedFilter = false,
+  viewMode = 'grid',
+  shelfActions,
 }) => {
   const [isFilterOpen, setIsFilterOpen] = useState(false);
 
@@ -150,51 +154,57 @@ const CollectionToolbar: React.FC<CollectionToolbarProps> = ({
           )}
         </button>
 
-        <div className="hidden lg:flex items-center gap-1">
-          {SORT_OPTIONS.map(({ field, label }) => (
-            <button
-              key={field}
-              type="button"
-              onClick={() => handleSortByChange(field)}
-              disabled={isLoading}
-              className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${
-                params.sortBy === field
-                  ? 'bg-primary-600 text-white'
-                  : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
-              }`}
-            >
-              {label} {params.sortBy === field && (params.sortOrder === 'asc' ? '↑' : '↓')}
-            </button>
-          ))}
-        </div>
+        {viewMode === 'shelf' ? (
+          shelfActions
+        ) : (
+          <>
+            <div className="hidden lg:flex items-center gap-1">
+              {SORT_OPTIONS.map(({ field, label }) => (
+                <button
+                  key={field}
+                  type="button"
+                  onClick={() => handleSortByChange(field)}
+                  disabled={isLoading}
+                  className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${
+                    params.sortBy === field
+                      ? 'bg-primary-600 text-white'
+                      : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+                  }`}
+                >
+                  {label} {params.sortBy === field && (params.sortOrder === 'asc' ? '↑' : '↓')}
+                </button>
+              ))}
+            </div>
 
-        <div className="flex lg:hidden items-center gap-1">
-          <label htmlFor="sort-select" className="sr-only">
-            Sort by
-          </label>
-          <select
-            id="sort-select"
-            value={params.sortBy}
-            onChange={(e) => handleSortByChange(e.target.value as SortField)}
-            disabled={isLoading}
-            className="min-h-11 pl-2 pr-8 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
-          >
-            {SORT_OPTIONS.map(({ field, label }) => (
-              <option key={field} value={field}>
-                {label}
-              </option>
-            ))}
-          </select>
-          <button
-            type="button"
-            onClick={handleSortOrderToggle}
-            disabled={isLoading}
-            aria-label="Toggle sort order"
-            className="min-h-11 px-3 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors"
-          >
-            {params.sortOrder === 'asc' ? '↑' : '↓'}
-          </button>
-        </div>
+            <div className="flex lg:hidden items-center gap-1">
+              <label htmlFor="sort-select" className="sr-only">
+                Sort by
+              </label>
+              <select
+                id="sort-select"
+                value={params.sortBy}
+                onChange={(e) => handleSortByChange(e.target.value as SortField)}
+                disabled={isLoading}
+                className="min-h-11 pl-2 pr-8 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+              >
+                {SORT_OPTIONS.map(({ field, label }) => (
+                  <option key={field} value={field}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={handleSortOrderToggle}
+                disabled={isLoading}
+                aria-label="Toggle sort order"
+                className="min-h-11 px-3 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors"
+              >
+                {params.sortOrder === 'asc' ? '↑' : '↓'}
+              </button>
+            </div>
+          </>
+        )}
       </div>
 
       {hasActiveFilters && (

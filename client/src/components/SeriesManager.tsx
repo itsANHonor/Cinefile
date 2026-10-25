@@ -1,8 +1,11 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Series, Media } from '../types';
 import { apiService } from '../services/api.service';
 import { useToast } from '../context/ToastContext';
 import { useConfirm } from '../context/ConfirmContext';
+import { Button } from './ui/Button';
+import { EmptyState } from './ui/EmptyState';
+import { Skeleton } from './ui/Skeleton';
 
 interface SeriesFormData {
   name: string;
@@ -18,6 +21,16 @@ const emptyFormData: SeriesFormData = {
   internal_sort_method: 'chronological',
 };
 
+function deriveSortName(name: string): string {
+  return name.trim().replace(/^(the|a|an)\s+/i, '');
+}
+
+const sortMethodLabels: Record<'chronological' | 'custom' | 'alphabetical', string> = {
+  chronological: 'Chronological',
+  custom: 'Custom Order',
+  alphabetical: 'Alphabetical',
+};
+
 /** Inline edit/create form for a series */
 const SeriesForm: React.FC<{
   initialData: SeriesFormData;
@@ -26,6 +39,7 @@ const SeriesForm: React.FC<{
   onCancel: () => void;
 }> = ({ initialData, editingSeries, onSave, onCancel }) => {
   const [formData, setFormData] = useState<SeriesFormData>(initialData);
+  const [sortNameTouched, setSortNameTouched] = useState<boolean>(Boolean(editingSeries));
   const [seriesMovies, setSeriesMovies] = useState<Media[]>([]);
   const [isLoadingMovies, setIsLoadingMovies] = useState(false);
   const [sortOrders, setSortOrders] = useState<Record<number, number | null>>({});
@@ -38,32 +52,46 @@ const SeriesForm: React.FC<{
   useEffect(() => {
     if (editingSeries) {
       setIsLoadingMovies(true);
-      apiService.getSeriesMovies(editingSeries.id)
-        .then(movies => {
+      apiService
+        .getSeriesMovies(editingSeries.id)
+        .then((movies) => {
           setSeriesMovies(movies);
           const initialSortOrders: Record<number, number | null> = {};
-          movies.forEach(movie => {
+          movies.forEach((movie) => {
             const movieSortOrder = (movie as any).sort_order;
             initialSortOrders[movie.id] = movieSortOrder !== undefined ? movieSortOrder : null;
           });
           setSortOrders(initialSortOrders);
         })
-        .catch(error => console.error('Failed to load series movies:', error))
+        .catch((error) => console.error('Failed to load series movies:', error))
         .finally(() => setIsLoadingMovies(false));
     }
   }, [editingSeries]);
 
   // Scroll into view when form appears
   useEffect(() => {
-    if (formRef.current) {
+    if (formRef.current && typeof formRef.current.scrollIntoView === 'function') {
       formRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }
   }, []);
 
+  const handleNameChange = (newName: string) => {
+    setFormData((prev) => ({
+      ...prev,
+      name: newName,
+      sort_name: sortNameTouched ? prev.sort_name : deriveSortName(newName),
+    }));
+  };
+
+  const handleSortNameChange = (newSortName: string) => {
+    setSortNameTouched(true);
+    setFormData((prev) => ({ ...prev, sort_name: newSortName }));
+  };
+
   const handleSortOrderChange = (mediaId: number, value: string) => {
-    const numValue = value === '' ? null : parseInt(value);
+    const numValue = value === '' ? null : parseInt(value, 10);
     if (isNaN(numValue as any) && numValue !== null) return;
-    setSortOrders(prev => ({ ...prev, [mediaId]: numValue }));
+    setSortOrders((prev) => ({ ...prev, [mediaId]: numValue }));
     setHasSortOrderChanges(true);
   };
 
@@ -71,13 +99,14 @@ const SeriesForm: React.FC<{
     if (!editingSeries) return;
     try {
       const sortOrdersArray = Object.entries(sortOrders).map(([mediaId, sortOrder]) => ({
-        media_id: parseInt(mediaId),
+        media_id: parseInt(mediaId, 10),
         sort_order: sortOrder,
       }));
       await apiService.bulkUpdateSeriesMovieSortOrders(editingSeries.id, sortOrdersArray);
       setHasSortOrderChanges(false);
       const movies = await apiService.getSeriesMovies(editingSeries.id);
       setSeriesMovies(movies);
+      toast({ message: 'Series movie order saved.', type: 'success' });
     } catch (error) {
       console.error('Failed to save sort orders:', error);
       toast({ message: 'Failed to save sort orders. Please try again.', type: 'error' });
@@ -89,9 +118,11 @@ const SeriesForm: React.FC<{
     setIsSaving(true);
     try {
       const data = {
-        name: formData.name,
-        sort_name: formData.sort_name,
-        tmdb_collection_id: formData.tmdb_collection_id ? parseInt(formData.tmdb_collection_id) : undefined,
+        name: formData.name.trim(),
+        sort_name: (formData.sort_name.trim() || deriveSortName(formData.name)),
+        tmdb_collection_id: formData.tmdb_collection_id
+          ? parseInt(formData.tmdb_collection_id, 10)
+          : undefined,
         internal_sort_method: formData.internal_sort_method,
       };
 
@@ -99,13 +130,15 @@ const SeriesForm: React.FC<{
         await apiService.updateSeries(editingSeries.id, data);
         if (hasSortOrderChanges) {
           const sortOrdersArray = Object.entries(sortOrders).map(([mediaId, sortOrder]) => ({
-            media_id: parseInt(mediaId),
+            media_id: parseInt(mediaId, 10),
             sort_order: sortOrder,
           }));
           await apiService.bulkUpdateSeriesMovieSortOrders(editingSeries.id, sortOrdersArray);
         }
+        toast({ message: `Updated "${data.name}".`, type: 'success' });
       } else {
         await apiService.createSeries(data);
+        toast({ message: `Created series "${data.name}".`, type: 'success' });
       }
       onSave();
     } catch (error) {
@@ -117,16 +150,25 @@ const SeriesForm: React.FC<{
   };
 
   return (
-    <div ref={formRef} className="card border-2 border-primary-500 dark:border-primary-400 shadow-lg animate-in">
+    <div
+      ref={formRef}
+      className="card border-2 border-primary-500 dark:border-primary-400 shadow-lg animate-in"
+    >
       <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="flex items-center justify-between mb-2">
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
-            {editingSeries ? 'Edit Series' : 'Add New Series'}
-          </h3>
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-lg font-semibold text-content">
+              {editingSeries ? `Edit Series: ${editingSeries.name}` : 'Create New Series'}
+            </h3>
+            <p className="text-xs text-content-muted mt-0.5">
+              Configure series naming, TMDb collection linkage, and how titles sort within the series.
+            </p>
+          </div>
           <button
             type="button"
             onClick={onCancel}
-            className="p-1.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-colors"
+            className="p-1.5 text-content-muted hover:text-content hover:bg-surface-sunken rounded-full transition-colors"
+            aria-label="Cancel editing series"
             title="Cancel"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -137,54 +179,80 @@ const SeriesForm: React.FC<{
 
         <div className="grid md:grid-cols-2 gap-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Name *
+            <label
+              htmlFor="series-name-input"
+              className="block text-sm font-medium text-content mb-1"
+            >
+              Series Name *
             </label>
             <input
+              id="series-name-input"
               type="text"
               value={formData.name}
-              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+              onChange={(e) => handleNameChange(e.target.value)}
+              placeholder="e.g., The Lord of the Rings Collection"
+              className="w-full px-3 py-2 border border-subtle rounded-[--radius-control] bg-surface text-content text-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
               required
               autoFocus
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+            <label
+              htmlFor="series-sort-name-input"
+              className="block text-sm font-medium text-content mb-1"
+            >
               Sort Name *
-              <span className="text-xs text-gray-500 dark:text-gray-400 ml-1">(for alphabetical sorting)</span>
+              <span className="text-xs font-normal text-content-muted ml-1">
+                (used for alphabetical sorting)
+              </span>
             </label>
             <input
+              id="series-sort-name-input"
               type="text"
               value={formData.sort_name}
-              onChange={(e) => setFormData({ ...formData, sort_name: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+              onChange={(e) => handleSortNameChange(e.target.value)}
+              placeholder="e.g., Lord of the Rings Collection"
+              className="w-full px-3 py-2 border border-subtle rounded-[--radius-control] bg-surface text-content text-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
               required
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+            <label
+              htmlFor="series-tmdb-id-input"
+              className="block text-sm font-medium text-content mb-1"
+            >
               TMDb Collection ID
-              <span className="text-xs text-gray-500 dark:text-gray-400 ml-1">(optional)</span>
+              <span className="text-xs font-normal text-content-muted ml-1">(optional)</span>
             </label>
             <input
+              id="series-tmdb-id-input"
               type="number"
               value={formData.tmdb_collection_id}
               onChange={(e) => setFormData({ ...formData, tmdb_collection_id: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+              placeholder="e.g., 119"
+              className="w-full px-3 py-2 border border-subtle rounded-[--radius-control] bg-surface text-content text-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+            <label
+              htmlFor="series-sort-method-select"
+              className="block text-sm font-medium text-content mb-1"
+            >
               Internal Sort Method *
             </label>
             <select
+              id="series-sort-method-select"
               value={formData.internal_sort_method}
-              onChange={(e) => setFormData({ ...formData, internal_sort_method: e.target.value as 'chronological' | 'custom' | 'alphabetical' })}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+              onChange={(e) =>
+                setFormData({
+                  ...formData,
+                  internal_sort_method: e.target.value as 'chronological' | 'custom' | 'alphabetical',
+                })
+              }
+              className="w-full px-3 py-2 border border-subtle rounded-[--radius-control] bg-surface text-content text-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
               required
             >
               <option value="chronological">Chronological (by release date)</option>
@@ -196,56 +264,83 @@ const SeriesForm: React.FC<{
 
         {/* Movies in Series (edit mode only) */}
         {editingSeries && (
-          <div className="border-t border-gray-200 dark:border-gray-700 pt-4 mt-4">
+          <div className="border-t border-subtle pt-4 mt-4">
             <div className="flex items-center justify-between mb-3">
-              <h4 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Movies in Series</h4>
+              <div>
+                <h4 className="text-sm font-semibold text-content">
+                  Titles in Series ({seriesMovies.length})
+                </h4>
+                {formData.internal_sort_method === 'custom' && (
+                  <p className="text-xs text-content-muted">
+                    Assign sort numbers to control the exact playback or shelf order within this series.
+                  </p>
+                )}
+              </div>
               {hasSortOrderChanges && formData.internal_sort_method === 'custom' && (
-                <button
+                <Button
                   type="button"
+                  size="sm"
                   onClick={handleSaveSortOrders}
-                  className="px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded-lg text-xs font-medium transition-colors"
                 >
-                  Save Sort Orders
-                </button>
+                  Save Sort Order
+                </Button>
               )}
             </div>
 
             {isLoadingMovies ? (
-              <div className="text-center py-3 text-sm text-gray-600 dark:text-gray-400">Loading movies...</div>
+              <div className="space-y-2">
+                <Skeleton className="h-10 w-full rounded-[--radius-control]" />
+                <Skeleton className="h-10 w-full rounded-[--radius-control]" />
+              </div>
             ) : seriesMovies.length === 0 ? (
-              <div className="text-center py-3 text-sm text-gray-600 dark:text-gray-400">No movies in this series yet.</div>
+              <div className="rounded-[--radius-control] border border-dashed border-subtle bg-surface-sunken/50 py-6 text-center text-sm text-content-muted">
+                No titles linked to this series yet. Link movies from the Collection or Media editor.
+              </div>
             ) : (
-              <div className="space-y-1.5 max-h-64 overflow-y-auto">
-                {seriesMovies.map((movie) => (
+              <div className="space-y-1.5 max-h-64 overflow-y-auto pr-1">
+                {seriesMovies.map((movie, idx) => (
                   <div
                     key={movie.id}
-                    className="flex items-center gap-3 px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700/50"
+                    className="flex items-center gap-3 px-3 py-2 border border-subtle rounded-[--radius-control] bg-surface-sunken/60"
                   >
-                    <div className="flex-1 min-w-0">
-                      <div className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">{movie.title}</div>
+                    <span className="text-xs font-mono text-content-muted w-5 text-right">
+                      {idx + 1}.
+                    </span>
+                    <div className="flex-1 min-w-0 flex items-center gap-2">
+                      <span className="text-sm font-medium text-content truncate">
+                        {movie.title}
+                      </span>
                       {movie.release_date && (
-                        <div className="text-xs text-gray-500 dark:text-gray-400">
-                          {new Date(movie.release_date).getFullYear()}
-                        </div>
+                        <span className="text-xs text-content-muted flex-shrink-0">
+                          ({new Date(movie.release_date).getFullYear()})
+                        </span>
                       )}
                     </div>
                     {formData.internal_sort_method === 'custom' && (
                       <div className="flex items-center gap-1.5 flex-shrink-0">
-                        <label className="text-xs text-gray-500 dark:text-gray-400">Order:</label>
+                        <label
+                          htmlFor={`sort-order-${movie.id}`}
+                          className="text-xs text-content-muted"
+                        >
+                          Order:
+                        </label>
                         <input
+                          id={`sort-order-${movie.id}`}
                           type="number"
                           value={sortOrders[movie.id] ?? ''}
                           onChange={(e) => handleSortOrderChange(movie.id, e.target.value)}
-                          className="w-16 px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+                          className="w-16 px-2 py-1 text-sm border border-subtle rounded-[--radius-control] bg-surface text-content"
                           placeholder="#"
                         />
                       </div>
                     )}
-                    {formData.internal_sort_method !== 'custom' && (movie as any).sort_order !== undefined && (
-                      <div className="text-xs text-gray-500 dark:text-gray-400 flex-shrink-0">
-                        Order: {(movie as any).sort_order ?? '—'}
-                      </div>
-                    )}
+                    {formData.internal_sort_method !== 'custom' &&
+                      (movie as any).sort_order !== undefined &&
+                      (movie as any).sort_order !== null && (
+                        <div className="text-xs text-content-muted flex-shrink-0">
+                          Order #{(movie as any).sort_order}
+                        </div>
+                      )}
                   </div>
                 ))}
               </div>
@@ -253,13 +348,13 @@ const SeriesForm: React.FC<{
           </div>
         )}
 
-        <div className="flex gap-2 pt-2">
-          <button type="submit" className="btn-primary" disabled={isSaving}>
-            {isSaving ? 'Saving...' : editingSeries ? 'Update Series' : 'Create Series'}
-          </button>
-          <button type="button" onClick={onCancel} className="btn-secondary">
+        <div className="flex items-center justify-end gap-2 pt-2 border-t border-subtle">
+          <Button type="button" variant="secondary" onClick={onCancel}>
             Cancel
-          </button>
+          </Button>
+          <Button type="submit" isLoading={isSaving}>
+            {editingSeries ? 'Update Series' : 'Create Series'}
+          </Button>
         </div>
       </form>
     </div>
@@ -270,43 +365,66 @@ const SeriesForm: React.FC<{
 const SeriesCard: React.FC<{
   series: Series;
   onEdit: (s: Series) => void;
-  onDelete: (id: number) => void;
-}> = ({ series: s, onEdit, onDelete }) => (
-  <div className="card hover:shadow-md transition-shadow">
-    <div className="flex justify-between items-start">
-      <div className="min-w-0 flex-1">
-        <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">{s.name}</h3>
-        <p className="text-sm text-gray-600 dark:text-gray-400">Sort name: {s.sort_name}</p>
-        <p className="text-sm text-gray-600 dark:text-gray-400">
-          Internal sort: {s.internal_sort_method === 'chronological' ? 'Chronological' : s.internal_sort_method === 'custom' ? 'Custom' : 'Alphabetical'}
-        </p>
-        {s.tmdb_collection_id && (
-          <p className="text-xs text-gray-500 dark:text-gray-500 mt-1">
-            TMDb Collection ID: {s.tmdb_collection_id}
+  onDelete: (s: Series) => void;
+}> = ({ series: s, onEdit, onDelete }) => {
+  const sortMethod = s.internal_sort_method || 'chronological';
+  const movieCount = typeof s.movie_count === 'number' ? s.movie_count : undefined;
+
+  return (
+    <div className="card p-4 sm:p-5 hover:border-primary-400/60 transition-colors">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="text-base sm:text-lg font-semibold text-content truncate">
+              {s.name}
+            </h3>
+            {movieCount !== undefined && (
+              <span className="inline-flex items-center rounded-full bg-primary-50 dark:bg-primary-900/30 px-2.5 py-0.5 text-xs font-semibold text-primary-700 dark:text-primary-300">
+                {movieCount} {movieCount === 1 ? 'title' : 'titles'}
+              </span>
+            )}
+            <span className="inline-flex items-center rounded-full bg-surface-sunken border border-subtle px-2.5 py-0.5 text-xs font-medium text-content-muted">
+              {sortMethodLabels[sortMethod]}
+            </span>
+            {s.tmdb_collection_id && (
+              <span className="inline-flex items-center rounded-full bg-blue-50 dark:bg-blue-900/20 px-2.5 py-0.5 text-xs font-medium text-blue-700 dark:text-blue-300">
+                TMDb #{s.tmdb_collection_id}
+              </span>
+            )}
+          </div>
+          <p className="text-xs text-content-muted mt-1">
+            Sort name: <span className="font-medium text-content">{s.sort_name}</span>
           </p>
-        )}
-      </div>
-      <div className="flex gap-2 flex-shrink-0 ml-4">
-        <button
-          onClick={() => onEdit(s)}
-          className="px-3 py-1 text-sm bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-800 dark:text-gray-200 rounded transition-colors"
-        >
-          Edit
-        </button>
-        <button
-          onClick={() => onDelete(s.id)}
-          className="px-3 py-1 text-sm bg-red-100 dark:bg-red-900 hover:bg-red-200 dark:hover:bg-red-800 text-red-700 dark:text-red-200 rounded transition-colors"
-        >
-          Delete
-        </button>
+        </div>
+
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => onEdit(s)}
+            aria-label={`Edit ${s.name}`}
+          >
+            Edit
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => onDelete(s)}
+            aria-label={`Delete ${s.name}`}
+            className="text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20"
+          >
+            Delete
+          </Button>
+        </div>
       </div>
     </div>
-  </div>
-);
+  );
+};
 
 const SeriesManager: React.FC = () => {
   const [series, setSeries] = useState<Series[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
   const [editingSeriesId, setEditingSeriesId] = useState<number | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const { toast } = useToast();
@@ -329,18 +447,29 @@ const SeriesManager: React.FC = () => {
     }
   };
 
-  const handleDelete = async (id: number) => {
+  const filteredSeries = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return series;
+    return series.filter(
+      (s) =>
+        s.name.toLowerCase().includes(q) ||
+        s.sort_name.toLowerCase().includes(q) ||
+        (s.tmdb_collection_id && String(s.tmdb_collection_id).includes(q))
+    );
+  }, [series, searchQuery]);
+
+  const handleDelete = async (target: Series) => {
     const confirmed = await confirm({
       title: 'Delete series',
-      message: 'Are you sure you want to delete this series? This will remove it from all movies.',
-      confirmLabel: 'Delete',
+      message: `Are you sure you want to delete "${target.name}"? This will unlink the series from its movies without deleting the movies themselves.`,
+      confirmLabel: 'Delete Series',
       cancelLabel: 'Cancel',
       variant: 'danger',
     });
     if (!confirmed) return;
     try {
-      await apiService.deleteSeries(id);
-      toast({ message: 'Series deleted.', type: 'success' });
+      await apiService.deleteSeries(target.id);
+      toast({ message: `Deleted "${target.name}".`, type: 'success' });
       await loadSeries();
     } catch (error) {
       console.error('Failed to delete series:', error);
@@ -360,29 +489,76 @@ const SeriesManager: React.FC = () => {
   };
 
   const handleEdit = (s: Series) => {
-    // Close any open create form first
     setIsCreating(false);
     setEditingSeriesId(s.id);
   };
 
   const handleStartCreate = () => {
-    // Close any open edit form first
     setEditingSeriesId(null);
     setIsCreating(true);
   };
 
   if (isLoading) {
-    return <div className="text-center py-8 text-gray-600 dark:text-gray-400">Loading series...</div>;
+    return (
+      <div className="space-y-4" aria-busy="true" aria-label="Loading series">
+        <div className="flex justify-between items-center">
+          <Skeleton className="h-8 w-48 rounded-[--radius-control]" />
+          <Skeleton className="h-10 w-32 rounded-[--radius-control]" />
+        </div>
+        {Array.from({ length: 4 }).map((_, i) => (
+          <Skeleton key={i} className="h-20 w-full rounded-[--radius-card]" />
+        ))}
+      </div>
+    );
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Manage Series</h2>
-        {!isCreating && (
-          <button onClick={handleStartCreate} className="btn-primary">
-            + Add Series
-          </button>
+    <div className="space-y-5">
+      {/* Section Header & Search Bar */}
+      <div className="card p-5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-2.5">
+              <h2 className="text-lg font-semibold text-content">Series & Franchises</h2>
+              <span className="inline-flex items-center rounded-full bg-surface-sunken border border-subtle px-2.5 py-0.5 text-xs font-semibold text-content-muted">
+                {series.length}
+              </span>
+            </div>
+            <p className="text-sm text-content-muted mt-0.5">
+              Group related movies into series and customize their chronological or custom playback order.
+            </p>
+          </div>
+          {!isCreating && (
+            <Button onClick={handleStartCreate} className="flex-shrink-0">
+              + New Series
+            </Button>
+          )}
+        </div>
+
+        {series.length > 0 && (
+          <div className="mt-4 relative">
+            <input
+              type="search"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Filter series by name or TMDb ID…"
+              aria-label="Filter series"
+              className="w-full pl-9 pr-4 py-2 text-sm border border-subtle rounded-[--radius-control] bg-surface text-content focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+            />
+            <svg
+              className="w-4 h-4 text-content-muted absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+              />
+            </svg>
+          </div>
         )}
       </div>
 
@@ -398,15 +574,24 @@ const SeriesManager: React.FC = () => {
 
       {/* Series list */}
       {series.length === 0 && !isCreating ? (
-        <div className="card text-center py-12">
-          <p className="text-gray-600 dark:text-gray-400 mb-4">No series created yet.</p>
-          <button onClick={handleStartCreate} className="btn-primary">
-            Create Your First Series
-          </button>
-        </div>
+        <EmptyState
+          title="No series created yet"
+          description="Create a series to group trilogies, franchises, or box sets together in your collection."
+          action={<Button onClick={handleStartCreate}>Create Your First Series</Button>}
+        />
+      ) : filteredSeries.length === 0 ? (
+        <EmptyState
+          title="No matching series"
+          description={`No series matched "${searchQuery}".`}
+          action={
+            <Button variant="secondary" onClick={() => setSearchQuery('')}>
+              Clear Filter
+            </Button>
+          }
+        />
       ) : (
-        <div className="grid gap-4">
-          {series.map((s) =>
+        <div className="grid gap-3">
+          {filteredSeries.map((s) =>
             editingSeriesId === s.id ? (
               <SeriesForm
                 key={`edit-${s.id}`}

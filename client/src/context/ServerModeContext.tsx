@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 
 interface ServerModeContextType {
   isReadOnly: boolean;
+  isDesktop: boolean;
   isLoading: boolean;
 }
 
@@ -9,6 +10,7 @@ const ServerModeContext = createContext<ServerModeContextType | undefined>(undef
 
 export const ServerModeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [isReadOnly, setIsReadOnly] = useState(false);
+  const [isDesktop, setIsDesktop] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
@@ -17,10 +19,12 @@ export const ServerModeProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         const response = await fetch('/api/health');
         const data = await response.json();
         setIsReadOnly(data.mode === 'readonly');
+        setIsDesktop(Boolean(data.desktop));
       } catch (error) {
         console.error('Failed to check server mode:', error);
         // Default to read-only mode if health check fails for safety
         setIsReadOnly(true);
+        setIsDesktop(false);
       } finally {
         setIsLoading(false);
       }
@@ -30,7 +34,7 @@ export const ServerModeProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   }, []);
 
   return (
-    <ServerModeContext.Provider value={{ isReadOnly, isLoading }}>
+    <ServerModeContext.Provider value={{ isReadOnly, isDesktop, isLoading }}>
       {children}
     </ServerModeContext.Provider>
   );

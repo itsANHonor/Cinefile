@@ -1,7 +1,6 @@
 import React, { useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import ThemeToggle from './ThemeToggle';
-import FormatBadgeToggle from './FormatBadgeToggle';
 import Logo from './Logo';
 import { useSidebar } from '../context/SidebarContext';
 import { useServerMode } from '../context/ServerModeContext';
@@ -147,22 +146,6 @@ const Navigation: React.FC = () => {
             </Link>
 
             <Link
-              to="/library"
-              onClick={closeMobile}
-              className={`flex items-center gap-3 px-2 py-2 rounded-lg transition-colors ${
-                isActive('/library')
-                  ? 'bg-primary-100 dark:bg-primary-900 text-primary-700 dark:text-primary-300 font-semibold'
-                  : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
-              } ${isCollapsed ? 'lg:justify-center' : ''}`}
-              title={isCollapsed ? 'Shelf View' : undefined}
-            >
-              <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-              </svg>
-              <span className={isCollapsed ? 'lg:hidden' : undefined}>Shelf View</span>
-            </Link>
-
-            <Link
               to="/statistics"
               onClick={closeMobile}
               className={`flex items-center gap-3 px-2 py-2 rounded-lg transition-colors ${
@@ -235,25 +218,14 @@ const Navigation: React.FC = () => {
           {/* Display Toggles */}
           <div className="px-2 py-2 border-t border-gray-200 dark:border-gray-700 space-y-2">
             {isCollapsed ? (
-              <>
-                <div className="flex justify-center">
-                  <ThemeToggle />
-                </div>
-                <div className="flex justify-center">
-                  <FormatBadgeToggle />
-                </div>
-              </>
+              <div className="flex justify-center">
+                <ThemeToggle />
+              </div>
             ) : (
-              <>
-                <div className="flex items-center justify-between px-1">
-                  <span className="text-sm text-gray-700 dark:text-gray-300">Theme</span>
-                  <ThemeToggle />
-                </div>
-                <div className="flex items-center justify-between px-1">
-                  <span className="text-sm text-gray-700 dark:text-gray-300">Format tags</span>
-                  <FormatBadgeToggle />
-                </div>
-              </>
+              <div className="flex items-center justify-between px-1">
+                <span className="text-sm text-gray-700 dark:text-gray-300">Theme</span>
+                <ThemeToggle />
+              </div>
             )}
           </div>
         </div>
@@ -268,7 +240,6 @@ const Navigation: React.FC = () => {
             {/* Page Title - could be dynamic based on route */}
             <h1 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
               {location.pathname === '/' && 'Collection'}
-              {location.pathname === '/library' && 'Shelf View'}
               {location.pathname === '/statistics' && 'Statistics'}
               {!isReadOnly && location.pathname === '/media' && 'Media'}
               {!isReadOnly && location.pathname === '/admin' && 'Settings'}

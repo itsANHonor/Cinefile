@@ -1,8 +1,10 @@
 import express from 'express';
 import cors from 'cors';
 import 'dotenv/config';
+import fs from 'fs';
 import path from 'path';
 import { setupDatabase } from './database';
+import { isDesktopMode } from './middleware/auth.middleware';
 
 // Import routes
 import authRoutes from './routes/auth.routes';
@@ -16,7 +18,7 @@ import statisticsRoutes from './routes/statistics.routes';
 import libraryRoutes from './routes/library.routes';
 import mcpRoutes from './routes/mcp.routes';
 
-if (!process.env.SESSION_SECRET?.trim()) {
+if (!isDesktopMode() && !process.env.SESSION_SECRET?.trim()) {
   console.error('FATAL: SESSION_SECRET must be set (signs admin JWTs). See server/env.example.');
   process.exit(1);
 }
@@ -26,7 +28,7 @@ const PORT = process.env.PORT || 3000;
 
 // CORS configuration - restrict to allowed origin for security
 const corsOptions = {
-  origin: process.env.ALLOWED_ORIGIN || 'http://localhost:3005', // Default to frontend URL
+  origin: isDesktopMode() ? true : (process.env.ALLOWED_ORIGIN || 'http://localhost:3005'), // Default to frontend URL
   credentials: false,
   optionsSuccessStatus: 200,
 };
@@ -46,6 +48,7 @@ setupDatabase();
 
 // Serve uploaded files statically (must be before API routes for proper handling)
 const uploadDir = process.env.UPLOAD_DIR || path.join(__dirname, '../uploads');
+fs.mkdirSync(uploadDir, { recursive: true });
 app.use('/uploads', express.static(uploadDir));
 
 // API Routes
@@ -56,8 +59,10 @@ app.get('/api', (req, res) => {
 app.get('/api/health', (req, res) => {
   res.json({
     status: 'healthy',
+    mode: 'full',
+    desktop: isDesktopMode(),
     timestamp: new Date().toISOString(),
-    version: '1.0.0',
+    version: '2.0.0',
   });
 });
 

@@ -11,7 +11,6 @@ import AboutPage from './pages/AboutPage';
 import AdminPage from './pages/AdminPage';
 import CollectionPage from './pages/CollectionPage';
 import MoviesPage from './pages/MoviesPage';
-import PhysicalLibraryPage from './pages/PhysicalLibraryPage';
 import StatisticsPage from './pages/StatisticsPage';
 import Navigation from './components/Navigation';
 import MobileBottomTabs from './components/MobileBottomTabs';
@@ -54,7 +53,7 @@ const AppContent: React.FC = () => {
         <ErrorBoundary>
           <Routes>
             <Route path="/" element={<CollectionPage />} />
-            <Route path="/library" element={<PhysicalLibraryPage />} />
+            <Route path="/library" element={<Navigate to="/?view=shelf" replace />} />
             <Route path="/statistics" element={<StatisticsPage />} />
             <Route path="/about" element={<AboutPage />} />
             {isReadOnly ? (

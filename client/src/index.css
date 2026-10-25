@@ -85,3 +85,240 @@
     transform: translateY(0) scale(1);
   }
 }
+
+/* Showcase immersive slideshow animations */
+@keyframes showcaseBackdropIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 0.38;
+  }
+}
+
+@keyframes showcaseBackdropOut {
+  from {
+    opacity: 0.38;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes showcaseBackdropDrift {
+  0% {
+    transform: scale(1.22) translate3d(-1.5%, -1%, 0);
+  }
+  50% {
+    transform: scale(1.34) translate3d(1.5%, 1.5%, 0);
+  }
+  100% {
+    transform: scale(1.25) translate3d(-0.5%, 0.5%, 0);
+  }
+}
+
+/* 1. Cascade preset */
+@keyframes showcaseSlideExit {
+  from {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+    filter: blur(0px);
+  }
+  to {
+    opacity: 0;
+    transform: translate3d(0, -12px, 0) scale(1.02);
+    filter: blur(10px);
+  }
+}
+
+@keyframes showcasePosterEnter {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 22px, 0) scale(0.92);
+    filter: blur(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+    filter: blur(0px);
+  }
+}
+
+@keyframes showcaseTextCascade {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 14px, 0);
+    filter: blur(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+    filter: blur(0px);
+  }
+}
+
+/* 2. Dissolve preset */
+@keyframes showcaseDissolveIn {
+  from {
+    opacity: 0;
+    filter: blur(12px);
+  }
+  to {
+    opacity: 1;
+    filter: blur(0px);
+  }
+}
+
+@keyframes showcaseDissolveOut {
+  from {
+    opacity: 1;
+    filter: blur(0px);
+  }
+  to {
+    opacity: 0;
+    filter: blur(12px);
+  }
+}
+
+/* 3. Slide preset (directional horizontal glide) */
+@keyframes showcaseGlideInNext {
+  from {
+    opacity: 0;
+    transform: translate3d(7%, 0, 0) scale(0.96);
+    filter: blur(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+    filter: blur(0px);
+  }
+}
+
+@keyframes showcaseGlideOutNext {
+  from {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+    filter: blur(0px);
+  }
+  to {
+    opacity: 0;
+    transform: translate3d(-7%, 0, 0) scale(0.96);
+    filter: blur(4px);
+  }
+}
+
+@keyframes showcaseGlideInPrev {
+  from {
+    opacity: 0;
+    transform: translate3d(-7%, 0, 0) scale(0.96);
+    filter: blur(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+    filter: blur(0px);
+  }
+}
+
+@keyframes showcaseGlideOutPrev {
+  from {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+    filter: blur(0px);
+  }
+  to {
+    opacity: 0;
+    transform: translate3d(7%, 0, 0) scale(0.96);
+    filter: blur(4px);
+  }
+}
+
+/* 4. Zoom preset (cinematic depth camera push) */
+@keyframes showcaseZoomIn {
+  from {
+    opacity: 0;
+    transform: scale(0.86);
+    filter: blur(10px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+    filter: blur(0px);
+  }
+}
+
+@keyframes showcaseZoomOut {
+  from {
+    opacity: 1;
+    transform: scale(1);
+    filter: blur(0px);
+  }
+  to {
+    opacity: 0;
+    transform: scale(1.14);
+    filter: blur(12px);
+  }
+}
+
+@keyframes showcaseProgress {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+.showcase-backdrop-in {
+  animation:
+    showcaseBackdropIn 0.85s cubic-bezier(0.22, 1, 0.36, 1) forwards,
+    showcaseBackdropDrift 22s ease-in-out infinite alternate;
+}
+
+.showcase-backdrop-out {
+  animation: showcaseBackdropOut 0.75s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.showcase-slide-exit {
+  animation: showcaseSlideExit 0.65s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+.showcase-poster-enter {
+  animation: showcasePosterEnter 0.85s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.showcase-cascade {
+  animation: showcaseTextCascade 0.7s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.showcase-dissolve-in {
+  animation: showcaseDissolveIn 0.8s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.showcase-dissolve-out {
+  animation: showcaseDissolveOut 0.75s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.showcase-glide-in-next {
+  animation: showcaseGlideInNext 0.75s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.showcase-glide-out-next {
+  animation: showcaseGlideOutNext 0.65s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+.showcase-glide-in-prev {
+  animation: showcaseGlideInPrev 0.75s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.showcase-glide-out-prev {
+  animation: showcaseGlideOutPrev 0.65s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+.showcase-zoom-in {
+  animation: showcaseZoomIn 0.85s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.showcase-zoom-out {
+  animation: showcaseZoomOut 0.7s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}

@@ -1,6 +1,6 @@
 import axios, { AxiosError } from 'axios';
+import { db } from '../database';
 
-const TMDB_API_KEY = process.env.TMDB_API_KEY;
 const TMDB_BASE_URL = 'https://api.themoviedb.org/3';
 const TMDB_IMAGE_BASE_URL = 'https://image.tmdb.org/t/p/w500';
 
@@ -92,17 +92,63 @@ export interface TMDbTVSearchResponse {
 type LogCallback = (message: string, level?: 'info' | 'warn' | 'error') => void;
 
 class TMDbService {
-  private apiKey: string;
+  private cachedDbApiKey: string | null = null;
+  private cachedDbKeyLoaded: boolean = false;
   private requestQueue: Array<() => Promise<any>> = [];
   private isProcessingQueue: boolean = false;
   private lastRequestTime: number = 0;
   private logCallback?: LogCallback;
 
   constructor() {
-    if (!TMDB_API_KEY) {
-      throw new Error('TMDB_API_KEY is not defined in environment variables');
+    // API key is resolved lazily from SQLite settings ('tmdb_api_key') or process.env.TMDB_API_KEY
+  }
+
+  /**
+   * Clear cached DB key when settings are updated
+   */
+  invalidateApiKeyCache() {
+    this.cachedDbKeyLoaded = false;
+    this.cachedDbApiKey = null;
+  }
+
+  /**
+   * Resolve TMDb API key from DB settings first, then process.env.TMDB_API_KEY
+   */
+  async resolveApiKey(): Promise<string | null> {
+    if (!this.cachedDbKeyLoaded) {
+      try {
+        const row = await db('settings').where({ key: 'tmdb_api_key' }).first();
+        this.cachedDbApiKey = row?.value?.trim() || null;
+        this.cachedDbKeyLoaded = true;
+      } catch {
+        // DB may not be migrated yet; fall back to env var without caching failure
+      }
     }
-    this.apiKey = TMDB_API_KEY;
+
+    if (this.cachedDbApiKey) {
+      return this.cachedDbApiKey;
+    }
+
+    const envKey = process.env.TMDB_API_KEY?.trim();
+    return envKey || null;
+  }
+
+  /**
+   * Check whether a TMDb API key is configured (via DB or environment variable)
+   */
+  async isConfigured(): Promise<boolean> {
+    const key = await this.resolveApiKey();
+    return Boolean(key);
+  }
+
+  private async requireApiKey(): Promise<string> {
+    const key = await this.resolveApiKey();
+    if (!key) {
+      throw new Error(
+        'TMDb API key is not configured. Please add your TMDb API key in Settings -> General or set TMDB_API_KEY.'
+      );
+    }
+    return key;
   }
 
   /**
@@ -189,12 +235,13 @@ class TMDbService {
    * Search for movies by title
    */
   async searchMovies(query: string, page: number = 1): Promise<TMDbSearchResponse> {
+    const apiKey = await this.requireApiKey();
     this.log(`Searching movies: "${query}" (page ${page})`);
     try {
       const response = await this.makeRequest(() =>
         axios.get(`${TMDB_BASE_URL}/search/movie`, {
           params: {
-            api_key: this.apiKey,
+            api_key: apiKey,
             query,
             page,
             include_adult: false,
@@ -213,12 +260,13 @@ class TMDbService {
    * Get detailed information about a movie including cast and crew
    */
   async getMovieDetails(movieId: number): Promise<TMDbMovieDetails> {
+    const apiKey = await this.requireApiKey();
     this.log(`Fetching movie details for ID: ${movieId}`);
     try {
       const response = await this.makeRequest(() =>
         axios.get(`${TMDB_BASE_URL}/movie/${movieId}`, {
           params: {
-            api_key: this.apiKey,
+            api_key: apiKey,
             append_to_response: 'credits',
           },
         })
@@ -235,12 +283,13 @@ class TMDbService {
    * Get images for a movie
    */
   async getMovieImages(movieId: number): Promise<string[]> {
+    const apiKey = await this.requireApiKey();
     this.log(`Fetching images for movie ID: ${movieId}`);
     try {
       const response = await this.makeRequest(() =>
         axios.get(`${TMDB_BASE_URL}/movie/${movieId}/images`, {
           params: {
-            api_key: this.apiKey,
+            api_key: apiKey,
           },
         })
       );
@@ -286,12 +335,13 @@ class TMDbService {
    * Get movie's belonging collections
    */
   async getMovieCollections(movieId: number): Promise<any> {
+    const apiKey = await this.requireApiKey();
     this.log(`Fetching collections for movie ID: ${movieId}`);
     try {
       const response = await this.makeRequest(() =>
         axios.get(`${TMDB_BASE_URL}/movie/${movieId}`, {
           params: {
-            api_key: this.apiKey,
+            api_key: apiKey,
           },
         })
       );
@@ -306,12 +356,13 @@ class TMDbService {
    * Get collection details including all movies
    */
   async getCollectionDetails(collectionId: number): Promise<any> {
+    const apiKey = await this.requireApiKey();
     this.log(`Fetching collection details for ID: ${collectionId}`);
     try {
       const response = await this.makeRequest(() =>
         axios.get(`${TMDB_BASE_URL}/collection/${collectionId}`, {
           params: {
-            api_key: this.apiKey,
+            api_key: apiKey,
           },
         })
       );
@@ -331,12 +382,13 @@ class TMDbService {
    * Search for TV shows by name
    */
   async searchTV(query: string, page: number = 1): Promise<TMDbTVSearchResponse> {
+    const apiKey = await this.requireApiKey();
     this.log(`Searching TV shows: "${query}" (page ${page})`);
     try {
       const response = await this.makeRequest(() =>
         axios.get(`${TMDB_BASE_URL}/search/tv`, {
           params: {
-            api_key: this.apiKey,
+            api_key: apiKey,
             query,
             page,
             include_adult: false,
@@ -355,12 +407,13 @@ class TMDbService {
    * Get detailed information about a TV show including seasons and credits
    */
   async getTVDetails(tvId: number): Promise<TMDbTVShowDetails> {
+    const apiKey = await this.requireApiKey();
     this.log(`Fetching TV show details for ID: ${tvId}`);
     try {
       const response = await this.makeRequest(() =>
         axios.get(`${TMDB_BASE_URL}/tv/${tvId}`, {
           params: {
-            api_key: this.apiKey,
+            api_key: apiKey,
             append_to_response: 'credits',
           },
         })
@@ -377,12 +430,13 @@ class TMDbService {
    * Get details for a specific TV season
    */
   async getTVSeasonDetails(tvId: number, seasonNumber: number): Promise<any> {
+    const apiKey = await this.requireApiKey();
     this.log(`Fetching TV season details for show ${tvId}, season ${seasonNumber}`);
     try {
       const response = await this.makeRequest(() =>
         axios.get(`${TMDB_BASE_URL}/tv/${tvId}/season/${seasonNumber}`, {
           params: {
-            api_key: this.apiKey,
+            api_key: apiKey,
           },
         })
       );
@@ -398,12 +452,13 @@ class TMDbService {
    * Get images for a TV show
    */
   async getTVImages(tvId: number): Promise<string[]> {
+    const apiKey = await this.requireApiKey();
     this.log(`Fetching images for TV show ID: ${tvId}`);
     try {
       const response = await this.makeRequest(() =>
         axios.get(`${TMDB_BASE_URL}/tv/${tvId}/images`, {
           params: {
-            api_key: this.apiKey,
+            api_key: apiKey,
           },
         })
       );
@@ -422,12 +477,13 @@ class TMDbService {
    * Get images for a specific TV season
    */
   async getTVSeasonImages(tvId: number, seasonNumber: number): Promise<string[]> {
+    const apiKey = await this.requireApiKey();
     this.log(`Fetching images for TV show ${tvId}, season ${seasonNumber}`);
     try {
       const response = await this.makeRequest(() =>
         axios.get(`${TMDB_BASE_URL}/tv/${tvId}/season/${seasonNumber}/images`, {
           params: {
-            api_key: this.apiKey,
+            api_key: apiKey,
           },
         })
       );
@@ -467,12 +523,15 @@ class TMDbService {
     const trimmed = name.trim();
     if (!trimmed) return null;
 
+    const apiKey = await this.resolveApiKey();
+    if (!apiKey) return null;
+
     this.log(`Searching person: "${trimmed}"`);
     try {
       const response = await this.makeRequest(() =>
         axios.get(`${TMDB_BASE_URL}/search/person`, {
           params: {
-            api_key: this.apiKey,
+            api_key: apiKey,
             query: trimmed,
             page: 1,
             include_adult: false,

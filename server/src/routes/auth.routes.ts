@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import rateLimit from 'express-rate-limit';
-import { verifyPassword, authMiddleware } from '../middleware/auth.middleware';
+import { verifyPassword, authMiddleware, isDesktopMode } from '../middleware/auth.middleware';
 import { signSessionToken } from '../services/jwt-auth.service';
 
 const router = Router();
@@ -18,6 +18,14 @@ const loginLimiter = rateLimit({
  * Login with password; returns a signed JWT (not the password).
  */
 router.post('/login', loginLimiter, (req: Request, res: Response) => {
+  if (isDesktopMode()) {
+    return res.json({
+      success: true,
+      message: 'Authentication successful (Desktop Mode)',
+      token: 'desktop-mode-session',
+    });
+  }
+
   const { password } = req.body;
 
   if (!password) {

@@ -1,8 +1,10 @@
+import fs from 'fs';
 import multer from 'multer';
 import path from 'path';
 import { Request } from 'express';
 
 const UPLOAD_DIR = process.env.UPLOAD_DIR || './uploads';
+fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
 // Configure storage
 const storage = multer.diskStorage({

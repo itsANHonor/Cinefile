@@ -48,7 +48,7 @@ export function createCinefileMcpServer(): McpServer {
   const server = new McpServer(
     {
       name: 'cinefile-mcp',
-      version: '1.0.0',
+      version: '2.0.0',
     },
     {
       instructions:

@@ -134,6 +134,37 @@ it('clearAll removes every param', async () => {
       type: 'all',
       sortBy: 'title',
       sortOrder: 'asc',
+      view: 'grid',
     });
+  });
+});
+
+it('parses and updates view parameter and preserves shelf view on clearAll', async () => {
+  const { result } = renderHook(() => useCollectionParams(), {
+    wrapper: wrapperForRoute('/?q=alien&format=DVD&view=shelf'),
+  });
+
+  expect(result.current.params.view).toBe('shelf');
+  expect(result.current.params.q).toBe('alien');
+
+  act(() => {
+    result.current.clearAll();
+  });
+
+  await waitFor(() => {
+    expect(result.current.params).toMatchObject({
+      q: '',
+      formats: [],
+      view: 'shelf',
+    });
+  });
+
+  act(() => {
+    result.current.setParams({ view: 'grid' });
+  });
+
+  await waitFor(() => {
+    expect(result.current.params.view).toBe('grid');
+    expect(window.location.search).toBe('');
   });
 });

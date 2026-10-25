@@ -1,8 +1,11 @@
 import express from 'express';
 import cors from 'cors';
 import 'dotenv/config';
+import fs from 'fs';
+import http from 'http';
 import path from 'path';
 import { setupDatabase } from './database';
+import { isDesktopMode } from './middleware/auth.middleware';
 
 // Import routes
 import authRoutes from './routes/auth.routes';
@@ -16,17 +19,17 @@ import statisticsRoutes from './routes/statistics.routes';
 import libraryRoutes from './routes/library.routes';
 import mcpRoutes from './routes/mcp.routes';
 
-if (!process.env.SESSION_SECRET?.trim()) {
+if (!isDesktopMode() && !process.env.SESSION_SECRET?.trim()) {
   console.error('FATAL: SESSION_SECRET must be set (signs admin JWTs). See server/env.example.');
   process.exit(1);
 }
 
-const app = express();
-const PORT = process.env.PORT || 3001;
+export const app = express();
+const DEFAULT_PORT = Number(process.env.PORT) || 3001;
 
 // CORS configuration - restrict to allowed origin for security
 const corsOptions = {
-  origin: process.env.ALLOWED_ORIGIN || 'http://localhost:3005', // Default to frontend URL
+  origin: isDesktopMode() ? true : (process.env.ALLOWED_ORIGIN || 'http://localhost:3005'), // Default to frontend URL
   credentials: false,
   optionsSuccessStatus: 200,
 };
@@ -42,11 +45,9 @@ app.use('/mcp', mcpRoutes);
 
 app.use(cors(corsOptions));
 
-// Initialize database
-setupDatabase();
-
 // Serve uploaded files statically (must be before API routes for proper handling)
 const uploadDir = process.env.UPLOAD_DIR || path.join(__dirname, '../uploads');
+fs.mkdirSync(uploadDir, { recursive: true });
 app.use('/uploads', express.static(uploadDir));
 
 // API Routes
@@ -58,8 +59,9 @@ app.get('/api/health', (req, res) => {
   res.json({
     status: 'healthy',
     mode: 'full',
+    desktop: isDesktopMode(),
     timestamp: new Date().toISOString(),
-    version: '1.0.0',
+    version: '2.0.0',
   });
 });
 
@@ -75,7 +77,7 @@ app.use('/api/library', libraryRoutes);
 
 // Serve static frontend files (React build)
 // This must come AFTER API routes so API routes take precedence
-const publicDir = path.join(__dirname, '../public');
+const publicDir = process.env.PUBLIC_DIR || path.join(__dirname, '../public');
 app.use(express.static(publicDir));
 
 // SPA fallback - serve index.html for all other routes
@@ -84,8 +86,44 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(publicDir, 'index.html'));
 });
 
-// Start server
-app.listen(PORT, () => {
-  console.log(`🎬 Cinefile server running on port ${PORT} (Full Mode)`);
-  console.log(`📱 API available at http://localhost:${PORT}/api`);
-});
+export interface StartServerOptions {
+  port?: number;
+  host?: string;
+}
+
+export async function startFullServer(options: StartServerOptions = {}): Promise<http.Server> {
+  await setupDatabase();
+
+  const port = options.port !== undefined ? options.port : DEFAULT_PORT;
+  const host = options.host;
+
+  return new Promise((resolve, reject) => {
+    const onError = (err: Error) => {
+      reject(err);
+    };
+
+    const server = host
+      ? app.listen(port, host, () => {
+          server.removeListener('error', onError);
+          const address = server.address();
+          const boundPort = typeof address === 'object' && address ? address.port : port;
+          console.log(`🎬 Cinefile server running on http://${host}:${boundPort} (Full Mode${isDesktopMode() ? ', Desktop' : ''})`);
+          resolve(server);
+        })
+      : app.listen(port, () => {
+          server.removeListener('error', onError);
+          console.log(`🎬 Cinefile server running on port ${port} (Full Mode)`);
+          console.log(`📱 API available at http://localhost:${port}/api`);
+          resolve(server);
+        });
+
+    server.once('error', onError);
+  });
+}
+
+if (require.main === module) {
+  startFullServer().catch((err) => {
+    console.error('❌ Failed to start Cinefile server:', err);
+    process.exit(1);
+  });
+}

@@ -9,6 +9,7 @@ import { IconButton } from '../ui/IconButton';
 interface ShelfGroupCardProps {
   group: ShelfGroup;
   isEditMode: boolean;
+  matchingItemIds?: Set<number> | null;
   onEditGroup?: (group: ShelfGroup) => void;
   onDeleteGroup?: (group: ShelfGroup) => void;
   onAddShelf?: (groupId: number) => void;
@@ -34,6 +35,7 @@ const GripIcon: React.FC<{ className?: string }> = ({ className }) => (
 const ShelfGroupCard: React.FC<ShelfGroupCardProps> = ({
   group,
   isEditMode,
+  matchingItemIds,
   onEditGroup,
   onDeleteGroup,
   onAddShelf,
@@ -77,6 +79,14 @@ const ShelfGroupCard: React.FC<ShelfGroupCardProps> = ({
     (sum, shelf) => sum + shelf.capacity_units,
     0
   );
+  const groupMatchCount = matchingItemIds
+    ? group.shelves.reduce(
+        (sum, shelf) =>
+          sum +
+          shelf.placements.filter((p) => p.physical_item && matchingItemIds.has(p.physical_item.id)).length,
+        0
+      )
+    : null;
 
   const shelfSortableIds = group.shelves.map((s) => `sortable-shelf-${s.id}`);
 
@@ -128,6 +138,20 @@ const ShelfGroupCard: React.FC<ShelfGroupCardProps> = ({
             <span>{totalItems} {totalItems === 1 ? 'item' : 'items'}</span>
             <span className="text-gray-300 dark:text-gray-600">|</span>
             <span>{totalUsed}/{totalCapacity} units</span>
+            {groupMatchCount !== null && (
+              <>
+                <span className="text-gray-300 dark:text-gray-600">|</span>
+                <span
+                  className={`px-1.5 py-0.5 rounded-full font-medium ${
+                    groupMatchCount > 0
+                      ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/40 dark:text-primary-300'
+                      : 'bg-gray-100 text-gray-400 dark:bg-gray-800 dark:text-gray-500'
+                  }`}
+                >
+                  {groupMatchCount} {groupMatchCount === 1 ? 'match' : 'matches'}
+                </span>
+              </>
+            )}
           </div>
         </div>
 
@@ -194,6 +218,7 @@ const ShelfGroupCard: React.FC<ShelfGroupCardProps> = ({
                   key={shelf.id}
                   shelf={shelf}
                   isEditMode={isEditMode}
+                  matchingItemIds={matchingItemIds}
                   onEditShelf={onEditShelf}
                   onDeleteShelf={onDeleteShelf}
                   onRemovePlacement={onRemovePlacement}

@@ -378,8 +378,9 @@ router.get('/', async (req: Request, res: Response) => {
       });
     }
 
-    const totalCount = await countQuery.count('physical_items.id as count').first();
-    const total = totalCount ? parseInt(totalCount.count as string) : 0;
+    const matchingRows = await countQuery.select('physical_items.id');
+    const matchingIds = matchingRows.map((row: any) => Number(row.id));
+    const total = matchingIds.length;
 
     // Calculate pagination
     const pageNum = parseInt(page as string, 10);
@@ -724,6 +725,7 @@ router.get('/', async (req: Request, res: Response) => {
 
     res.json({
       items: physicalItemsWithMedia,
+      matchingIds,
       pagination: {
         page: pageNum,
         limit: limitNum,

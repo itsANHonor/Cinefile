@@ -20,7 +20,7 @@ describe('Navigation', () => {
     // Accessible names come from the label text, so these only resolve if the
     // labels are rendered rather than stripped by the collapse flag.
     expect(screen.getByRole('link', { name: 'Collection' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Shelf View' })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Shelf View' })).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Statistics' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'About' })).toBeInTheDocument();
   });
@@ -53,5 +53,13 @@ describe('Navigation', () => {
     expect(drawer).not.toBeNull();
     // Collapsing narrows the rail only at lg and above.
     expect(drawer).toHaveClass('lg:w-16');
+  });
+
+  it('does not render the format tags toggle in the navigation sidebar', () => {
+    renderWithProviders(<Navigation />);
+
+    expect(
+      screen.queryByRole('button', { name: /Toggle format tags on posters/i })
+    ).not.toBeInTheDocument();
   });
 });

@@ -21,10 +21,11 @@ const formatCount = (value: number) => value.toLocaleString();
 const CollectionStatistics: React.FC<CollectionStatisticsProps> = ({ statistics, isLoading }) => {
   const [isBreakdownOpen, setIsBreakdownOpen] = useState(false);
 
-  // Reserve the same vertical space while loading so the layout does not jump.
-  if (isLoading || !statistics) {
+  // Reserve the same vertical space while loading initial stats so the layout does not jump.
+  // Once statistics are available, keep rendering them during background refreshes to avoid flicker.
+  if (!statistics) {
     return (
-      <div className="flex h-10 items-center gap-3">
+      <div className="flex h-10 items-center gap-3" aria-busy={isLoading || undefined}>
         <Skeleton className="h-4 w-56 rounded-[--radius-control]" />
       </div>
     );

@@ -36,6 +36,7 @@ function getContrastColor(hex: string): string {
 interface ShelfViewProps {
   shelf: Shelf;
   isEditMode: boolean;
+  matchingItemIds?: Set<number> | null;
   onEditShelf?: (shelf: Shelf) => void;
   onDeleteShelf?: (shelf: Shelf) => void;
   onRemovePlacement?: (placementId: number) => void;
@@ -47,10 +48,12 @@ interface ShelfViewProps {
 const SortableShelfItem: React.FC<{
   placement: ShelfPlacement;
   isEditMode: boolean;
+  isDimmed?: boolean;
+  isHighlighted?: boolean;
   onRemove?: (placementId: number) => void;
   onClick?: (physicalItemId: number) => void;
   onSpineColorEdit?: (physicalItemId: number) => void;
-}> = ({ placement, isEditMode, onRemove, onClick, onSpineColorEdit }) => {
+}> = ({ placement, isEditMode, isDimmed = false, isHighlighted = false, onRemove, onClick, onSpineColorEdit }) => {
   const [isHovered, setIsHovered] = useState(false);
 
   const {
@@ -95,8 +98,9 @@ const SortableShelfItem: React.FC<{
   return (
     <div
       ref={setNodeRef}
-      style={{ ...style, width: `${spineWidth}px`, height: '260px', zIndex: isHovered ? 20 : 1 }}
-      className={`relative flex-shrink-0 ${isEditMode ? 'cursor-grab active:cursor-grabbing touch-none' : ''} ${isDragging ? 'z-50' : ''}`}
+      style={{ ...style, width: `${spineWidth}px`, height: '260px', zIndex: isHovered ? 20 : isHighlighted ? 10 : 1 }}
+      className={`relative flex-shrink-0 transition-opacity duration-200 ${isEditMode ? 'cursor-grab active:cursor-grabbing touch-none' : ''} ${isDragging ? 'z-50' : ''} ${isDimmed && !isDragging ? 'opacity-20 saturate-0' : ''}`}
+      data-filter-state={isDimmed ? 'dimmed' : isHighlighted ? 'matched' : undefined}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
       onContextMenu={handleContextMenu}
@@ -107,7 +111,9 @@ const SortableShelfItem: React.FC<{
         role="button"
         tabIndex={0}
         aria-label={`Open details for ${item.name}`}
-        className="h-full w-full overflow-hidden border-r border-black/10 dark:border-white/10 cursor-pointer relative focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+        className={`h-full w-full overflow-hidden border-r border-black/10 dark:border-white/10 cursor-pointer relative focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset ${
+          isHighlighted ? 'ring-2 ring-primary-400 dark:ring-primary-300 ring-inset shadow-md' : ''
+        }`}
         style={{ backgroundColor: !coverUrl ? spineColor : undefined }}
         onClick={() => onClick?.(item.id)}
         onKeyDown={(event) => {
@@ -245,6 +251,7 @@ const GripIcon: React.FC<{ className?: string }> = ({ className }) => (
 const ShelfView: React.FC<ShelfViewProps> = ({
   shelf,
   isEditMode,
+  matchingItemIds,
   onEditShelf,
   onDeleteShelf,
   onRemovePlacement,
@@ -257,6 +264,9 @@ const ShelfView: React.FC<ShelfViewProps> = ({
   const isOverCapacity = shelf.used_units > shelf.capacity_units;
   const widthMm = shelf.width_mm ?? shelf.capacity_units * STANDARD_UNIT_MM;
   const usedMm = shelf.used_units * STANDARD_UNIT_MM;
+  const matchCount = matchingItemIds
+    ? shelf.placements.filter((p) => p.physical_item && matchingItemIds.has(p.physical_item.id)).length
+    : null;
 
   // Sortable: for reordering shelves within/between groups
   const {
@@ -340,6 +350,17 @@ const ShelfView: React.FC<ShelfViewProps> = ({
           <span className="text-xs text-gray-400 dark:text-gray-500">
             ({usedMm.toFixed(1)}mm / {widthMm.toFixed(1)}mm)
           </span>
+          {matchCount !== null && (
+            <span
+              className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${
+                matchCount > 0
+                  ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/40 dark:text-primary-300'
+                  : 'bg-gray-100 text-gray-400 dark:bg-gray-800 dark:text-gray-500'
+              }`}
+            >
+              {matchCount} {matchCount === 1 ? 'match' : 'matches'}
+            </span>
+          )}
         </div>
 
         {isEditMode && (
@@ -427,18 +448,25 @@ const ShelfView: React.FC<ShelfViewProps> = ({
           ) : (
             <SortableContext items={sortableIds} strategy={horizontalListSortingStrategy}>
               <div className="relative flex flex-nowrap min-h-[260px] items-end">
-                {shelf.placements.map((placement, idx) => (
-                  <React.Fragment key={placement.id}>
-                    {dropIndicatorIndex === idx && <DropIndicatorLine />}
-                    <SortableShelfItem
-                      placement={placement}
-                      isEditMode={isEditMode}
-                      onRemove={onRemovePlacement}
-                      onClick={onItemClick}
-                      onSpineColorEdit={onSpineColorEdit}
-                    />
-                  </React.Fragment>
-                ))}
+                {shelf.placements.map((placement, idx) => {
+                  const itemId = placement.physical_item?.id;
+                  const isFiltered = matchingItemIds !== undefined && matchingItemIds !== null;
+                  const isMatch = isFiltered && itemId !== undefined ? matchingItemIds.has(itemId) : true;
+                  return (
+                    <React.Fragment key={placement.id}>
+                      {dropIndicatorIndex === idx && <DropIndicatorLine />}
+                      <SortableShelfItem
+                        placement={placement}
+                        isEditMode={isEditMode}
+                        isDimmed={isFiltered && !isMatch}
+                        isHighlighted={isFiltered && isMatch}
+                        onRemove={onRemovePlacement}
+                        onClick={onItemClick}
+                        onSpineColorEdit={onSpineColorEdit}
+                      />
+                    </React.Fragment>
+                  );
+                })}
                 {dropIndicatorIndex === shelf.placements.length && <DropIndicatorLine />}
               </div>
             </SortableContext>

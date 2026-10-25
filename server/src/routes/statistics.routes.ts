@@ -580,34 +580,36 @@ async function resolvePersonProfiles(names: string[]): Promise<Map<string, strin
     }
 
     const missing = uniqueNames.filter(([key]) => !result.has(key));
-    if (missing.length > 0 && process.env.TMDB_API_KEY) {
+    if (missing.length > 0) {
       const { tmdbService } = await import('../services/tmdb.service');
-      await Promise.allSettled(
-        missing.map(async ([key, displayName]) => {
-          const person = await tmdbService.searchPerson(displayName);
-          const profileUrl = person?.profileUrl ?? null;
-          result.set(key, profileUrl);
-          try {
-            await db('person_profiles')
-              .insert({
-                name_key: key,
-                name: displayName,
-                tmdb_person_id: person?.id ?? null,
-                profile_url: profileUrl,
-                updated_at: db.fn.now(),
-              })
-              .onConflict('name_key')
-              .merge({
-                name: displayName,
-                tmdb_person_id: person?.id ?? null,
-                profile_url: profileUrl,
-                updated_at: db.fn.now(),
-              });
-          } catch (dbErr) {
-            console.warn(`Failed to cache person profile for "${displayName}":`, dbErr);
-          }
-        })
-      );
+      if (await tmdbService.isConfigured()) {
+        await Promise.allSettled(
+          missing.map(async ([key, displayName]) => {
+            const person = await tmdbService.searchPerson(displayName);
+            const profileUrl = person?.profileUrl ?? null;
+            result.set(key, profileUrl);
+            try {
+              await db('person_profiles')
+                .insert({
+                  name_key: key,
+                  name: displayName,
+                  tmdb_person_id: person?.id ?? null,
+                  profile_url: profileUrl,
+                  updated_at: db.fn.now(),
+                })
+                .onConflict('name_key')
+                .merge({
+                  name: displayName,
+                  tmdb_person_id: person?.id ?? null,
+                  profile_url: profileUrl,
+                  updated_at: db.fn.now(),
+                });
+            } catch (dbErr) {
+              console.warn(`Failed to cache person profile for "${displayName}":`, dbErr);
+            }
+          })
+        );
+      }
     }
   } catch (err) {
     console.warn('Failed to resolve person profiles:', err);

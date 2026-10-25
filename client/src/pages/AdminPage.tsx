@@ -1,44 +1,87 @@
-import React, { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import React, { useState, useEffect, useRef } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
+import { useDisplayPreferences } from '../context/DisplayPreferencesContext';
+import { useServerMode } from '../context/ServerModeContext';
 import { useToast } from '../context/ToastContext';
 import { useConfirm } from '../context/ConfirmContext';
 import Logo from '../components/Logo';
-import { PhysicalItem, SortField, SortOrder } from '../types';
+import { SortField, SortOrder } from '../types';
 import { apiService } from '../services/api.service';
 import MediaForm from '../components/MediaForm';
 import SeriesManager from '../components/SeriesManager';
 import BulkAddForm from '../components/BulkAddForm';
-import AdminConsole from '../components/AdminConsole';
+import { Button } from '../components/ui/Button';
 import { SegmentedControl } from '../components/ui/SegmentedControl';
+import { Skeleton } from '../components/ui/Skeleton';
 
-type AdminTab = 'media' | 'series' | 'settings' | 'console';
+type SettingsTab = 'general' | 'series' | 'data';
+
+interface CsvValidationResult {
+  fileName: string;
+  csvText: string;
+  valid: boolean;
+  total_rows: number;
+  valid_rows: number;
+  invalid_rows: number;
+  errors: Array<{ row: number; error: string; data?: any }>;
+  warnings: Array<{ row: number; warning: string; data?: any }>;
+}
+
+function resolveInitialTab(param: string | null): SettingsTab {
+  if (param === 'series') return 'series';
+  if (param === 'data' || param === 'import') return 'data';
+  return 'general';
+}
 
 const AdminPage: React.FC = () => {
   const { isAuthenticated, login, logout } = useAuth();
   const { setTheme } = useTheme();
+  const { showFormatBadges, toggleFormatBadges } = useDisplayPreferences();
+  const { isDesktop } = useServerMode();
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // Login state
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [loginError, setLoginError] = useState('');
   const [isLoggingIn, setIsLoggingIn] = useState(false);
 
-  // Admin state
-  const [activeTab, setActiveTab] = useState<AdminTab>('media');
+  // Active tab state synced with URL ?tab=
+  const activeTab = resolveInitialTab(searchParams.get('tab'));
+  const handleTabChange = (tab: string) => {
+    const nextTab = resolveInitialTab(tab);
+    setSearchParams(nextTab === 'general' ? {} : { tab: nextTab }, { replace: true });
+  };
+
+  // Settings state
   const [isLoading, setIsLoading] = useState(true);
   const [showAddForm, setShowAddForm] = useState(false);
-  const [editingItem, setEditingItem] = useState<PhysicalItem | null>(null);
-  const [showBulkAdd, setShowBulkAdd] = useState(false);
   const [isPublic, setIsPublic] = useState(false);
   const [defaultTheme, setDefaultTheme] = useState<'light' | 'dark' | 'system'>('light');
   const [defaultSortBy, setDefaultSortBy] = useState<SortField>('created_at');
   const [defaultSortOrder, setDefaultSortOrder] = useState<SortOrder>('desc');
   const [collectionTitle, setCollectionTitle] = useState('Media Collection');
+  const [savedCollectionTitle, setSavedCollectionTitle] = useState('Media Collection');
+  const [tmdbApiKeyInput, setTmdbApiKeyInput] = useState('');
+  const [showTmdbApiKey, setShowTmdbApiKey] = useState(false);
+  const [tmdbConfigured, setTmdbConfigured] = useState(true);
+  const [tmdbKeySource, setTmdbKeySource] = useState<'database' | 'env' | 'none'>('none');
+  const [tmdbKeyMasked, setTmdbKeyMasked] = useState('');
+  const [isSavingTmdbKey, setIsSavingTmdbKey] = useState(false);
   const [isSavingSettings, setIsSavingSettings] = useState(false);
+
+  // Import / Export state
   const [isExporting, setIsExporting] = useState(false);
+  const [isValidatingCsv, setIsValidatingCsv] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const [importMode, setImportMode] = useState<'add' | 'replace'>('add');
+  const [isDraggingCsv, setIsDraggingCsv] = useState(false);
+  const [csvValidation, setCsvValidation] = useState<CsvValidationResult | null>(null);
   const [showImportSchema, setShowImportSchema] = useState(false);
   const [importSchema, setImportSchema] = useState<any>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const { toast } = useToast();
   const confirm = useConfirm();
@@ -57,13 +100,18 @@ const AdminPage: React.FC = () => {
       setDefaultTheme((settings.default_theme as 'light' | 'dark' | 'system') || 'light');
       setDefaultSortBy((settings.default_sort_by as SortField) || 'created_at');
       setDefaultSortOrder((settings.default_sort_order as SortOrder) || 'desc');
-      setCollectionTitle(settings.collection_title || 'Media Collection');
-      // Apply admin's default theme
+      const loadedTitle = settings.collection_title || 'Media Collection';
+      setCollectionTitle(loadedTitle);
+      setSavedCollectionTitle(loadedTitle);
+      setTmdbConfigured(settings.tmdb_configured !== 'false');
+      setTmdbKeySource((settings.tmdb_key_source as 'database' | 'env' | 'none') || 'none');
+      setTmdbKeyMasked(settings.tmdb_api_key_masked || '');
       if (settings.default_theme) {
         setTheme(settings.default_theme as 'light' | 'dark' | 'system');
       }
     } catch (error) {
-      console.error('Failed to load data:', error);
+      console.error('Failed to load settings:', error);
+      toast({ message: 'Failed to load settings.', type: 'error' });
     } finally {
       setIsLoading(false);
     }
@@ -78,20 +126,26 @@ const AdminPage: React.FC = () => {
     if (success) {
       setPassword('');
     } else {
-      setLoginError('Invalid password');
+      setLoginError('Invalid password. Please try again.');
     }
     setIsLoggingIn(false);
   };
 
-
   const handleTogglePublic = async () => {
+    const nextPublic = !isPublic;
     setIsSavingSettings(true);
     try {
-      await apiService.updateSetting('collection_public', (!isPublic).toString());
-      setIsPublic(!isPublic);
+      await apiService.updateSetting('collection_public', nextPublic.toString());
+      setIsPublic(nextPublic);
+      toast({
+        message: nextPublic
+          ? 'Collection is now public.'
+          : 'Collection is now private.',
+        type: 'success',
+      });
     } catch (error) {
-      console.error('Failed to update settings:', error);
-      toast({ message: 'Failed to update settings. Please try again.', type: 'error' });
+      console.error('Failed to update visibility:', error);
+      toast({ message: 'Failed to update collection visibility. Please try again.', type: 'error' });
     } finally {
       setIsSavingSettings(false);
     }
@@ -103,6 +157,7 @@ const AdminPage: React.FC = () => {
       await apiService.updateSetting('default_theme', newTheme);
       setDefaultTheme(newTheme);
       setTheme(newTheme);
+      toast({ message: `Default theme set to ${newTheme}.`, type: 'success' });
     } catch (error) {
       console.error('Failed to update theme:', error);
       toast({ message: 'Failed to update theme. Please try again.', type: 'error' });
@@ -120,6 +175,7 @@ const AdminPage: React.FC = () => {
       });
       setDefaultSortBy(field);
       setDefaultSortOrder(order);
+      toast({ message: 'Default admin sort order updated.', type: 'success' });
     } catch (error) {
       console.error('Failed to update sort settings:', error);
       toast({ message: 'Failed to update sort settings. Please try again.', type: 'error' });
@@ -128,16 +184,62 @@ const AdminPage: React.FC = () => {
     }
   };
 
-  const handleCollectionTitleChange = async (newTitle: string) => {
+  const handleSaveCollectionTitle = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const trimmed = collectionTitle.trim() || 'Media Collection';
+    if (trimmed === savedCollectionTitle) return;
+
     setIsSavingSettings(true);
     try {
-      await apiService.updateSetting('collection_title', newTitle);
-      setCollectionTitle(newTitle);
+      await apiService.updateSetting('collection_title', trimmed);
+      setCollectionTitle(trimmed);
+      setSavedCollectionTitle(trimmed);
+      toast({ message: 'Collection title saved.', type: 'success' });
     } catch (error) {
       console.error('Failed to update collection title:', error);
       toast({ message: 'Failed to update collection title. Please try again.', type: 'error' });
     } finally {
       setIsSavingSettings(false);
+    }
+  };
+
+  const handleSaveTmdbApiKey = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const trimmed = tmdbApiKeyInput.trim();
+    if (!trimmed) return;
+
+    setIsSavingTmdbKey(true);
+    try {
+      await apiService.updateSetting('tmdb_api_key', trimmed);
+      setTmdbApiKeyInput('');
+      const refreshed = await apiService.getSettings();
+      setTmdbConfigured(refreshed.tmdb_configured !== 'false');
+      setTmdbKeySource((refreshed.tmdb_key_source as 'database' | 'env' | 'none') || 'database');
+      setTmdbKeyMasked(refreshed.tmdb_api_key_masked || '');
+      toast({ message: 'TMDb API key saved.', type: 'success' });
+    } catch (error) {
+      console.error('Failed to update TMDb API key:', error);
+      toast({ message: 'Failed to save TMDb API key. Please try again.', type: 'error' });
+    } finally {
+      setIsSavingTmdbKey(false);
+    }
+  };
+
+  const handleClearTmdbApiKey = async () => {
+    setIsSavingTmdbKey(true);
+    try {
+      await apiService.updateSetting('tmdb_api_key', '');
+      setTmdbApiKeyInput('');
+      const refreshed = await apiService.getSettings();
+      setTmdbConfigured(refreshed.tmdb_configured !== 'false');
+      setTmdbKeySource((refreshed.tmdb_key_source as 'database' | 'env' | 'none') || 'none');
+      setTmdbKeyMasked(refreshed.tmdb_api_key_masked || '');
+      toast({ message: 'Stored TMDb API key cleared.', type: 'success' });
+    } catch (error) {
+      console.error('Failed to clear TMDb API key:', error);
+      toast({ message: 'Failed to clear TMDb API key. Please try again.', type: 'error' });
+    } finally {
+      setIsSavingTmdbKey(false);
     }
   };
 
@@ -154,6 +256,7 @@ const AdminPage: React.FC = () => {
       link.click();
       document.body.removeChild(link);
       window.URL.revokeObjectURL(url);
+      toast({ message: 'Collection exported to CSV.', type: 'success' });
     } catch (error) {
       console.error('Failed to export collection:', error);
       toast({ message: 'Failed to export collection. Please try again.', type: 'error' });
@@ -162,76 +265,96 @@ const AdminPage: React.FC = () => {
     }
   };
 
-  const handleImport = async (event: React.ChangeEvent<HTMLInputElement>) => {
+  const processCsvFile = async (file: File) => {
+    setIsValidatingCsv(true);
+    try {
+      const text = await file.text();
+      const validation = await apiService.validateCSV(text);
+      setCsvValidation({
+        fileName: file.name,
+        csvText: text,
+        valid: Boolean(validation.valid),
+        total_rows: validation.total_rows ?? 0,
+        valid_rows: validation.valid_rows ?? 0,
+        invalid_rows: validation.invalid_rows ?? 0,
+        errors: validation.errors ?? [],
+        warnings: validation.warnings ?? [],
+      });
+      if (!validation.valid) {
+        toast({
+          message: `CSV validation found ${validation.errors?.length || 0} error(s). Review details below.`,
+          type: 'error',
+        });
+      }
+    } catch (error: any) {
+      console.error('Failed to validate CSV:', error);
+      const errMsg = error?.response?.data?.details || error?.response?.data?.error || 'Failed to validate CSV file.';
+      toast({ message: errMsg, type: 'error' });
+      setCsvValidation(null);
+    } finally {
+      setIsValidatingCsv(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  };
+
+  const handleFileInputChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
+    await processCsvFile(file);
+  };
+
+  const handleDropCsv = async (event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    setIsDraggingCsv(false);
+    const file = event.dataTransfer.files?.[0];
+    if (!file) return;
+    await processCsvFile(file);
+  };
+
+  const handleExecuteImport = async () => {
+    if (!csvValidation || !csvValidation.valid) return;
+
+    const modeText =
+      importMode === 'replace' ? 'REPLACE your entire collection' : 'ADD to your collection';
+    const confirmMessage = `Import ${csvValidation.total_rows} row(s) from "${csvValidation.fileName}" and ${modeText}?${
+      importMode === 'replace'
+        ? '\n\nWARNING: This will permanently DELETE all existing physical items before importing!'
+        : ''
+    }`;
+
+    const shouldImport = await confirm({
+      title: importMode === 'replace' ? 'Replace Entire Collection?' : 'Confirm CSV Import',
+      message: confirmMessage,
+      confirmLabel: importMode === 'replace' ? 'Replace & Import' : 'Import Items',
+      cancelLabel: 'Cancel',
+      variant: importMode === 'replace' ? 'danger' : 'primary',
+    });
+
+    if (!shouldImport) return;
 
     setIsImporting(true);
     try {
-      const text = await file.text();
-
-      // Validate first
-      const validation = await apiService.validateCSV(text);
-
-      if (!validation.valid) {
-        toast({
-          message: `CSV validation failed. ${validation.errors.length} row(s) have errors.`,
-          type: 'error',
-        });
-        setIsImporting(false);
-        return;
-      }
-
-      // Show warnings if any
-      if (validation.warnings && validation.warnings.length > 0) {
-        const warningMessage = validation.warnings.map((w: any) => `Row ${w.row}: ${w.warning}`).join('\n');
-        const proceed = await confirm({
-          title: 'CSV warnings',
-          message: `CSV has warnings:\n\n${warningMessage}\n\nDo you want to proceed with import?`,
-          confirmLabel: 'Proceed',
-          cancelLabel: 'Cancel',
-        });
-        if (!proceed) {
-          setIsImporting(false);
-          return;
-        }
-      }
-
-      // Confirm import
-      const modeText = importMode === 'replace' ? 'REPLACE your entire collection' : 'ADD to your collection';
-      const confirmMessage = `Import ${validation.total_rows} items and ${modeText}?\n\n${importMode === 'replace' ? 'WARNING: This will DELETE all existing items!' : ''}`;
-
-      const shouldImport = await confirm({
-        title: 'Confirm import',
-        message: confirmMessage,
-        confirmLabel: 'Import',
-        cancelLabel: 'Cancel',
-        variant: 'danger',
-      });
-      if (!shouldImport) {
-        setIsImporting(false);
-        return;
-      }
-
-      // Import
-      const result = await apiService.importCollection(text, importMode);
-
+      const result = await apiService.importCollection(csvValidation.csvText, importMode);
       if (result.success) {
         toast({
           message: `Import completed! Successful: ${result.results.successful}, Failed: ${result.results.failed}`,
           type: 'success',
         });
-        await loadData(); // Reload the collection
+        setCsvValidation(null);
+        await loadData();
       } else {
-        toast({ message: 'Import failed. Please check your CSV file and try again.', type: 'error' });
+        toast({
+          message: 'Import failed. Please check your CSV file and try again.',
+          type: 'error',
+        });
       }
     } catch (error) {
       console.error('Failed to import collection:', error);
       toast({ message: 'Failed to import collection. Please try again.', type: 'error' });
     } finally {
       setIsImporting(false);
-      // Reset file input
-      event.target.value = '';
     }
   };
 
@@ -243,58 +366,94 @@ const AdminPage: React.FC = () => {
       } catch (error) {
         console.error('Failed to load schema:', error);
         toast({ message: 'Failed to load CSV schema. Please try again.', type: 'error' });
+        return;
       }
     }
     setShowImportSchema(!showImportSchema);
   };
 
-  // Login screen
+  const handleDownloadSampleCsv = () => {
+    if (!importSchema?.example_csv) return;
+    const blob = new Blob([importSchema.example_csv], { type: 'text/csv;charset=utf-8;' });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'cinefile-sample-import.csv';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(url);
+  };
+
+  // Unauthenticated Login View
   if (!isAuthenticated) {
     return (
-      <div className="container mx-auto px-4 py-16">
+      <div className="container mx-auto px-4 py-12 sm:py-20">
         <div className="max-w-md mx-auto">
-          <div className="card">
+          <div className="card p-6 sm:p-8">
             <div className="text-center mb-6">
-              <div className="flex flex-col items-center mb-4">
+              <div className="flex flex-col items-center">
                 <Logo size="xl" className="mb-4" />
-                <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100 mb-2">Admin Login</h1>
-                <p className="text-gray-600 dark:text-gray-300">Enter your admin password to continue</p>
+                <h1 className="text-2xl sm:text-3xl font-bold text-content">Admin Sign In</h1>
+                <p className="text-sm text-content-muted mt-1">
+                  Enter your administrator password to manage settings and collection data
+                </p>
               </div>
             </div>
 
-            <form onSubmit={handleLogin}>
-              <div className="mb-4">
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+            <form onSubmit={handleLogin} className="space-y-4">
+              <div>
+                <label
+                  htmlFor="admin-password"
+                  className="block text-sm font-medium text-content mb-1.5"
+                >
                   Password
                 </label>
-                <input
-                  id="admin-password"
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded-lg focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
-                  placeholder="Enter admin password"
-                  autoComplete="current-password"
-                  aria-describedby={loginError ? 'admin-password-error' : undefined}
-                  aria-invalid={loginError ? 'true' : 'false'}
-                  autoFocus
-                />
+                <div className="relative">
+                  <input
+                    id="admin-password"
+                    type={showPassword ? 'text' : 'password'}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="w-full px-3.5 py-2.5 pr-16 border border-subtle bg-surface text-content rounded-[--radius-control] text-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+                    placeholder="Enter admin password"
+                    autoComplete="current-password"
+                    aria-describedby={loginError ? 'admin-password-error' : undefined}
+                    aria-invalid={loginError ? 'true' : 'false'}
+                    autoFocus
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((prev) => !prev)}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 px-2 py-1 text-xs font-medium text-content-muted hover:text-content rounded"
+                    aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  >
+                    {showPassword ? 'Hide' : 'Show'}
+                  </button>
+                </div>
                 {loginError && (
-                  <p id="admin-password-error" className="mt-2 text-sm text-red-600 dark:text-red-400" aria-live="polite">{loginError}</p>
+                  <p
+                    id="admin-password-error"
+                    className="mt-2 text-sm text-red-600 dark:text-red-400"
+                    aria-live="polite"
+                  >
+                    {loginError}
+                  </p>
                 )}
               </div>
 
-              <button
+              <Button
                 type="submit"
-                disabled={isLoggingIn || !password}
-                className="btn-primary w-full mb-4"
+                isLoading={isLoggingIn}
+                disabled={!password}
+                className="w-full"
               >
-                {isLoggingIn ? 'Logging in...' : 'Login'}
-              </button>
+                Sign In
+              </Button>
 
-              <Link to="/" className="btn-secondary w-full text-center block">
-                ← Back to Home
-              </Link>
+              <Button asChild variant="secondary" className="w-full">
+                <Link to="/">← Back to Collection</Link>
+              </Button>
             </form>
           </div>
         </div>
@@ -302,475 +461,755 @@ const AdminPage: React.FC = () => {
     );
   }
 
-  // Loading state
+  // Loading Skeleton
   if (isLoading) {
     return (
-      <div className="container mx-auto px-4 py-8">
-        <div className="flex items-center justify-center py-32">
-          <div className="text-center">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto mb-4"></div>
-            <p className="text-gray-600">Loading admin panel...</p>
+      <div className="container mx-auto px-4 py-6 sm:py-8 max-w-5xl space-y-6" aria-busy="true">
+        <div className="flex items-center justify-between">
+          <div className="space-y-2">
+            <Skeleton className="h-8 w-40 rounded-[--radius-control]" />
+            <Skeleton className="h-4 w-72 rounded-[--radius-control]" />
           </div>
+          <Skeleton className="h-10 w-28 rounded-[--radius-control]" />
+        </div>
+        <Skeleton className="h-10 w-80 rounded-[--radius-control]" />
+        <div className="space-y-4">
+          <Skeleton className="h-56 w-full rounded-[--radius-card]" />
+          <Skeleton className="h-64 w-full rounded-[--radius-card]" />
         </div>
       </div>
     );
   }
 
-  // Note: Stats are now displayed on the main collection page
+  const isTitleDirty = (collectionTitle.trim() || 'Media Collection') !== savedCollectionTitle;
 
   return (
-    <div className="container mx-auto px-4 py-8">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-8">
+    <div className="container mx-auto px-4 py-6 sm:py-8 max-w-5xl space-y-6">
+      {/* Page Header */}
+      <header className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100 mb-2">Admin Panel</h1>
-          <p className="text-gray-600 dark:text-gray-400">Manage your media collection</p>
+          <h1 className="text-2xl sm:text-3xl font-bold text-content">Settings</h1>
+          <p className="text-sm text-content-muted mt-1">
+            Configure your collection preferences, manage series, and import or export data
+          </p>
         </div>
-        <div className="flex gap-2">
-          <button onClick={logout} className="btn-secondary">
-            Logout
-          </button>
-          <Link to="/" className="btn-secondary">
-            ← Home
-          </Link>
+        <div className="flex items-center gap-2 self-start sm:self-auto">
+          <Button
+            variant="primary"
+            size="sm"
+            onClick={() => setShowAddForm(true)}
+          >
+            + Add Item
+          </Button>
+          {!isDesktop && (
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={logout}
+            >
+              Sign Out
+            </Button>
+          )}
         </div>
-      </div>
+      </header>
 
-      {/* Tabs */}
-      <div className="mb-8 overflow-x-auto">
+      {/* 3-Tab Segmented Navigation */}
+      <div className="overflow-x-auto">
         <SegmentedControl
-          name="Admin tabs"
+          name="Settings sections"
           options={[
-            { value: 'media', label: 'Media Collection' },
+            { value: 'general', label: 'General' },
             { value: 'series', label: 'Series' },
-            { value: 'settings', label: 'Settings' },
-            { value: 'console', label: 'Console' },
+            { value: 'data', label: 'Data & Import' },
           ]}
           value={activeTab}
-          onChange={(value) => setActiveTab(value as AdminTab)}
+          onChange={handleTabChange}
         />
       </div>
 
-      {/* Media Tab */}
-      {activeTab === 'media' && (
-        <>
-          {/* Quick Actions */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-        <div
-          onClick={() => setShowAddForm(true)}
-          className="card hover:shadow-md transition-shadow cursor-pointer"
-        >
-          <div className="flex items-center mb-4">
-            <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center mr-3">
-              <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-              </svg>
-            </div>
-            <h3 className="text-lg font-semibold">Add New Media</h3>
-          </div>
-          <p className="text-gray-600 mb-4">Search TMDb and add a new item to your collection</p>
-          <button className="btn-primary w-full">Add Media</button>
-        </div>
-
-        <div
-          onClick={() => setShowBulkAdd(true)}
-          className="card hover:shadow-md transition-shadow cursor-pointer"
-        >
-          <div className="flex items-center mb-4">
-            <div className="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center mr-3">
-              <svg className="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-              </svg>
-            </div>
-            <h3 className="text-lg font-semibold">Bulk Add Movies</h3>
-          </div>
-          <p className="text-gray-600 mb-4">Import multiple movies at once from a list of titles</p>
-          <button className="btn-primary w-full">Bulk Import</button>
-        </div>
-
-        <Link to="/" className="card hover:shadow-md transition-shadow">
-          <div className="flex items-center mb-4">
-            <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center mr-3">
-              <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-              </svg>
-            </div>
-            <h3 className="text-lg font-semibold">View Collection</h3>
-          </div>
-          <p className="text-gray-600 mb-4">Browse your collection as visitors would see it</p>
-          <button className="btn-secondary w-full">View Gallery</button>
-        </Link>
-
-      </div>
-
-
-      {/* Bulk Add Form */}
-      {showBulkAdd && (
-        <div className="mb-8">
-          <BulkAddForm onSuccess={loadData} />
-          <div className="mt-4">
-            <button
-              onClick={() => setShowBulkAdd(false)}
-              className="btn-secondary"
-            >
-              Close Bulk Add
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Collection Management Links */}
-      <div className="card">
-        <h3 className="text-lg font-semibold mb-4">Collection Management</h3>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <a
-            href="/"
-            className="p-4 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-          >
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-blue-100 dark:bg-blue-900 rounded-lg flex items-center justify-center">
-                <svg className="w-5 h-5 text-blue-600 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
-                </svg>
-              </div>
-              <div>
-                <h4 className="font-medium text-gray-900 dark:text-gray-100">View Collection</h4>
-                <p className="text-sm text-gray-600 dark:text-gray-300">Browse and edit your collection with WYSIWYG editor</p>
-              </div>
-            </div>
-          </a>
-          
-          <a
-            href="/movies"
-            className="p-4 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-          >
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-green-100 dark:bg-green-900 rounded-lg flex items-center justify-center">
-                <svg className="w-5 h-5 text-green-600 dark:text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 4V2a1 1 0 011-1h8a1 1 0 011 1v2h4a1 1 0 110 2h-1v12a2 2 0 01-2 2H6a2 2 0 01-2-2V6H3a1 1 0 110-2h4zM9 6v10a1 1 0 102 0V6a1 1 0 10-2 0zm4 0v10a1 1 0 102 0V6a1 1 0 10-2 0z" />
-                </svg>
-              </div>
-              <div>
-                <h4 className="font-medium text-gray-900 dark:text-gray-100">Manage Series</h4>
-                <p className="text-sm text-gray-600 dark:text-gray-300">Edit individual movie and TV metadata and TMDB data</p>
-              </div>
-            </div>
-          </a>
-          
-          <button
-            onClick={() => setActiveTab('series')}
-            className="p-4 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors text-left"
-          >
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-purple-100 dark:bg-purple-900 rounded-lg flex items-center justify-center">
-                <svg className="w-5 h-5 text-purple-600 dark:text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-                </svg>
-              </div>
-              <div>
-                <h4 className="font-medium text-gray-900 dark:text-gray-100">Manage Series</h4>
-                <p className="text-sm text-gray-600 dark:text-gray-300">Organize movies into series and set custom ordering</p>
-              </div>
-            </div>
-          </button>
-        </div>
-      </div>
-
-        {/* Add/Edit Form Modal */}
-        <MediaForm
-          isOpen={showAddForm}
-          onClose={() => {
-            setShowAddForm(false);
-            setEditingItem(null);
-          }}
-          onSuccess={() => {
-            loadData();
-            setEditingItem(null);
-          }}
-          editItem={editingItem}
-        />
-      </>
-      )}
-
-      {/* Series Tab */}
-      {activeTab === 'series' && (
-        <SeriesManager />
-      )}
-
-      {/* Settings Tab */}
-      {activeTab === 'settings' && (
+      {/* TAB 1: GENERAL */}
+      {activeTab === 'general' && (
         <div className="space-y-6">
-          <div className="card">
-            <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-gray-100">Collection Visibility</h3>
-            <div className="flex items-center justify-between">
+          {/* Collection Profile & Privacy */}
+          <section className="card space-y-6" aria-labelledby="profile-privacy-heading">
+            <div>
+              <h2 id="profile-privacy-heading" className="text-lg font-semibold text-content">
+                Collection Profile & Privacy
+              </h2>
+              <p className="text-sm text-content-muted mt-0.5">
+                Control how your collection is titled and whether visitors can browse it without signing in.
+              </p>
+            </div>
+
+            {/* Collection Title */}
+            <form onSubmit={handleSaveCollectionTitle} className="space-y-2">
+              <label
+                htmlFor="collection-title-input"
+                className="block text-sm font-medium text-content"
+              >
+                Collection Title
+              </label>
+              <div className="flex flex-col sm:flex-row gap-2.5">
+                <input
+                  id="collection-title-input"
+                  type="text"
+                  value={collectionTitle}
+                  onChange={(e) => setCollectionTitle(e.target.value)}
+                  disabled={isSavingSettings}
+                  placeholder="Media Collection"
+                  className="flex-1 px-3.5 py-2 border border-subtle rounded-[--radius-control] text-sm bg-surface text-content focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+                />
+                <Button
+                  type="submit"
+                  disabled={!isTitleDirty || isSavingSettings}
+                  isLoading={isSavingSettings && isTitleDirty}
+                >
+                  Save Title
+                </Button>
+              </div>
+              <p className="text-xs text-content-muted">
+                Displayed as the main heading on your Collection page (e.g., &ldquo;Alex&rsquo;s Blu-ray Bonanza&rdquo; or &ldquo;Media Collection&rdquo;).
+              </p>
+            </form>
+
+            {/* Public Collection Visibility */}
+            {!isDesktop && (
+              <div className="border-t border-subtle pt-5 flex items-center justify-between gap-4">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium text-content">
+                      Make collection public
+                    </span>
+                    <span
+                      className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${
+                        isPublic
+                          ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300'
+                          : 'bg-surface-sunken border border-subtle text-content-muted'
+                      }`}
+                    >
+                      {isPublic ? 'Public' : 'Private'}
+                    </span>
+                  </div>
+                  <p className="text-xs sm:text-sm text-content-muted">
+                    Allow anyone to view your collection without logging in.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={isPublic}
+                  aria-label="Make collection public"
+                  onClick={handleTogglePublic}
+                  disabled={isSavingSettings}
+                  className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface ${
+                    isPublic ? 'bg-primary-600' : 'bg-gray-300 dark:bg-gray-600'
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                      isPublic ? 'translate-x-6' : 'translate-x-1'
+                    }`}
+                  />
+                </button>
+              </div>
+            )}
+          </section>
+
+          {/* TMDb API Integration */}
+          <section className="card space-y-4" aria-labelledby="tmdb-integration-heading">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
               <div>
-                <p className="text-gray-700 dark:text-gray-300 mb-1">Make collection public</p>
-                <p className="text-sm text-gray-500 dark:text-gray-400">
-                  Allow anyone to view your collection without logging in
+                <div className="flex items-center gap-2">
+                  <h2 id="tmdb-integration-heading" className="text-lg font-semibold text-content">
+                    TMDb Metadata Integration
+                  </h2>
+                  <span
+                    className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${
+                      tmdbConfigured
+                        ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:bg-green-300'
+                        : 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:bg-amber-300'
+                    }`}
+                  >
+                    {tmdbConfigured ? 'Configured' : 'API Key Needed'}
+                  </span>
+                </div>
+                <p className="text-sm text-content-muted mt-0.5">
+                  Used to search movies and TV shows, fetch cast &amp; crew metadata, and download cover art from The Movie Database (TMDb).
+                </p>
+              </div>
+            </div>
+
+            {tmdbKeyMasked && (
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-[--radius-control] bg-surface-sunken border border-subtle px-3.5 py-2 text-xs text-content-muted">
+                <span>
+                  Active key: <code className="font-mono text-content">{tmdbKeyMasked}</code>{' '}
+                  ({tmdbKeySource === 'database' ? 'stored in app settings' : 'from TMDB_API_KEY environment variable'})
+                </span>
+                {tmdbKeySource === 'database' && (
+                  <button
+                    type="button"
+                    onClick={handleClearTmdbApiKey}
+                    disabled={isSavingTmdbKey}
+                    className="text-xs font-medium text-red-600 dark:text-red-400 hover:underline"
+                  >
+                    Clear stored key
+                  </button>
+                )}
+              </div>
+            )}
+
+            <form onSubmit={handleSaveTmdbApiKey} className="space-y-2">
+              <label
+                htmlFor="tmdb-api-key-input"
+                className="block text-sm font-medium text-content"
+              >
+                TMDb API Key (v3 auth)
+              </label>
+              <div className="flex flex-col sm:flex-row gap-2.5">
+                <div className="relative flex-1">
+                  <input
+                    id="tmdb-api-key-input"
+                    type={showTmdbApiKey ? 'text' : 'password'}
+                    value={tmdbApiKeyInput}
+                    onChange={(e) => setTmdbApiKeyInput(e.target.value)}
+                    disabled={isSavingTmdbKey}
+                    placeholder={tmdbConfigured ? 'Enter new TMDb API key to replace active key' : 'Enter your TMDb v3 API key'}
+                    className="w-full px-3.5 py-2 pr-16 border border-subtle rounded-[--radius-control] text-sm bg-surface text-content focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowTmdbApiKey((prev) => !prev)}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 px-2 py-1 text-xs font-medium text-content-muted hover:text-content rounded"
+                    aria-label={showTmdbApiKey ? 'Hide TMDb API key' : 'Show TMDb API key'}
+                  >
+                    {showTmdbApiKey ? 'Hide' : 'Show'}
+                  </button>
+                </div>
+                <Button
+                  type="submit"
+                  disabled={!tmdbApiKeyInput.trim() || isSavingTmdbKey}
+                  isLoading={isSavingTmdbKey}
+                >
+                  Save API Key
+                </Button>
+              </div>
+              <p className="text-xs text-content-muted">
+                Get a free v3 API key from{' '}
+                <a
+                  href="https://www.themoviedb.org/settings/api"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-primary-600 dark:text-primary-400 hover:underline"
+                >
+                  themoviedb.org/settings/api
+                </a>
+                . Saving a key here overrides the <code className="font-mono">TMDB_API_KEY</code> environment variable.
+              </p>
+            </form>
+          </section>
+
+          {/* Appearance & Display Defaults */}
+          <section className="card space-y-6" aria-labelledby="appearance-defaults-heading">
+            <div>
+              <h2 id="appearance-defaults-heading" className="text-lg font-semibold text-content">
+                Appearance & Display Defaults
+              </h2>
+              <p className="text-sm text-content-muted mt-0.5">
+                Customize your preferred theme, card badges, and default collection sort order.
+              </p>
+            </div>
+
+            {/* Theme Selection */}
+            <div className="space-y-2.5">
+              <span className="block text-sm font-medium text-content">Default Theme</span>
+              <div className="grid grid-cols-3 gap-3">
+                {(
+                  [
+                    {
+                      value: 'light',
+                      label: 'Light',
+                      icon: (
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"
+                          />
+                        </svg>
+                      ),
+                    },
+                    {
+                      value: 'dark',
+                      label: 'Dark',
+                      icon: (
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"
+                          />
+                        </svg>
+                      ),
+                    },
+                    {
+                      value: 'system',
+                      label: 'System',
+                      icon: (
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
+                          />
+                        </svg>
+                      ),
+                    },
+                  ] as const
+                ).map((option) => {
+                  const selected = defaultTheme === option.value;
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => handleThemeChange(option.value)}
+                      disabled={isSavingSettings}
+                      aria-pressed={selected}
+                      className={`py-2.5 px-3 rounded-[--radius-control] border text-sm font-medium transition-colors flex items-center justify-center gap-2 ${
+                        selected
+                          ? 'border-primary-600 bg-primary-50 dark:bg-primary-900/25 text-primary-700 dark:text-primary-300'
+                          : 'border-subtle bg-surface hover:bg-surface-sunken text-content'
+                      }`}
+                    >
+                      {option.icon}
+                      <span>{option.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Format Badges Toggle */}
+            <div className="border-t border-subtle pt-5 flex items-center justify-between gap-4">
+              <div className="space-y-0.5">
+                <span className="text-sm font-medium text-content">
+                  Show format badges on collection cards
+                </span>
+                <p className="text-xs sm:text-sm text-content-muted">
+                  Display 4K UHD, Blu-ray, DVD, and edition pills overlaid on poster art in the collection grid.
                 </p>
               </div>
               <button
-                onClick={handleTogglePublic}
-                disabled={isSavingSettings}
-                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                  isPublic ? 'bg-primary-600' : 'bg-gray-200 dark:bg-gray-700'
+                type="button"
+                role="switch"
+                aria-checked={showFormatBadges}
+                aria-label="Show format badges on collection cards"
+                onClick={toggleFormatBadges}
+                className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface ${
+                  showFormatBadges ? 'bg-primary-600' : 'bg-gray-300 dark:bg-gray-600'
                 }`}
               >
                 <span
                   className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                    isPublic ? 'translate-x-6' : 'translate-x-1'
+                    showFormatBadges ? 'translate-x-6' : 'translate-x-1'
                   }`}
                 />
               </button>
             </div>
-          </div>
 
-          <div className="card">
-            <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-gray-100">Collection Title</h3>
-            <div className="flex flex-col gap-3">
-              <p className="text-sm text-gray-500 dark:text-gray-400">
-                Customize the main heading displayed on your collection page.
-              </p>
+            {/* Default Admin Sort Order */}
+            <div className="border-t border-subtle pt-5 space-y-3">
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Collection Title
-                </label>
-                <input
-                  type="text"
-                  value={collectionTitle}
-                  onChange={(e) => setCollectionTitle(e.target.value)}
-                  onBlur={() => handleCollectionTitleChange(collectionTitle)}
-                  disabled={isSavingSettings}
-                  placeholder="Media Collection"
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
-                />
-                <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
-                  e.g., "Alex's Bluray Bonanza" or "My Movie Collection"
+                <h3 className="text-sm font-medium text-content">Default Sort Order (Admin)</h3>
+                <p className="text-xs sm:text-sm text-content-muted">
+                  Default sorting applied when you open the Collection page while signed in as admin.
                 </p>
               </div>
-            </div>
-          </div>
-
-          <div className="card">
-            <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-gray-100">Default Theme</h3>
-            <div className="flex flex-col gap-3">
-              <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">
-                Set your preferred theme. This will be applied when you log in to the admin panel.
-              </p>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => handleThemeChange('light')}
-                  disabled={isSavingSettings}
-                  className={`flex-1 py-3 px-4 rounded-lg border-2 transition-colors ${
-                    defaultTheme === 'light'
-                      ? 'border-primary-600 bg-primary-50 dark:bg-primary-900/20 text-primary-700 dark:text-primary-300'
-                      : 'border-gray-300 dark:border-gray-600 hover:border-gray-400 dark:hover:border-gray-500'
-                  }`}
-                >
-                  <div className="flex items-center justify-center gap-2">
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
-                    </svg>
-                    <span className="font-medium">Light</span>
-                  </div>
-                </button>
-                <button
-                  onClick={() => handleThemeChange('dark')}
-                  disabled={isSavingSettings}
-                  className={`flex-1 py-3 px-4 rounded-lg border-2 transition-colors ${
-                    defaultTheme === 'dark'
-                      ? 'border-primary-600 bg-primary-50 dark:bg-primary-900/20 text-primary-700 dark:text-primary-300'
-                      : 'border-gray-300 dark:border-gray-600 hover:border-gray-400 dark:hover:border-gray-500'
-                  }`}
-                >
-                  <div className="flex items-center justify-center gap-2">
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
-                    </svg>
-                    <span className="font-medium">Dark</span>
-                  </div>
-                </button>
-                <button
-                  onClick={() => handleThemeChange('system')}
-                  disabled={isSavingSettings}
-                  className={`flex-1 py-3 px-4 rounded-lg border-2 transition-colors ${
-                    defaultTheme === 'system'
-                      ? 'border-primary-600 bg-primary-50 dark:bg-primary-900/20 text-primary-700 dark:text-primary-300'
-                      : 'border-gray-300 dark:border-gray-600 hover:border-gray-400 dark:hover:border-gray-500'
-                  }`}
-                >
-                  <div className="flex items-center justify-center gap-2">
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                    </svg>
-                    <span className="font-medium">System</span>
-                  </div>
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <div className="card">
-            <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-gray-100">Default Sort Order (Admin)</h3>
-            <div className="flex flex-col gap-4">
-              <p className="text-sm text-gray-500 dark:text-gray-400">
-                Set your preferred default sorting for the collection. This will be used when you view the collection as admin.
-              </p>
-              <div className="flex flex-col sm:flex-row gap-3">
-                <div className="flex-1">
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label
+                    htmlFor="default-sort-by-select"
+                    className="block text-xs font-medium text-content-muted mb-1"
+                  >
                     Sort by
                   </label>
                   <select
+                    id="default-sort-by-select"
                     value={defaultSortBy}
                     onChange={(e) => handleSortChange(e.target.value as SortField, defaultSortOrder)}
                     disabled={isSavingSettings}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+                    className="w-full px-3 py-2 border border-subtle rounded-[--radius-control] text-sm bg-surface text-content"
                   >
                     <option value="title">Title</option>
                     <option value="series_sort">Series</option>
                     <option value="director_last_name">Director</option>
                     <option value="release_date">Year</option>
-                    <option value="created_at">Added</option>
+                    <option value="created_at">Date Added</option>
                   </select>
                 </div>
-                <div className="flex-1">
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                <div>
+                  <label
+                    htmlFor="default-sort-order-select"
+                    className="block text-xs font-medium text-content-muted mb-1"
+                  >
                     Order
                   </label>
                   <select
+                    id="default-sort-order-select"
                     value={defaultSortOrder}
                     onChange={(e) => handleSortChange(defaultSortBy, e.target.value as SortOrder)}
                     disabled={isSavingSettings}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+                    className="w-full px-3 py-2 border border-subtle rounded-[--radius-control] text-sm bg-surface text-content"
                   >
-                    <option value="asc">Ascending (A-Z, 0-9)</option>
-                    <option value="desc">Descending (Z-A, 9-0)</option>
+                    <option value="asc">Ascending (A–Z, 0–9)</option>
+                    <option value="desc">Descending (Z–A, 9–0)</option>
                   </select>
                 </div>
               </div>
-              <div className="text-sm text-gray-500 dark:text-gray-400 bg-blue-50 dark:bg-blue-900/20 p-3 rounded-lg">
-                <p><strong>Note:</strong> Public users will default to "Title (Ascending)" sorting and their preferences will be saved in their browser session.</p>
-              </div>
-            </div>
-          </div>
-
-          <div className="card">
-            <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-gray-100">Import / Export Collection</h3>
-            <div className="space-y-4">
-              <p className="text-sm text-gray-600 dark:text-gray-400">
-                Export your collection to CSV for backup or migration. Import CSV files to add or replace your collection.
+              <p className="text-xs text-content-muted bg-surface-sunken border border-subtle px-3 py-2 rounded-[--radius-control]">
+                Public visitors default to <strong>Title (Ascending)</strong> and can customize sorting for their browser session.
               </p>
-
-              {/* Export Section */}
-              <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
-                <h4 className="font-medium text-gray-900 dark:text-gray-100 mb-2">Export Collection</h4>
-                <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
-                  Download your entire collection as a CSV file with all metadata.
-                </p>
-                <button
-                  onClick={handleExport}
-                  disabled={isExporting}
-                  className="btn-primary"
-                >
-                  {isExporting ? 'Exporting...' : 'Export Collection to CSV'}
-                </button>
-              </div>
-
-              {/* Import Section */}
-              <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
-                <h4 className="font-medium text-gray-900 dark:text-gray-100 mb-2">Import Collection</h4>
-                <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
-                  Import media items from a CSV file. The CSV must include at minimum: title and physical_format.
-                </p>
-                
-                <div className="mb-3">
-                  <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 mb-2">
-                    <input
-                      type="radio"
-                      name="importMode"
-                      value="add"
-                      checked={importMode === 'add'}
-                      onChange={(e) => setImportMode(e.target.value as 'add' | 'replace')}
-                      className="h-4 w-4 text-primary-600 focus:ring-primary-500 border-gray-300 dark:border-gray-600"
-                    />
-                    <span>Add to existing collection</span>
-                  </label>
-                  <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
-                    <input
-                      type="radio"
-                      name="importMode"
-                      value="replace"
-                      checked={importMode === 'replace'}
-                      onChange={(e) => setImportMode(e.target.value as 'add' | 'replace')}
-                      className="h-4 w-4 text-primary-600 focus:ring-primary-500 border-gray-300 dark:border-gray-600"
-                    />
-                    <span className="text-red-600 dark:text-red-400 font-medium">Replace entire collection (deletes all existing items)</span>
-                  </label>
-                </div>
-
-                <div className="flex gap-2">
-                  <label className="btn-primary cursor-pointer">
-                    {isImporting ? 'Importing...' : 'Choose CSV File to Import'}
-                    <input
-                      type="file"
-                      accept=".csv,text/csv"
-                      onChange={handleImport}
-                      disabled={isImporting}
-                      className="hidden"
-                    />
-                  </label>
-                  <button
-                    onClick={handleViewSchema}
-                    className="btn-secondary"
-                  >
-                    {showImportSchema ? 'Hide' : 'View'} CSV Schema
-                  </button>
-                </div>
-              </div>
-
-              {/* Schema Documentation */}
-              {showImportSchema && importSchema && (
-                <div className="border border-gray-300 dark:border-gray-600 rounded-lg p-4 bg-gray-50 dark:bg-gray-700 mt-4">
-                  <h5 className="font-medium text-gray-900 dark:text-gray-100 mb-2">CSV Import Schema</h5>
-                  <div className="text-sm text-gray-700 dark:text-gray-300 space-y-2">
-                    <p className="font-medium">Required Fields:</p>
-                    <ul className="list-disc list-inside ml-2 space-y-1">
-                      <li><code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">title</code> - The title of the media item</li>
-                      <li><code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">physical_format</code> - Must be one of: 4K UHD, Blu-ray, DVD, Digital-UHD, Digital-HD, Digital-SD, LaserDisc, VHS</li>
-                    </ul>
-                    <p className="font-medium mt-3">Optional Fields:</p>
-                    <ul className="list-disc list-inside ml-2 space-y-1">
-                      <li><code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">tmdb_id</code> - The Movie Database ID (integer)</li>
-                      <li><code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">synopsis</code> - Plot description</li>
-                      <li><code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">cover_art_url</code> - URL to cover image</li>
-                      <li><code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">release_date</code> - Date in YYYY-MM-DD format</li>
-                      <li><code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">director</code> - Director name(s)</li>
-                      <li><code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">cast</code> - JSON array of cast members</li>
-                      <li><code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">edition_notes</code> - Edition details</li>
-                      <li><code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">region_code</code> - Region code</li>
-                      <li><code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">custom_image_url</code> - URL to custom image</li>
-                    </ul>
-                    <div className="mt-3 p-3 bg-blue-50 dark:bg-blue-900/20 rounded">
-                      <p className="font-medium text-blue-800 dark:text-blue-300">Example CSV:</p>
-                      <pre className="text-xs mt-2 overflow-x-auto">
-{importSchema.example_csv}
-                      </pre>
-                    </div>
-                  </div>
-                </div>
-              )}
             </div>
-          </div>
-
+          </section>
         </div>
       )}
 
-      {/* Console Tab */}
-      {activeTab === 'console' && (
-        <AdminConsole />
+      {/* TAB 2: SERIES */}
+      {activeTab === 'series' && <SeriesManager />}
+
+      {/* TAB 3: DATA & IMPORT */}
+      {activeTab === 'data' && (
+        <div className="space-y-6">
+          {/* Backup & Export */}
+          <section className="card flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <h2 className="text-lg font-semibold text-content">Export Collection Backup</h2>
+              <p className="text-sm text-content-muted mt-0.5">
+                Download your entire collection—including physical items, formats, series, edition tags, and notes—as a UTF-8 CSV file.
+              </p>
+            </div>
+            <Button
+              onClick={handleExport}
+              isLoading={isExporting}
+              className="flex-shrink-0"
+            >
+              Export to CSV
+            </Button>
+          </section>
+
+          {/* Import CSV */}
+          <section className="card space-y-5">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div>
+                <h2 className="text-lg font-semibold text-content">Import Collection from CSV</h2>
+                <p className="text-sm text-content-muted mt-0.5">
+                  Validate and import a Cinefile CSV file. Required columns:{' '}
+                  <code className="px-1.5 py-0.5 rounded bg-surface-sunken border border-subtle text-xs font-mono">
+                    title
+                  </code>
+                  ,{' '}
+                  <code className="px-1.5 py-0.5 rounded bg-surface-sunken border border-subtle text-xs font-mono">
+                    physical_item_name
+                  </code>
+                  , and{' '}
+                  <code className="px-1.5 py-0.5 rounded bg-surface-sunken border border-subtle text-xs font-mono">
+                    formats
+                  </code>
+                  .
+                </p>
+              </div>
+              <Button variant="secondary" size="sm" onClick={handleViewSchema}>
+                {showImportSchema ? 'Hide CSV Schema' : 'View CSV Schema'}
+              </Button>
+            </div>
+
+            {/* Import Mode Selector */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3" role="radiogroup" aria-label="Import mode">
+              <label
+                className={`flex items-start gap-3 p-3.5 rounded-[--radius-control] border cursor-pointer transition-colors ${
+                  importMode === 'add'
+                    ? 'border-primary-600 bg-primary-50/60 dark:bg-primary-900/20'
+                    : 'border-subtle bg-surface hover:bg-surface-sunken'
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="importMode"
+                  value="add"
+                  checked={importMode === 'add'}
+                  onChange={() => setImportMode('add')}
+                  className="mt-1 h-4 w-4 text-primary-600 focus:ring-primary-500"
+                />
+                <div>
+                  <div className="text-sm font-semibold text-content">
+                    Add to existing collection
+                  </div>
+                  <p className="text-xs text-content-muted mt-0.5">
+                    Preserves current items and appends rows from the CSV (reusing existing movies with matching TMDb IDs).
+                  </p>
+                </div>
+              </label>
+
+              <label
+                className={`flex items-start gap-3 p-3.5 rounded-[--radius-control] border cursor-pointer transition-colors ${
+                  importMode === 'replace'
+                    ? 'border-red-500 bg-red-50/70 dark:bg-red-900/20'
+                    : 'border-subtle bg-surface hover:bg-surface-sunken'
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="importMode"
+                  value="replace"
+                  checked={importMode === 'replace'}
+                  onChange={() => setImportMode('replace')}
+                  className="mt-1 h-4 w-4 text-red-600 focus:ring-red-500"
+                />
+                <div>
+                  <div className="text-sm font-semibold text-red-600 dark:text-red-400">
+                    Replace entire collection
+                  </div>
+                  <p className="text-xs text-content-muted mt-0.5">
+                    Deletes all existing physical items first, then imports the CSV from scratch.
+                  </p>
+                </div>
+              </label>
+            </div>
+
+            {/* Drag-and-drop CSV Upload Zone */}
+            <div
+              onDragOver={(e) => {
+                e.preventDefault();
+                setIsDraggingCsv(true);
+              }}
+              onDragLeave={() => setIsDraggingCsv(false)}
+              onDrop={handleDropCsv}
+              className={`border-2 border-dashed rounded-[--radius-card] p-6 text-center transition-colors ${
+                isDraggingCsv
+                  ? 'border-primary-500 bg-primary-50/50 dark:bg-primary-900/20'
+                  : 'border-subtle bg-surface-sunken/50 hover:border-primary-400/60'
+              }`}
+            >
+              <input
+                ref={fileInputRef}
+                id="csv-file-input"
+                type="file"
+                accept=".csv,text/csv"
+                onChange={handleFileInputChange}
+                disabled={isValidatingCsv || isImporting}
+                className="sr-only"
+              />
+              <svg
+                className="w-8 h-8 mx-auto text-content-muted mb-2"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={1.75}
+                  d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
+                />
+              </svg>
+              <p className="text-sm font-medium text-content">
+                {isValidatingCsv
+                  ? 'Validating CSV file…'
+                  : 'Drag and drop a CSV file here, or click to select'}
+              </p>
+              <p className="text-xs text-content-muted mt-1 mb-3">
+                We will validate your file and show a preview before importing any items.
+              </p>
+              <label
+                htmlFor="csv-file-input"
+                className="inline-flex cursor-pointer items-center justify-center rounded-[--radius-control] bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700 transition-colors"
+              >
+                {csvValidation ? 'Choose Different CSV File' : 'Choose CSV File to Import'}
+              </label>
+            </div>
+
+            {/* Validation Preview Card */}
+            {csvValidation && (
+              <div
+                className={`rounded-[--radius-control] border p-4 space-y-3 ${
+                  csvValidation.valid
+                    ? 'border-green-300 dark:border-green-800 bg-green-50/60 dark:bg-green-900/15'
+                    : 'border-red-300 dark:border-red-800 bg-red-50/60 dark:bg-red-900/15'
+                }`}
+              >
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-semibold text-content">
+                        {csvValidation.fileName}
+                      </span>
+                      <span
+                        className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${
+                          csvValidation.valid
+                            ? 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300'
+                            : 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300'
+                        }`}
+                      >
+                        {csvValidation.valid ? 'Ready to Import' : 'Validation Failed'}
+                      </span>
+                    </div>
+                    <p className="text-xs text-content-muted mt-0.5">
+                      {csvValidation.total_rows} total row(s) • {csvValidation.valid_rows} valid •{' '}
+                      {csvValidation.invalid_rows} invalid
+                      {csvValidation.warnings.length > 0
+                        ? ` • ${csvValidation.warnings.length} warning(s)`
+                        : ''}
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => setCsvValidation(null)}
+                      disabled={isImporting}
+                    >
+                      Clear
+                    </Button>
+                    {csvValidation.valid && (
+                      <Button
+                        variant={importMode === 'replace' ? 'danger' : 'primary'}
+                        size="sm"
+                        isLoading={isImporting}
+                        onClick={handleExecuteImport}
+                      >
+                        {importMode === 'replace'
+                          ? `Replace & Import ${csvValidation.valid_rows} Rows`
+                          : `Import ${csvValidation.valid_rows} Rows`}
+                      </Button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Errors Breakdown */}
+                {csvValidation.errors.length > 0 && (
+                  <div className="border-t border-red-200 dark:border-red-800 pt-2">
+                    <p className="text-xs font-semibold text-red-700 dark:text-red-300 mb-1">
+                      Errors ({csvValidation.errors.length}):
+                    </p>
+                    <ul className="list-disc list-inside space-y-1 text-xs text-red-600 dark:text-red-400 max-h-40 overflow-y-auto">
+                      {csvValidation.errors.map((err, idx) => (
+                        <li key={idx}>
+                          <strong>Row {err.row}</strong>: {err.error}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {/* Warnings Breakdown */}
+                {csvValidation.warnings.length > 0 && (
+                  <div className="border-t border-amber-200 dark:border-amber-800 pt-2">
+                    <p className="text-xs font-semibold text-amber-700 dark:text-amber-300 mb-1">
+                      Warnings ({csvValidation.warnings.length}):
+                    </p>
+                    <ul className="list-disc list-inside space-y-1 text-xs text-amber-700 dark:text-amber-300 max-h-40 overflow-y-auto">
+                      {csvValidation.warnings.map((warn, idx) => (
+                        <li key={idx}>
+                          <strong>Row {warn.row}</strong>: {warn.warning}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Dynamic Schema Documentation */}
+            {showImportSchema && importSchema && (
+              <div className="border border-subtle rounded-[--radius-card] p-4 bg-surface-sunken space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div>
+                    <h3 className="text-sm font-semibold text-content">CSV Import Schema Reference</h3>
+                    <p className="text-xs text-content-muted">
+                      {importSchema.description} ({importSchema.encoding})
+                    </p>
+                  </div>
+                  {importSchema.example_csv && (
+                    <Button variant="secondary" size="sm" onClick={handleDownloadSampleCsv}>
+                      Download Sample CSV
+                    </Button>
+                  )}
+                </div>
+
+                {Array.isArray(importSchema.fields) && (
+                  <div className="overflow-x-auto border border-subtle rounded-[--radius-control] bg-surface">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-surface-sunken border-b border-subtle text-content-muted">
+                        <tr>
+                          <th className="py-2 px-3 font-semibold">Column</th>
+                          <th className="py-2 px-3 font-semibold">Required</th>
+                          <th className="py-2 px-3 font-semibold">Type</th>
+                          <th className="py-2 px-3 font-semibold">Description</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-subtle">
+                        {importSchema.fields.map((field: any) => (
+                          <tr key={field.name}>
+                            <td className="py-2 px-3 font-mono font-semibold text-content whitespace-nowrap">
+                              {field.name}
+                            </td>
+                            <td className="py-2 px-3 whitespace-nowrap">
+                              {field.required ? (
+                                <span className="inline-flex rounded-full bg-primary-50 dark:bg-primary-900/30 px-2 py-0.5 text-[11px] font-semibold text-primary-700 dark:text-primary-300">
+                                  Required
+                                </span>
+                              ) : (
+                                <span className="text-content-muted">Optional</span>
+                              )}
+                            </td>
+                            <td className="py-2 px-3 text-content-muted whitespace-nowrap">
+                              {field.type}
+                            </td>
+                            <td className="py-2 px-3 text-content-muted">
+                              {field.description}
+                              {field.allowed_values && (
+                                <span className="block text-[11px] mt-0.5">
+                                  Allowed: {field.allowed_values.join(', ')}
+                                </span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                {importSchema.example_csv && (
+                  <div className="rounded-[--radius-control] border border-subtle bg-surface p-3">
+                    <p className="text-xs font-semibold text-content mb-1.5">Example CSV:</p>
+                    <pre className="text-xs font-mono text-content-muted overflow-x-auto">
+                      {importSchema.example_csv}
+                    </pre>
+                  </div>
+                )}
+              </div>
+            )}
+          </section>
+
+          {/* Bulk Add Movies by Title */}
+          <BulkAddForm onSuccess={loadData} />
+        </div>
       )}
+
+      {/* Quick Add Item Modal */}
+      <MediaForm
+        isOpen={showAddForm}
+        onClose={() => setShowAddForm(false)}
+        onSuccess={() => {
+          setShowAddForm(false);
+          loadData();
+        }}
+        editItem={null}
+      />
     </div>
   );
 };

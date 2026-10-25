@@ -8,6 +8,10 @@ export interface AuthRequest extends Request {
   isAuthenticated?: boolean;
 }
 
+export function isDesktopMode(): boolean {
+  return process.env.DESKTOP_MODE === 'true';
+}
+
 /**
  * Parses `Authorization: Bearer <token>` or returns null.
  */
@@ -20,8 +24,14 @@ export function parseBearerToken(authHeader: string | undefined): string | null 
 
 /**
  * Validates JWT issued by POST /api/auth/login. Admin password is only sent on login.
+ * In DESKTOP_MODE, requests on the local server are automatically authenticated.
  */
 export function authMiddleware(req: AuthRequest, res: Response, next: NextFunction) {
+  if (isDesktopMode()) {
+    req.isAuthenticated = true;
+    return next();
+  }
+
   const token = parseBearerToken(req.headers.authorization);
 
   if (!token) {

@@ -15,6 +15,8 @@ const VALID_SORT_FIELDS: SortField[] = [
 const VALID_ORDERS: SortOrder[] = ['asc', 'desc'];
 const VALID_TYPES: Array<'all' | 'movie' | 'tv_season'> = ['all', 'movie', 'tv_season'];
 
+export type CollectionViewMode = 'grid' | 'shelf';
+
 export interface CollectionParams {
   q: string;
   formats: PhysicalFormat[];
@@ -25,6 +27,7 @@ export interface CollectionParams {
   archived: boolean;
   sortBy: SortField;
   sortOrder: SortOrder;
+  view: CollectionViewMode;
 }
 
 export interface UseCollectionParamsOptions {
@@ -85,18 +88,47 @@ export function useCollectionParams(options: UseCollectionParamsOptions = {}) {
   const defaultSortBy = options.defaultSortBy ?? 'title';
   const defaultSortOrder = options.defaultSortOrder ?? 'asc';
 
+  const rawQ = searchParams.get('q') ?? '';
+  const rawFormat = searchParams.get('format');
+  const rawGenre = searchParams.get('genre');
+  const rawDecade = searchParams.get('decade');
+  const rawEdition = searchParams.get('edition');
+  const rawType = searchParams.get('type');
+  const rawArchived = searchParams.get('archived');
+  const rawSort = searchParams.get('sort');
+  const rawView = searchParams.get('view');
+
+  const formats = useMemo(() => parseFormats(rawFormat), [rawFormat]);
+  const genres = useMemo(() => parseGenres(rawGenre), [rawGenre]);
+  const decades = useMemo(() => parseDecades(rawDecade), [rawDecade]);
+  const editions = useMemo(() => parseCommaList(rawEdition), [rawEdition]);
+
   const params = useMemo<CollectionParams>(() => {
+    const view: CollectionViewMode = rawView === 'shelf' ? 'shelf' : 'grid';
     return {
-      q: searchParams.get('q') ?? '',
-      formats: parseFormats(searchParams.get('format')),
-      genres: parseGenres(searchParams.get('genre')),
-      decades: parseDecades(searchParams.get('decade')),
-      editions: parseCommaList(searchParams.get('edition')),
-      type: parseType(searchParams.get('type')),
-      archived: searchParams.get('archived') === 'true',
-      ...parseSort(searchParams.get('sort'), defaultSortBy, defaultSortOrder),
+      q: rawQ,
+      formats,
+      genres,
+      decades,
+      editions,
+      type: parseType(rawType),
+      archived: rawArchived === 'true',
+      ...parseSort(rawSort, defaultSortBy, defaultSortOrder),
+      view,
     };
-  }, [searchParams, defaultSortBy, defaultSortOrder]);
+  }, [
+    rawQ,
+    formats,
+    genres,
+    decades,
+    editions,
+    rawType,
+    rawArchived,
+    rawSort,
+    rawView,
+    defaultSortBy,
+    defaultSortOrder,
+  ]);
 
   const setParams = useCallback(
     (updates: Partial<CollectionParams>) => {
@@ -153,6 +185,12 @@ export function useCollectionParams(options: UseCollectionParamsOptions = {}) {
         }
       }
 
+      if ('view' in updates) {
+        const view = updates.view ?? 'grid';
+        if (view === 'shelf') next.set('view', 'shelf');
+        else next.delete('view');
+      }
+
       const keys = Object.keys(updates);
       const onlySearch = keys.length === 1 && keys[0] === 'q';
       setSearchParams(next, { replace: onlySearch });
@@ -161,8 +199,12 @@ export function useCollectionParams(options: UseCollectionParamsOptions = {}) {
   );
 
   const clearAll = useCallback(() => {
-    setSearchParams(new URLSearchParams(), { replace: false });
-  }, [setSearchParams]);
+    const next = new URLSearchParams();
+    if (searchParams.get('view') === 'shelf') {
+      next.set('view', 'shelf');
+    }
+    setSearchParams(next, { replace: false });
+  }, [searchParams, setSearchParams]);
 
   return { params, setParams, clearAll };
 }

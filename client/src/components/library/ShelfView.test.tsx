@@ -84,4 +84,34 @@ describe('ShelfView spine interaction', () => {
     // Guards ITS-29: without touch-none a touch-drag scrolls the page instead.
     expect(container.querySelector('.touch-none')).not.toBeNull();
   });
+
+  it('dims non-matching spines in-place and shows match count when matchingItemIds is provided', () => {
+    const { container, rerender } = renderWithProviders(
+      <DndContext>
+        <ShelfView
+          shelf={shelf}
+          isEditMode={false}
+          matchingItemIds={new Set([999])}
+          onItemClick={vi.fn()}
+        />
+      </DndContext>
+    );
+
+    expect(screen.getByText('0 matches')).toBeInTheDocument();
+    expect(container.querySelector('[data-filter-state="dimmed"]')).not.toBeNull();
+
+    rerender(
+      <DndContext>
+        <ShelfView
+          shelf={shelf}
+          isEditMode={false}
+          matchingItemIds={new Set([42])}
+          onItemClick={vi.fn()}
+        />
+      </DndContext>
+    );
+
+    expect(screen.getByText('1 match')).toBeInTheDocument();
+    expect(container.querySelector('[data-filter-state="matched"]')).not.toBeNull();
+  });
 });

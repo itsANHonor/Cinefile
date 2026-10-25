@@ -40,7 +40,25 @@ function arrayMove<T>(arr: T[], from: number, to: number): T[] {
   return result;
 }
 
-const PhysicalLibraryPage: React.FC = () => {
+export interface PhysicalLibraryPageProps {
+  embedded?: boolean;
+  matchingItemIds?: Set<number> | null;
+  showApplySortModal?: boolean;
+  onCloseApplySortModal?: () => void;
+  showAddGroupModal?: boolean;
+  onCloseAddGroupModal?: () => void;
+  onDataChange?: () => void;
+}
+
+const PhysicalLibraryPage: React.FC<PhysicalLibraryPageProps> = ({
+  embedded = false,
+  matchingItemIds = null,
+  showApplySortModal,
+  onCloseApplySortModal,
+  showAddGroupModal,
+  onCloseAddGroupModal,
+  onDataChange,
+}) => {
   const { isAuthenticated } = useAuth();
   const { isReadOnly } = useServerMode();
   const canEdit = isAuthenticated && !isReadOnly;
@@ -357,7 +375,7 @@ const PhysicalLibraryPage: React.FC = () => {
       });
       await loadLibrary();
       toast({ message: 'Group created.', type: 'success' });
-      setShowAddGroup(false);
+      closeAddGroup();
       setFormName('');
       setFormDisplayName('');
     } catch (err) {
@@ -550,12 +568,34 @@ const PhysicalLibraryPage: React.FC = () => {
     setShowAddGroup(true);
   };
 
+  useEffect(() => {
+    if (showAddGroupModal) {
+      setFormName('');
+      setFormDisplayName('');
+    }
+  }, [showAddGroupModal]);
+
+  const isApplySortOpen = showApplySort || Boolean(showApplySortModal);
+  const closeApplySort = () => {
+    setShowApplySort(false);
+    onCloseApplySortModal?.();
+  };
+
+  const isAddGroupOpen = showAddGroup || Boolean(showAddGroupModal);
+  const closeAddGroup = () => {
+    setShowAddGroup(false);
+    onCloseAddGroupModal?.();
+  };
+
   // =============================================
   // Render
   // =============================================
+  const containerClass = embedded ? '' : 'container mx-auto px-4 py-8';
+
   if (isLoading) {
+    const Wrapper = embedded ? 'div' : 'main';
     return (
-      <main className="container mx-auto px-4 py-8">
+      <Wrapper className={containerClass}>
         <Skeleton className="mb-4 h-8 w-64 rounded-[--radius-control]" />
         <Skeleton className="mb-6 h-4 w-40 rounded-[--radius-control]" />
         <div className="space-y-4">
@@ -563,19 +603,20 @@ const PhysicalLibraryPage: React.FC = () => {
             <Skeleton key={i} className="h-48 w-full rounded-[--radius-card]" />
           ))}
         </div>
-      </main>
+      </Wrapper>
     );
   }
 
   if (error || !library) {
+    const Wrapper = embedded ? 'div' : 'main';
     return (
-      <main className="container mx-auto px-4 py-8">
+      <Wrapper className={containerClass}>
         <EmptyState
           title="Couldn’t load physical library"
           description={error || 'Library not found'}
           action={<Button onClick={() => loadLibrary()} variant="secondary">Try again</Button>}
         />
-      </main>
+      </Wrapper>
     );
   }
 
@@ -587,7 +628,7 @@ const PhysicalLibraryPage: React.FC = () => {
       onDragEnd={handleDragEnd}
       onDragCancel={handleDragCancel}
     >
-      <div className="container mx-auto px-4 py-8">
+      <div className={containerClass}>
         {/* Header */}
         <div className="mb-6">
           <div className="flex items-center justify-between mb-2">
@@ -612,6 +653,16 @@ const PhysicalLibraryPage: React.FC = () => {
                     Save
                   </button>
                 </div>
+              ) : embedded ? (
+                <h2
+                  className={`text-lg font-semibold text-gray-900 dark:text-gray-100 ${
+                    canEdit ? 'cursor-pointer hover:text-primary-600 dark:hover:text-primary-400' : ''
+                  }`}
+                  onClick={() => canEdit && setIsEditingLibraryName(true)}
+                  title={canEdit ? 'Click to rename' : undefined}
+                >
+                  {library.display_name}
+                </h2>
               ) : (
                 <h1
                   className={`text-2xl font-bold text-gray-900 dark:text-gray-100 ${
@@ -634,7 +685,7 @@ const PhysicalLibraryPage: React.FC = () => {
               </div>
             </div>
 
-            {canEdit && (
+            {canEdit && !embedded && (
               <div className="flex items-center gap-2">
                 <Button onClick={() => setShowApplySort(true)} variant="secondary" size="sm">
                   Apply Sort
@@ -670,6 +721,7 @@ const PhysicalLibraryPage: React.FC = () => {
                   key={group.id}
                   group={group}
                   isEditMode={canEdit}
+                  matchingItemIds={matchingItemIds}
                   onEditGroup={openEditGroup}
                   onDeleteGroup={handleDeleteGroup}
                   onAddShelf={openAddShelf}
@@ -690,6 +742,7 @@ const PhysicalLibraryPage: React.FC = () => {
             isOpen={isUnassignedOpen}
             onToggle={() => setIsUnassignedOpen(!isUnassignedOpen)}
             refreshKey={unassignedRefreshKey}
+            matchingItemIds={matchingItemIds}
             onItemClick={handleItemClick}
           />
         )}
@@ -709,8 +762,8 @@ const PhysicalLibraryPage: React.FC = () => {
 
       {/* Apply Sort Modal */}
       <ApplySortModal
-        isOpen={showApplySort}
-        onClose={() => setShowApplySort(false)}
+        isOpen={isApplySortOpen}
+        onClose={closeApplySort}
         onConfirm={handleApplySortConfirm}
       />
 
@@ -720,8 +773,8 @@ const PhysicalLibraryPage: React.FC = () => {
 
       {/* Add Group Modal */}
       <Sheet
-        isOpen={showAddGroup}
-        onClose={() => setShowAddGroup(false)}
+        isOpen={isAddGroupOpen}
+        onClose={closeAddGroup}
         title="Add Shelf Group"
         position="center"
         size="md"
@@ -742,7 +795,7 @@ const PhysicalLibraryPage: React.FC = () => {
           />
         </div>
         <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
-          <Button variant="secondary" onClick={() => setShowAddGroup(false)}>Cancel</Button>
+          <Button variant="secondary" onClick={closeAddGroup}>Cancel</Button>
           <Button onClick={handleAddGroup} disabled={!formDisplayName.trim()}>Create</Button>
         </div>
       </Sheet>
@@ -1093,6 +1146,7 @@ const PhysicalLibraryPage: React.FC = () => {
             setEditingPhysicalItem(null);
             loadLibrary();
             setUnassignedRefreshKey((k) => k + 1);
+            onDataChange?.();
           }}
           editItem={editingPhysicalItem}
           onDelete={async (itemId) => {
@@ -1101,6 +1155,7 @@ const PhysicalLibraryPage: React.FC = () => {
               setEditingPhysicalItem(null);
               loadLibrary();
               setUnassignedRefreshKey((k) => k + 1);
+              onDataChange?.();
             } catch (err) {
               console.error('Failed to delete physical item:', err);
               toast({ message: 'Failed to delete item. Please try again.', type: 'error' });

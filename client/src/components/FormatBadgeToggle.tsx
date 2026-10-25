@@ -6,8 +6,13 @@ const FormatBadgeToggle: React.FC = () => {
 
   return (
     <button
+      type="button"
       onClick={toggleFormatBadges}
-      className="p-2 rounded-lg bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors duration-200"
+      className={`inline-flex h-9 items-center gap-1.5 rounded-[--radius-control] border px-2.5 py-1.5 text-sm font-medium transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface ${
+        showFormatBadges
+          ? 'border-subtle bg-surface-raised text-content shadow-sm hover:bg-surface-sunken'
+          : 'border-subtle bg-surface-sunken text-content-muted hover:text-content'
+      }`}
       aria-label="Toggle format tags on posters"
       aria-pressed={showFormatBadges}
       title={`${showFormatBadges ? 'Hide' : 'Show'} format tags on posters`}
@@ -15,10 +20,11 @@ const FormatBadgeToggle: React.FC = () => {
       {showFormatBadges ? (
         // Tag icon - badges are visible
         <svg
-          className="w-5 h-5 text-gray-800 dark:text-gray-100"
+          className="h-4 w-4 text-primary-600 dark:text-primary-400"
           fill="none"
           stroke="currentColor"
           viewBox="0 0 24 24"
+          aria-hidden="true"
         >
           <path
             strokeLinecap="round"
@@ -30,10 +36,11 @@ const FormatBadgeToggle: React.FC = () => {
       ) : (
         // Crossed-out tag icon - badges are hidden
         <svg
-          className="w-5 h-5 text-gray-500 dark:text-gray-400"
+          className="h-4 w-4 text-content-muted"
           fill="none"
           stroke="currentColor"
           viewBox="0 0 24 24"
+          aria-hidden="true"
         >
           <path
             strokeLinecap="round"
@@ -44,6 +51,7 @@ const FormatBadgeToggle: React.FC = () => {
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 20L20 4" />
         </svg>
       )}
+      <span className="hidden sm:inline">Format tags</span>
     </button>
   );
 };

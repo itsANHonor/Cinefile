@@ -1,23 +1,50 @@
 import { Router, Request, Response } from 'express';
 import { db } from '../database';
 import { authMiddleware } from '../middleware/auth.middleware';
+import { tmdbService } from '../services/tmdb.service';
 
 const router = Router();
 
+const SENSITIVE_SETTING_KEYS = new Set(['tmdb_api_key']);
+
+function maskApiKey(rawKey: string | undefined | null): string {
+  const trimmed = rawKey?.trim() || '';
+  if (!trimmed) return '';
+  if (trimmed.length <= 4) return '••••';
+  return `••••••••${trimmed.slice(-4)}`;
+}
+
+async function buildPublicSettingsResponse(): Promise<Record<string, string>> {
+  const settings = await db('settings').select('*');
+  const settingsObj: Record<string, string> = {};
+  let dbTmdbKey = '';
+
+  settings.forEach((setting) => {
+    if (setting.key === 'tmdb_api_key') {
+      dbTmdbKey = setting.value?.trim() || '';
+      return;
+    }
+    if (!SENSITIVE_SETTING_KEYS.has(setting.key)) {
+      settingsObj[setting.key] = setting.value;
+    }
+  });
+
+  const envTmdbKey = process.env.TMDB_API_KEY?.trim() || '';
+  const activeKey = dbTmdbKey || envTmdbKey;
+  settingsObj.tmdb_configured = activeKey ? 'true' : 'false';
+  settingsObj.tmdb_key_source = dbTmdbKey ? 'database' : envTmdbKey ? 'env' : 'none';
+  settingsObj.tmdb_api_key_masked = maskApiKey(activeKey);
+
+  return settingsObj;
+}
+
 /**
  * GET /api/settings
- * Get all settings
+ * Get all settings (sensitive keys are masked)
  */
 router.get('/', async (req: Request, res: Response) => {
   try {
-    const settings = await db('settings').select('*');
-    
-    // Convert to key-value object
-    const settingsObj: Record<string, string> = {};
-    settings.forEach((setting) => {
-      settingsObj[setting.key] = setting.value;
-    });
-
+    const settingsObj = await buildPublicSettingsResponse();
     res.json(settingsObj);
   } catch (error) {
     console.error('Error fetching settings:', error);
@@ -32,6 +59,11 @@ router.get('/', async (req: Request, res: Response) => {
 router.get('/:key', async (req: Request, res: Response) => {
   try {
     const { key } = req.params;
+
+    if (SENSITIVE_SETTING_KEYS.has(key)) {
+      return res.status(403).json({ error: 'Access to sensitive setting is restricted' });
+    }
+
     const setting = await db('settings').where({ key }).first();
 
     if (!setting) {
@@ -58,6 +90,8 @@ router.put('/:key', authMiddleware, async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Value is required' });
     }
 
+    const normalizedValue = key === 'tmdb_api_key' ? String(value).trim() : String(value);
+
     // Check if setting exists
     const existingSetting = await db('settings').where({ key }).first();
 
@@ -66,14 +100,25 @@ router.put('/:key', authMiddleware, async (req: Request, res: Response) => {
       await db('settings')
         .where({ key })
         .update({ 
-          value: String(value),
+          value: normalizedValue,
           updated_at: db.fn.now(),
         });
     } else {
       // Create new setting
       await db('settings').insert({ 
         key, 
-        value: String(value),
+        value: normalizedValue,
+      });
+    }
+
+    if (key === 'tmdb_api_key') {
+      tmdbService.invalidateApiKeyCache();
+      const settingsObj = await buildPublicSettingsResponse();
+      return res.json({
+        key: 'tmdb_api_key',
+        value: settingsObj.tmdb_api_key_masked,
+        tmdb_configured: settingsObj.tmdb_configured,
+        tmdb_key_source: settingsObj.tmdb_key_source,
       });
     }
 
@@ -99,30 +144,29 @@ router.post('/', authMiddleware, async (req: Request, res: Response) => {
 
     // Update each setting
     for (const [key, value] of Object.entries(settings)) {
+      const normalizedValue = key === 'tmdb_api_key' ? String(value).trim() : String(value);
       const existingSetting = await db('settings').where({ key }).first();
 
       if (existingSetting) {
         await db('settings')
           .where({ key })
           .update({ 
-            value: String(value),
+            value: normalizedValue,
             updated_at: db.fn.now(),
           });
       } else {
         await db('settings').insert({ 
           key, 
-          value: String(value),
+          value: normalizedValue,
         });
+      }
+
+      if (key === 'tmdb_api_key') {
+        tmdbService.invalidateApiKeyCache();
       }
     }
 
-    // Fetch all settings
-    const allSettings = await db('settings').select('*');
-    const settingsObj: Record<string, string> = {};
-    allSettings.forEach((setting) => {
-      settingsObj[setting.key] = setting.value;
-    });
-
+    const settingsObj = await buildPublicSettingsResponse();
     res.json(settingsObj);
   } catch (error) {
     console.error('Error updating settings:', error);

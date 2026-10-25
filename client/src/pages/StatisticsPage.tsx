@@ -935,7 +935,7 @@ const StatisticsPage: React.FC = () => {
                 </p>
               </div>
               <Button asChild variant="secondary" size="sm">
-                <Link to="/library">Open Shelf View →</Link>
+                <Link to="/?view=shelf">Open Shelf View →</Link>
               </Button>
             </div>
 
@@ -971,7 +971,7 @@ const StatisticsPage: React.FC = () => {
             {physicalLibrary.shelves.length === 0 ? (
               <p className="text-sm text-content-muted">
                 No shelves configured yet. Visit the{' '}
-                <Link to="/library" className="text-primary-600 dark:text-primary-400 underline">
+                <Link to="/?view=shelf" className="text-primary-600 dark:text-primary-400 underline">
                   Shelf View
                 </Link>{' '}
                 to set up shelves.

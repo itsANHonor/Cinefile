@@ -83,4 +83,38 @@ describe('CollectionPage floating Add item button', () => {
     await screen.findByRole('heading', { name: 'Media Collection' });
     expect(screen.queryByRole('button', { name: 'Add item' })).not.toBeInTheDocument();
   });
+
+  it('toggles between Grid and Shelf views and swaps toolbar sort controls for shelf actions', async () => {
+    const user = userEvent.setup();
+    vi.spyOn(apiService, 'verifyAuth').mockResolvedValue(true);
+    mockCollectionApis();
+    vi.spyOn(apiService, 'getLibrary').mockResolvedValue({
+      id: 1,
+      name: 'default',
+      display_name: 'My Physical Library',
+      groups: [],
+    });
+    vi.spyOn(apiService, 'getUnassignedItems').mockResolvedValue([]);
+
+    renderWithProviders(<CollectionPage />);
+
+    const gridBtn = await screen.findByRole('button', { name: 'Grid' });
+    const shelfBtn = screen.getByRole('button', { name: 'Shelf' });
+    expect(gridBtn).toHaveAttribute('aria-pressed', 'true');
+    expect(shelfBtn).toHaveAttribute('aria-pressed', 'false');
+
+    // In Grid view, sort controls are visible
+    expect(screen.getByRole('button', { name: /Director/i })).toBeInTheDocument();
+
+    // Toggle to Shelf view
+    await user.click(shelfBtn);
+
+    expect(shelfBtn).toHaveAttribute('aria-pressed', 'true');
+    expect(await screen.findByRole('heading', { name: 'My Physical Library' })).toBeInTheDocument();
+
+    // Sort controls are replaced with Shelf actions in the toolbar
+    expect(screen.queryByRole('button', { name: /Director/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Apply Sort' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Add Group' })).toBeInTheDocument();
+  });
 });

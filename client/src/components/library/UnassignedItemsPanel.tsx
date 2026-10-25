@@ -27,14 +27,17 @@ interface UnassignedItemsPanelProps {
   isOpen: boolean;
   onToggle: () => void;
   refreshKey: number;
+  matchingItemIds?: Set<number> | null;
   onItemClick?: (physicalItemId: number) => void;
 }
 
 // Draggable spine-style unassigned item
 const DraggableUnassignedItem: React.FC<{
   item: PhysicalItem;
+  isDimmed?: boolean;
+  isHighlighted?: boolean;
   onItemClick?: (physicalItemId: number) => void;
-}> = ({ item, onItemClick }) => {
+}> = ({ item, isDimmed = false, isHighlighted = false, onItemClick }) => {
   const [isHovered, setIsHovered] = useState(false);
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: `unassigned-${item.id}`,
@@ -65,8 +68,8 @@ const DraggableUnassignedItem: React.FC<{
   return (
     <div
       ref={setNodeRef}
-      style={{ ...style, width: `${spineWidth}px`, zIndex: isHovered ? 20 : 1 }}
-      className={`relative flex-shrink-0 h-[200px] cursor-grab active:cursor-grabbing touch-none ${isDragging ? 'z-50' : ''}`}
+      style={{ ...style, width: `${spineWidth}px`, zIndex: isHovered ? 20 : isHighlighted ? 10 : 1 }}
+      className={`relative flex-shrink-0 h-[200px] cursor-grab active:cursor-grabbing touch-none transition-opacity duration-200 ${isDragging ? 'z-50' : ''} ${isDimmed && !isDragging ? 'opacity-20 saturate-0' : ''}`}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
       {...attributes}
@@ -74,7 +77,9 @@ const DraggableUnassignedItem: React.FC<{
     >
       {/* Spine — layered: poster art, frosted overlay, vertical text */}
       <div
-        className="h-full w-full overflow-hidden border-r border-black/10 dark:border-white/10 rounded-sm relative"
+        className={`h-full w-full overflow-hidden border-r border-black/10 dark:border-white/10 rounded-sm relative ${
+          isHighlighted ? 'ring-2 ring-primary-400 dark:ring-primary-300 ring-inset shadow-md' : ''
+        }`}
         style={{ backgroundColor: !coverUrl ? spineColor : undefined }}
       >
         {/* Bottom layer: poster art (if available) */}
@@ -148,6 +153,7 @@ const UnassignedItemsPanel: React.FC<UnassignedItemsPanelProps> = ({
   isOpen,
   onToggle,
   refreshKey,
+  matchingItemIds,
   onItemClick,
 }) => {
   const [items, setItems] = useState<PhysicalItem[]>([]);
@@ -247,13 +253,19 @@ const UnassignedItemsPanel: React.FC<UnassignedItemsPanelProps> = ({
             ) : (
               <div className="relative">
                 <div className="flex flex-wrap gap-0.5 pb-2 items-end" style={{ minHeight: '200px' }}>
-                  {items.map((item) => (
-                    <DraggableUnassignedItem
-                      key={item.id}
-                      item={item}
-                      onItemClick={onItemClick}
-                    />
-                  ))}
+                  {items.map((item) => {
+                    const isFiltered = matchingItemIds !== undefined && matchingItemIds !== null;
+                    const isMatch = isFiltered ? matchingItemIds.has(item.id) : true;
+                    return (
+                      <DraggableUnassignedItem
+                        key={item.id}
+                        item={item}
+                        isDimmed={isFiltered && !isMatch}
+                        isHighlighted={isFiltered && isMatch}
+                        onItemClick={onItemClick}
+                      />
+                    );
+                  })}
                 </div>
                 {/* Shelf edge for unassigned area */}
                 <div

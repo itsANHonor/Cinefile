@@ -68,7 +68,7 @@ app.get('/api/health', (req, res) => {
     status: 'healthy',
     mode: 'readonly',
     timestamp: new Date().toISOString(),
-    version: '1.0.0',
+    version: '2.0.0',
   });
 });
 

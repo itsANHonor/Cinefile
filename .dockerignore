@@ -4,6 +4,9 @@ node_modules/
 
 # Build outputs
 dist/
+dist-desktop/
+electron/
+electron-builder.yml
 **/dist/
 .vite/
 **/.vite/

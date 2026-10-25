@@ -1,0 +1,48 @@
+appId: com.cinefile.app
+productName: Cinefile
+copyright: Copyright © Cinefile
+
+directories:
+  output: dist-desktop
+
+files:
+  - package.json
+  - electron/dist/**/*
+
+extraResources:
+  - from: client/dist
+    to: client/dist
+  - from: client/public/icon-512.png
+    to: client/public/icon-512.png
+  - from: server/dist
+    to: server/dist
+  - from: server/migrations
+    to: server/migrations
+    filter:
+      - "*.js"
+  - from: server/package.json
+    to: server/package.json
+  - from: server/node_modules
+    to: server/node_modules
+
+npmRebuild: false
+
+mac:
+  category: public.app-category.entertainment
+  icon: client/public/icon-512.png
+  target:
+    - dmg
+    - zip
+
+win:
+  icon: client/public/icon-512.png
+  target:
+    - nsis
+
+linux:
+  category: AudioVideo
+  icon: client/public/icon-512.png
+  synopsis: Personal Physical Media Collection Catalog
+  target:
+    - AppImage
+

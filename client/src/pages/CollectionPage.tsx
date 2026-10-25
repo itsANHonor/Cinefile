@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { PhysicalItem, PhysicalFormat, SortField, SortOrder, CollectionStatistics as Stats } from '../types';
 import { apiService } from '../services/api.service';
 import { useAuth } from '../context/AuthContext';
@@ -12,6 +11,9 @@ import CollectionToolbar from '../components/CollectionToolbar';
 import MediaDetailModal from '../components/MediaDetailModal';
 import MediaForm from '../components/MediaForm';
 import CollectionStatistics from '../components/CollectionStatistics';
+import FormatBadgeToggle from '../components/FormatBadgeToggle';
+import CollectionShowcaseModal from '../components/CollectionShowcaseModal';
+import PhysicalLibraryPage from './PhysicalLibraryPage';
 import { Button } from '../components/ui/Button';
 import { EmptyState } from '../components/ui/EmptyState';
 
@@ -19,13 +21,13 @@ const SESSION_SORT_BY_KEY = 'collection_sort_by';
 const SESSION_SORT_ORDER_KEY = 'collection_sort_order';
 
 const CollectionPage: React.FC = () => {
-  const navigate = useNavigate();
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, isLoading: isAuthLoading } = useAuth();
   const { isReadOnly } = useServerMode();
   
   // Only allow edit mode when authenticated AND not in read-only mode
   const canEdit = isAuthenticated && !isReadOnly;
   const [physicalItems, setPhysicalItems] = useState<PhysicalItem[]>([]);
+  const [matchingIds, setMatchingIds] = useState<number[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isInitialLoad, setIsInitialLoad] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -34,6 +36,10 @@ const CollectionPage: React.FC = () => {
   const [selectedItem, setSelectedItem] = useState<PhysicalItem | null>(null);
   const [isInitialized, setIsInitialized] = useState(false);
   const [collectionTitle, setCollectionTitle] = useState('Media Collection');
+  const [showShelfApplySort, setShowShelfApplySort] = useState(false);
+  const [showShelfAddGroup, setShowShelfAddGroup] = useState(false);
+  const [shelfRefreshKey, setShelfRefreshKey] = useState(0);
+  const [isShowcaseOpen, setIsShowcaseOpen] = useState(false);
   const { toast } = useToast();
   
   // Default sort (from admin settings / legacy session storage), used until the URL specifies one
@@ -71,8 +77,12 @@ const CollectionPage: React.FC = () => {
   // Ref for canceling in-flight statistics requests
   const statsAbortControllerRef = useRef<AbortController | null>(null);
 
-  // Initialize sort preferences and collection title
+  const effectiveArchived = canEdit && params.archived;
+
+  // Initialize sort preferences and collection title once auth status has settled
   useEffect(() => {
+    if (isAuthLoading) return;
+
     const initializeSettings = async () => {
       try {
         const settings = await apiService.getSettings();
@@ -108,7 +118,7 @@ const CollectionPage: React.FC = () => {
     };
 
     initializeSettings();
-  }, [canEdit]);
+  }, [canEdit, isAuthLoading]);
 
   // Keep the search box in sync with the URL when it changes externally
   // (e.g. browser back/forward navigation or clearing all filters).
@@ -142,15 +152,16 @@ const CollectionPage: React.FC = () => {
     params.decades,
     params.editions,
     params.type,
-    params.archived,
+    effectiveArchived,
     params.sortBy,
     params.sortOrder,
-    canEdit,
     isInitialized,
   ]);
 
-  // Load statistics on mount and when filters change (debounced)
+  // Load statistics on mount and when filters change
   useEffect(() => {
+    if (!isInitialized) return;
+
     // Cancel any in-flight request
     if (statsAbortControllerRef.current) {
       statsAbortControllerRef.current.abort();
@@ -173,7 +184,7 @@ const CollectionPage: React.FC = () => {
           decades: params.decades.length > 0 ? params.decades : undefined,
           editions: params.editions.length > 0 ? params.editions : undefined,
           search: params.q || undefined,
-          archived: canEdit && params.archived ? true : undefined,
+          archived: effectiveArchived ? true : undefined,
         });
         
         // Only update if request wasn't aborted
@@ -192,16 +203,12 @@ const CollectionPage: React.FC = () => {
       }
     };
 
-    // Debounce statistics loading
-    const timeoutId = setTimeout(() => {
-      loadStatistics();
-    }, 400); // 400ms delay
+    loadStatistics();
 
     return () => {
-      clearTimeout(timeoutId);
       abortController.abort();
     };
-  }, [params.formats, params.genres, params.decades, params.editions, params.q, params.archived, canEdit]);
+  }, [params.formats, params.genres, params.decades, params.editions, params.q, effectiveArchived, isInitialized]);
 
   const loadInitialData = async () => {
     setIsLoading(true);
@@ -224,6 +231,7 @@ const CollectionPage: React.FC = () => {
         limit: 50,
       });
       setPhysicalItems(response.items);
+      setMatchingIds(response.matchingIds ?? response.items.map((item) => item.id));
       setCurrentPage(1);
       setHasMore(response.pagination.hasNext);
       setTotalCount(response.pagination.total);
@@ -298,6 +306,55 @@ const CollectionPage: React.FC = () => {
     clearAll();
   };
 
+  const fetchRemainingShowcaseItems = useCallback(async (): Promise<PhysicalItem[]> => {
+    if (!hasMore && physicalItems.length >= totalCount) {
+      return [];
+    }
+    const formatValue: PhysicalFormat | PhysicalFormat[] | undefined =
+      params.formats.length === 0 ? undefined : params.formats;
+
+    const batchLimit = 100;
+    const totalPages = Math.ceil(totalCount / batchLimit);
+    const pages: number[] = [];
+    for (let p = 1; p <= totalPages; p++) {
+      pages.push(p);
+    }
+
+    const responses = await Promise.all(
+      pages.map((page) =>
+        apiService.getPhysicalItems({
+          format: formatValue,
+          genres: params.genres.length > 0 ? params.genres : undefined,
+          decades: params.decades.length > 0 ? params.decades : undefined,
+          editions: params.editions.length > 0 ? params.editions : undefined,
+          media_type: params.type !== 'all' ? params.type : undefined,
+          archived: canEdit && params.archived ? true : undefined,
+          sort_by: params.sortBy,
+          sort_order: params.sortOrder,
+          search: params.q || undefined,
+          page,
+          limit: batchLimit,
+        })
+      )
+    );
+
+    return responses.flatMap((r) => r.items);
+  }, [
+    hasMore,
+    physicalItems.length,
+    totalCount,
+    params.formats,
+    params.genres,
+    params.decades,
+    params.editions,
+    params.type,
+    canEdit,
+    params.archived,
+    params.sortBy,
+    params.sortOrder,
+    params.q,
+  ]);
+
   // Available genres, decades, and edition tags come from server-side facets
   const availableGenres = React.useMemo(() => facets?.genres ?? [], [facets]);
   const availableDecades = React.useMemo(
@@ -324,6 +381,7 @@ const CollectionPage: React.FC = () => {
       // Reload data to refresh the list
       await loadInitialData();
       refreshStatistics(); // Refresh statistics
+      setShelfRefreshKey((k) => k + 1);
     } catch (error) {
       console.error('Failed to delete physical item:', error);
       toast({ message: 'Failed to delete item. Please try again.', type: 'error' });
@@ -343,6 +401,7 @@ const CollectionPage: React.FC = () => {
       });
       await loadInitialData();
       refreshStatistics();
+      setShelfRefreshKey((k) => k + 1);
     } catch (error) {
       console.error('Failed to update archive state:', error);
       toast({ message: 'Failed to update archive status. Please try again.', type: 'error' });
@@ -392,12 +451,13 @@ const CollectionPage: React.FC = () => {
     setEditingItem(null);
     loadInitialData(); // Reload data to show changes
     refreshStatistics(); // Refresh statistics
+    setShelfRefreshKey((k) => k + 1);
   };
 
   // Infinite scroll effect
   useEffect(() => {
     const handleScroll = () => {
-      if (isLoading || isLoadingMore || !hasMore) return;
+      if (params.view !== 'grid' || isLoading || isLoadingMore || !hasMore) return;
       
       const scrollPosition = window.innerHeight + window.scrollY;
       const threshold = document.documentElement.scrollHeight - 300;
@@ -419,7 +479,21 @@ const CollectionPage: React.FC = () => {
       window.removeEventListener('scroll', throttledHandleScroll);
       clearTimeout(timeoutId);
     };
-  }, [isLoading, isLoadingMore, hasMore, loadMoreItems]);
+  }, [params.view, isLoading, isLoadingMore, hasMore, loadMoreItems]);
+
+  const hasActiveFilters =
+    Boolean(params.q) ||
+    params.formats.length > 0 ||
+    params.genres.length > 0 ||
+    params.decades.length > 0 ||
+    params.editions.length > 0 ||
+    params.type !== 'all' ||
+    (canEdit && params.archived);
+
+  const matchingItemIds = React.useMemo(
+    () => (hasActiveFilters ? new Set(matchingIds) : null),
+    [hasActiveFilters, matchingIds]
+  );
 
   const showSkeletons = physicalItems.length === 0 && (isLoading || isInitialLoad);
   const isEmptyCollection =
@@ -452,24 +526,74 @@ const CollectionPage: React.FC = () => {
         availableEditions={availableEditions}
         resultCount={totalCount}
         isLoading={isLoading}
-        showArchivedFilter={canEdit}
+        showArchivedFilter={canEdit && params.view === 'grid'}
+        viewMode={params.view}
+        shelfActions={
+          canEdit ? (
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <Button onClick={() => setShowShelfApplySort(true)} variant="secondary" size="sm">
+                Apply Sort
+              </Button>
+              <Button onClick={() => setShowShelfAddGroup(true)} size="sm">
+                Add Group
+              </Button>
+            </div>
+          ) : undefined
+        }
       />
 
       {/* Header */}
-      <header className="mb-4 mt-4 flex items-center justify-between sm:mb-6">
+      <header className="mb-4 mt-4 flex flex-wrap items-center justify-between gap-3 sm:mb-6">
         <h1 className="text-2xl font-bold text-content sm:text-3xl">{collectionTitle}</h1>
-        <div className="flex items-center rounded-[--radius-control] bg-surface-sunken p-0.5">
-          <button
-            className="px-3 py-1.5 text-sm font-medium rounded-[calc(var(--radius-control)-0.25rem)] bg-surface-raised text-content shadow-sm"
-            disabled
+        <div className="flex items-center gap-2">
+          <FormatBadgeToggle />
+          <div
+            role="group"
+            aria-label="Collection view mode"
+            className="flex items-center rounded-[--radius-control] bg-surface-sunken p-0.5"
           >
-            Virtual
-          </button>
+            <button
+              type="button"
+              aria-pressed={params.view === 'grid'}
+              onClick={() => setParams({ view: 'grid' })}
+              className={`px-3 py-1.5 text-sm font-medium rounded-[calc(var(--radius-control)-0.25rem)] transition-colors ${
+                params.view === 'grid'
+                  ? 'bg-surface-raised text-content shadow-sm'
+                  : 'text-content-muted hover:text-content'
+              }`}
+            >
+              Grid
+            </button>
+            <button
+              type="button"
+              aria-pressed={params.view === 'shelf'}
+              onClick={() => setParams({ view: 'shelf' })}
+              className={`px-3 py-1.5 text-sm font-medium rounded-[calc(var(--radius-control)-0.25rem)] transition-colors ${
+                params.view === 'shelf'
+                  ? 'bg-surface-raised text-content shadow-sm'
+                  : 'text-content-muted hover:text-content'
+              }`}
+            >
+              Shelf
+            </button>
+          </div>
           <button
-            onClick={() => navigate('/library')}
-            className="px-3 py-1.5 text-sm font-medium rounded-[calc(var(--radius-control)-0.25rem)] text-content-muted hover:text-content transition-colors"
+            type="button"
+            onClick={() => setIsShowcaseOpen(true)}
+            disabled={isLoading || physicalItems.length === 0}
+            aria-label="Open collection showcase"
+            title="Launch full-screen collection showcase"
+            className="inline-flex h-9 items-center gap-1.5 rounded-[--radius-control] border border-subtle bg-surface-raised px-3 py-1.5 text-sm font-medium text-content shadow-sm transition-colors hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:cursor-not-allowed disabled:opacity-50"
           >
-            Physical
+            <svg
+              className="h-4 w-4 text-primary-600 dark:text-primary-400"
+              fill="currentColor"
+              viewBox="0 0 24 24"
+              aria-hidden="true"
+            >
+              <path d="M8 5v14l11-7z" />
+            </svg>
+            <span>Showcase</span>
           </button>
         </div>
       </header>
@@ -479,102 +603,120 @@ const CollectionPage: React.FC = () => {
         <CollectionStatistics statistics={statistics} isLoading={isLoadingStats} />
       </section>
 
-      {/* Media Grid or Empty State */}
-      <section aria-label="Collection results" className="relative min-h-[12rem]">
-        {loadError && (
-          <EmptyState
-            title="Couldn’t load collection"
-            description={loadError}
-            action={
-              <Button onClick={() => loadInitialData()} variant="secondary">
-                Try again
-              </Button>
-            }
-            icon={
-              <svg className="h-8 w-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M12 4a8 8 0 100 16 8 8 0 000-16z" />
-              </svg>
-            }
+      {params.view === 'shelf' ? (
+        <section aria-label="Shelf view" className="relative min-h-[12rem]">
+          <PhysicalLibraryPage
+            key={shelfRefreshKey}
+            embedded
+            matchingItemIds={matchingItemIds}
+            showApplySortModal={showShelfApplySort}
+            onCloseApplySortModal={() => setShowShelfApplySort(false)}
+            showAddGroupModal={showShelfAddGroup}
+            onCloseAddGroupModal={() => setShowShelfAddGroup(false)}
+            onDataChange={() => {
+              loadInitialData();
+              refreshStatistics();
+            }}
           />
-        )}
-
-        {!loadError && isEmptyCollection && (
-          <EmptyState
-            title="No media found"
-            description="Start building your collection by adding your first movie or TV show."
-            action={
-              canEdit ? (
-                <Button onClick={handleAddItem}>
-                  Add your first item
-                </Button>
-              ) : undefined
-            }
-            icon={
-              <svg className="h-8 w-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <rect width="18" height="18" x="3" y="3" rx="2" />
-                <path d="M7 3v18" />
-                <path d="M3 12h18" />
-              </svg>
-            }
-          />
-        )}
-
-        {!loadError && isNoResults && (
-          <EmptyState
-            title="No results found"
-            description={
-              params.q
-                ? `No items match "${params.q}". Try adjusting your search or filters.`
-                : params.formats.length > 0
-                  ? 'No items match the selected filter. Try changing your filter settings.'
-                  : 'No items found. Try adjusting your search or filters.'
-            }
-            action={
-              <Button onClick={handleClearFilters} variant="secondary">
-                Clear filters & search
-              </Button>
-            }
-            icon={
-              <svg className="h-8 w-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-              </svg>
-            }
-          />
-        )}
-
-        {!loadError && (physicalItems.length > 0 || showSkeletons) && (
-          <>
-            <MediaGrid
-              physicalItems={physicalItems}
-              onItemClick={setSelectedItem}
-              isEditMode={canEdit}
-              isAuthenticated={canEdit}
-              onEditItem={canEdit ? handleEditItem : undefined}
-              onArchiveItem={canEdit ? handleArchiveItem : undefined}
-              skeletonCount={showSkeletons ? 8 : 0}
-            />
-
-            {loadMoreError && (
-              <div className="mt-6 flex flex-col items-center gap-3 rounded-[--radius-card] border border-subtle bg-surface-raised p-4 text-center">
-                <p className="text-sm text-content">{loadMoreError}</p>
-                <Button onClick={() => loadMoreItems()} variant="secondary" size="sm">
+        </section>
+      ) : (
+        /* Media Grid or Empty State */
+        <section aria-label="Collection results" className="relative min-h-[12rem]">
+          {loadError && (
+            <EmptyState
+              title="Couldn’t load collection"
+              description={loadError}
+              action={
+                <Button onClick={() => loadInitialData()} variant="secondary">
                   Try again
                 </Button>
-              </div>
-            )}
-
-            {isLoadingMore && !loadMoreError && (
-              <div className="mt-6 flex items-center justify-center gap-2 text-content-muted">
-                <svg className="h-5 w-5 animate-spin" fill="none" viewBox="0 0 24 24" aria-hidden="true">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+              }
+              icon={
+                <svg className="h-8 w-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M12 4a8 8 0 100 16 8 8 0 000-16z" />
                 </svg>
-                <span className="text-sm">Loading more items…</span>
-              </div>
-            )}
-          </>
-        )}
-      </section>
+              }
+            />
+          )}
+
+          {!loadError && isEmptyCollection && (
+            <EmptyState
+              title="No media found"
+              description="Start building your collection by adding your first movie or TV show."
+              action={
+                canEdit ? (
+                  <Button onClick={handleAddItem}>
+                    Add your first item
+                  </Button>
+                ) : undefined
+              }
+              icon={
+                <svg className="h-8 w-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <rect width="18" height="18" x="3" y="3" rx="2" />
+                  <path d="M7 3v18" />
+                  <path d="M3 12h18" />
+                </svg>
+              }
+            />
+          )}
+
+          {!loadError && isNoResults && (
+            <EmptyState
+              title="No results found"
+              description={
+                params.q
+                  ? `No items match "${params.q}". Try adjusting your search or filters.`
+                  : params.formats.length > 0
+                    ? 'No items match the selected filter. Try changing your filter settings.'
+                    : 'No items found. Try adjusting your search or filters.'
+              }
+              action={
+                <Button onClick={handleClearFilters} variant="secondary">
+                  Clear filters & search
+                </Button>
+              }
+              icon={
+                <svg className="h-8 w-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+              }
+            />
+          )}
+
+          {!loadError && (physicalItems.length > 0 || showSkeletons) && (
+            <>
+              <MediaGrid
+                physicalItems={physicalItems}
+                onItemClick={setSelectedItem}
+                isEditMode={canEdit}
+                isAuthenticated={canEdit}
+                onEditItem={canEdit ? handleEditItem : undefined}
+                onArchiveItem={canEdit ? handleArchiveItem : undefined}
+                skeletonCount={showSkeletons ? 8 : 0}
+              />
+
+              {loadMoreError && (
+                <div className="mt-6 flex flex-col items-center gap-3 rounded-[--radius-card] border border-subtle bg-surface-raised p-4 text-center">
+                  <p className="text-sm text-content">{loadMoreError}</p>
+                  <Button onClick={() => loadMoreItems()} variant="secondary" size="sm">
+                    Try again
+                  </Button>
+                </div>
+              )}
+
+              {isLoadingMore && !loadMoreError && (
+                <div className="mt-6 flex items-center justify-center gap-2 text-content-muted">
+                  <svg className="h-5 w-5 animate-spin" fill="none" viewBox="0 0 24 24" aria-hidden="true">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                  </svg>
+                  <span className="text-sm">Loading more items…</span>
+                </div>
+              )}
+            </>
+          )}
+        </section>
+      )}
 
       {/* Detail Modal */}
       <MediaDetailModal
@@ -589,6 +731,16 @@ const CollectionPage: React.FC = () => {
               }
             : undefined
         }
+      />
+
+      {/* Showcase Slideshow Modal */}
+      <CollectionShowcaseModal
+        isOpen={isShowcaseOpen}
+        onClose={() => setIsShowcaseOpen(false)}
+        items={physicalItems}
+        totalCount={totalCount}
+        collectionTitle={collectionTitle}
+        fetchRemainingItems={fetchRemainingShowcaseItems}
       />
 
       {canEdit && (

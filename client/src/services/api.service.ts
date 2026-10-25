@@ -210,7 +210,7 @@ class ApiService {
   }
 
   // Physical Items methods
-  async getPhysicalItems(filterOptions?: FilterOptions): Promise<{ items: PhysicalItem[]; pagination: any }> {
+  async getPhysicalItems(filterOptions?: FilterOptions): Promise<{ items: PhysicalItem[]; matchingIds?: number[]; pagination: any }> {
     const params: any = {};
     if (filterOptions) {
       if (filterOptions.format) {
@@ -238,7 +238,7 @@ class ApiService {
       if (filterOptions.page) params.page = filterOptions.page;
       if (filterOptions.limit) params.limit = filterOptions.limit;
     }
-    const response = await this.api.get<{ items: PhysicalItem[]; pagination: any }>('/physical-items', { params });
+    const response = await this.api.get<{ items: PhysicalItem[]; matchingIds?: number[]; pagination: any }>('/physical-items', { params });
     return response.data;
   }
 

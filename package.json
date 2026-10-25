@@ -1,13 +1,18 @@
 {
   "name": "cinefile",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "A self-hosted web application for cataloging and displaying physical video media collections",
-  "main": "index.js",
+  "main": "electron/dist/main.js",
   "scripts": {
     "dev": "concurrently \"npm run server:dev\" \"npm run client:dev\"",
     "server:dev": "cd server && npm run dev",
     "client:dev": "cd client && npm run dev",
     "build": "cd client && npm run build",
+    "build:all": "cd client && npm run build && cd ../server && npm run build && cd .. && npx tsc -p electron/tsconfig.json",
+    "desktop:rebuild": "npx electron-rebuild -f -w better-sqlite3 -m server",
+    "desktop:start": "npm run build:all && npm run desktop:rebuild && npx electron .",
+    "desktop:pack": "npm run build:all && npm run desktop:rebuild && npx electron-builder --dir",
+    "desktop:dist": "npm run build:all && npm run desktop:rebuild && npx electron-builder --publish never",
     "install:all": "npm install && cd server && npm install && cd ../client && npm install"
   },
   "keywords": [
@@ -21,6 +26,10 @@
   "author": "",
   "license": "MIT",
   "devDependencies": {
-    "concurrently": "^8.2.2"
+    "@types/node": "^20.5.0",
+    "concurrently": "^8.2.2",
+    "electron": "^33.4.11",
+    "electron-builder": "^25.1.8",
+    "typescript": "^5.1.6"
   }
 }

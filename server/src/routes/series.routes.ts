@@ -29,10 +29,18 @@ interface MovieSeries {
 router.get('/', async (req: Request, res: Response) => {
   try {
     const series = await db('series')
-      .select('*')
-      .orderBy('sort_name', 'asc');
+      .leftJoin('movie_series', 'series.id', 'movie_series.series_id')
+      .select('series.*')
+      .count('movie_series.media_id as movie_count')
+      .groupBy('series.id')
+      .orderBy('series.sort_name', 'asc');
 
-    res.json(series);
+    res.json(
+      series.map((row: any) => ({
+        ...row,
+        movie_count: Number(row.movie_count ?? 0),
+      }))
+    );
   } catch (error) {
     console.error('Error fetching series:', error);
     res.status(500).json({ error: 'Failed to fetch series' });
