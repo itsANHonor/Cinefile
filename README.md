@@ -14,7 +14,7 @@ You can see a live read-only version at https://cinefile.itsanhonor.me/ (my own 
 - **Rich Filtering & URL-Synced Gallery**: Filter by format, genre, decade, media type, edition tags, series, or physical shelf with live facet counts, infinite scroll, toggleable poster format badges, and shareable URL query parameters
 - **Archiving & Bulk Tools**: Archive sold or upgraded items with a reason instead of losing collection history, bulk-add releases, and run bulk metadata operations
 - **CSV Import/Export**: Backup, migrate, and restore your collection with full metadata
-- **Two-Port Security Architecture**: Public read-only gallery port (`3000`/`3005`) and internal admin port (`3001`) backed by stateless JWT authentication (`SESSION_SECRET`)
+- **Flexible Deployment (Docker or Native Desktop App)**: Run as a self-hosted Docker container with a two-port security architecture (public read-only gallery on `3000`/`3005` + internal admin port on `3001`) or install as a standalone **Electron Desktop Application** for Windows (`.exe`), macOS (`.dmg`), and Linux (`.AppImage`)
 - **Built-in MCP Server**: Connect AI assistants (Claude, Cursor, Windsurf, Devin, etc.) via Streamable HTTP to search your library, get mood-based movie night recommendations, analyze franchise gaps, and locate discs on your physical shelves
 
 ### Gallery View
@@ -156,6 +156,63 @@ Cinefile runs two Express servers in a single container:
 - **Read-Only Port** (container port `3000`): Public-facing server exposing only `GET` routes for browsing the collection, statistics, series, and shelf layouts. Cannot modify data by design.
 - **Admin Port** (container port `3001`): Full CRUD API, admin UI, CSV import/export, TMDb sync, and the MCP server endpoint. Keep this port restricted to your local network or VPN.
 
+## Desktop Application (Electron)
+
+If you prefer a standalone desktop app over running a Docker container, Cinefile can be installed or built as a native **Electron** application for **Windows**, **macOS**, and **Linux**.
+
+### Installing a Pre-Built Release
+
+1. Download the installer for your operating system from the [GitHub Releases](https://github.com/itsANHonor/Cinefile/releases) page:
+   - **Windows**: `Cinefile Setup <version>.exe`
+   - **macOS (Apple Silicon)**: `Cinefile-<version>-arm64.dmg` (or `.zip`)
+   - **Linux**: `Cinefile-<version>.AppImage` (make executable with `chmod +x Cinefile-*.AppImage`)
+2. Launch **Cinefile**.
+3. Open **Settings** (gear icon in the left sidebar) → **General** → **TMDb Metadata Integration**, paste your free [TMDb v3 API key](https://www.themoviedb.org/settings/api), and click **Save API Key** to enable movie and TV show metadata search.
+
+### Desktop-Specific Adjustments & Behavior
+
+The desktop app shares 100% of its frontend and backend codebase with the Docker version, with a few automatic adjustments when `DESKTOP_MODE=true` is active:
+
+- **Embedded Single-Server Architecture**: Instead of running separate Read-Only and Admin servers, the Electron main process (`electron/main.ts`) starts the Full Express server in-process bound strictly to loopback (`127.0.0.1`) on an ephemeral port (`DESKTOP_PORT`, default `0` for OS-assigned) and opens a native `BrowserWindow`.
+- **Automatic Local Authentication**: Because the desktop server only listens on `127.0.0.1` for local single-user use, `ADMIN_PASSWORD` and `SESSION_SECRET` are not required. The app automatically signs you in as admin and hides server-only controls such as the **Sign Out** button and the **Make collection public** visibility toggle.
+- **In-App TMDb API Key Configuration**: Desktop users do not need a `.env` file. The TMDb API key can be configured at any time under **Settings → General → TMDb Metadata Integration** and is stored in the local SQLite `settings` table (`tmdb_api_key`), taking precedence over any `TMDB_API_KEY` environment variable. (This in-app setting also works in Docker deployments!)
+- **OS-Standard Data Storage & Automatic Backups**: Your SQLite database (`database.sqlite`), automatic pre-migration `.backup` files, and uploaded cover art (`uploads/`) are stored in your operating system's standard user data directory so upgrading the app never overwrites your collection:
+  - **Windows**: `%APPDATA%\Cinefile\`
+  - **macOS**: `~/Library/Application Support/Cinefile/`
+  - **Linux**: `~/.config/Cinefile/`
+
+### Building & Running the Desktop App from Source
+
+#### Prerequisites
+- Node.js 20+ and npm
+- Build tools for native Node addons (`better-sqlite3`):
+  - **Linux**: `python3`, `make`, `g++`
+  - **macOS**: Xcode Command Line Tools (`xcode-select --install`)
+  - **Windows**: Visual Studio Build Tools (Desktop development with C++)
+
+#### Commands
+
+1. **Install dependencies across root, server, and client:**
+   ```bash
+   npm run install:all
+   ```
+
+2. **Run the Electron desktop app locally:**
+   ```bash
+   npm run desktop:start
+   ```
+   *(Compiles `client/`, `server/`, and `electron/`, rebuilds `better-sqlite3` against the Electron ABI, and launches the desktop window).*
+
+3. **Package an unpacked desktop build for testing (`dist-desktop/`):**
+   ```bash
+   npm run desktop:pack
+   ```
+
+4. **Build distributable installers (`.AppImage`, `.dmg`, or `.exe`) into `dist-desktop/`:**
+   ```bash
+   npm run desktop:dist
+   ```
+
 ## Model Context Protocol (MCP) Server
 
 Cinefile includes a built-in **stateless Streamable HTTP MCP server** mounted at `/api/mcp` (and `/mcp`) on the **Admin Port (`3001`)**. This lets AI agents and MCP clients (Claude Desktop, Claude Code, Cursor, Windsurf, Devin, OpenWebUI, etc.) query, analyze, and manage your physical media collection directly.
@@ -241,8 +298,9 @@ If your client uses `x-mcp-api-key` or `serverUrl`, you can pass `"X-MCP-API-Key
 
 ## Development & Verification
 
-- **Frontend (`client/`)**: React 18, TypeScript, Vite, Tailwind CSS, Lucide Icons, Vitest + React Testing Library (`cd client && npm test`)
+- **Frontend (`client/`)**: React 18, TypeScript, Vite, Tailwind CSS, Vitest + React Testing Library (`cd client && npm test`)
 - **Backend (`server/`)**: Node.js, Express, TypeScript, SQLite + Knex migrations, `@modelcontextprotocol/sdk`
+- **Desktop (`electron/`)**: Electron 33, `electron-builder` (`npm run desktop:start` / `npm run desktop:dist`), automated multi-OS release builds via `.github/workflows/desktop-release.yml`
 - **Container Verification**: Run `./cinefile-skill.sh` from the repository root to rebuild the Docker image, run database migrations, and verify both the public (`:3005`) and admin (`:3001`) services.
 
 ## AI Disclosure
