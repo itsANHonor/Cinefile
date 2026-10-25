@@ -304,7 +304,7 @@ If your client uses `x-mcp-api-key` or `serverUrl`, you can pass `"X-MCP-API-Key
 - **Container Verification**: Run `./cinefile-skill.sh` from the repository root to rebuild the Docker image, run database migrations, and verify both the public (`:3005`) and admin (`:3001`) services.
 
 ## AI Disclosure
-Cinefile was generated almost entirely by a combination of Cursor's Composer and Google's Gemini 2.5 and 3.0 and Claude Opus 4.5/4.6 models. As a hobby project, I am deliberately using it as a testing ground to 'feel' out the capabilities of current LLM models. If this is not to your taste or preferences, I completely understand, but I am disclosing this for transparency reasons. I'm committed to building a good product, and this is a low-stakes way for me to try new tools.
+Cinefile was generated almost entirely by a combination of Cursor's Composer, Gemini 2.5/3.0/4.0, Anthropic Opus models. As a hobby project, I am deliberately using it as a testing ground to 'feel' out the capabilities of current LLM models. If this is not to your taste or preferences, I completely understand, but I am disclosing this for transparency reasons. I'm committed to building a good product, and this is a low-stakes way for me to try new tools.
 
 ## License
 
