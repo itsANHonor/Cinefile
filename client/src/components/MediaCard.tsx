@@ -45,8 +45,11 @@ const MediaCard: React.FC<MediaCardProps> = ({
       `${primaryMedia.tv_show_name}${primaryMedia.season_number != null ? ` - Season ${primaryMedia.season_number}` : ''}`
     );
   }
-  if (primaryMedia?.series && primaryMedia.series.length > 0) {
-    metadataParts.push(primaryMedia.series.map((s) => s.name).join(', '));
+  const itemSeries = Array.from(
+    new Map(physicalItem.media.flatMap((m) => m.series ?? []).map((s) => [s.id, s])).values()
+  );
+  if (itemSeries.length > 0) {
+    metadataParts.push(itemSeries.map((s) => s.name).join(', '));
   }
   if (physicalItem.edition_notes) {
     metadataParts.push(physicalItem.edition_notes);

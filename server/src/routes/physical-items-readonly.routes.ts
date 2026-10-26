@@ -369,6 +369,32 @@ router.get('/', async (req: Request, res: Response) => {
 
     // Get all physical item IDs for batch fetching media
     const itemIds = physicalItems.map(item => item.id);
+
+    // Fetch shelf placements for all items (for showing location info)
+    const allPlacements = itemIds.length > 0 ? await db('shelf_placements')
+      .leftJoin('shelves', 'shelf_placements.shelf_id', 'shelves.id')
+      .leftJoin('shelf_groups', 'shelves.group_id', 'shelf_groups.id')
+      .whereIn('shelf_placements.physical_item_id', itemIds)
+      .select(
+        'shelf_placements.id',
+        'shelf_placements.shelf_id',
+        'shelf_placements.physical_item_id',
+        'shelf_placements.position',
+        'shelves.display_name as shelf_display_name',
+        'shelf_groups.display_name as group_display_name'
+      ) : [];
+
+    const placementByItemId = new Map<number, any>();
+    allPlacements.forEach((p: any) => {
+      placementByItemId.set(p.physical_item_id, {
+        id: p.id,
+        shelf_id: p.shelf_id,
+        physical_item_id: p.physical_item_id,
+        position: p.position,
+        shelf_display_name: p.shelf_display_name,
+        group_display_name: p.group_display_name,
+      });
+    });
     
     // Fetch all linked media for all physical items in a single query (eliminates N+1 problem)
     const allLinkedMedia = itemIds.length > 0 ? await db('physical_item_media')
@@ -459,6 +485,37 @@ router.get('/', async (req: Request, res: Response) => {
       });
     }
 
+    // Fetch series data for all media items (for display in cards and detail modal)
+    const allMediaIds = allLinkedMedia.map(m => m.id);
+    let allMediaSeriesAssociations: any[] = [];
+    const allSeriesData = new Map<number, any>();
+
+    if (allMediaIds.length > 0 || physicalItems.length > 0) {
+      if (allMediaIds.length > 0) {
+        allMediaSeriesAssociations = await db('movie_series')
+          .whereIn('media_id', allMediaIds)
+          .select('media_id', 'series_id', 'sort_order');
+      }
+
+      const allSeriesIdsForDisplay = new Set<number>();
+      allMediaSeriesAssociations.forEach(assoc => allSeriesIdsForDisplay.add(assoc.series_id));
+      allLinkedMedia.forEach((m: any) => {
+        if (m.primary_series_id) allSeriesIdsForDisplay.add(m.primary_series_id);
+      });
+      physicalItems.forEach((item: any) => {
+        if (item.sort_series_id) allSeriesIdsForDisplay.add(item.sort_series_id);
+        if (item.primary_series_id) allSeriesIdsForDisplay.add(item.primary_series_id);
+      });
+
+      if (allSeriesIdsForDisplay.size > 0) {
+        const seriesRows = await db('series')
+          .whereIn('id', Array.from(allSeriesIdsForDisplay))
+          .select('id', 'name', 'sort_name');
+
+        seriesRows.forEach(s => allSeriesData.set(s.id, s));
+      }
+    }
+
     // Group media by physical_item_id for efficient lookup
     const mediaByItemId = new Map<number, any[]>();
     allLinkedMedia.forEach((mediaItem: any) => {
@@ -472,29 +529,60 @@ router.get('/', async (req: Request, res: Response) => {
     // Build response with media grouped by physical item
     let physicalItemsWithMedia: PhysicalItemWithMedia[] = physicalItems.map((item) => {
       const linkedMedia = mediaByItemId.get(item.id) || [];
+      const itemFallbackSeriesId = item.sort_series_id || item.primary_series_id;
       
       // Parse JSON fields
-      const media = linkedMedia.map(m => ({
-        id: m.id,
-        title: m.title,
-        tmdb_id: m.tmdb_id,
-        synopsis: m.synopsis,
-        cover_art_url: m.cover_art_url,
-        release_date: m.release_date,
-        director: m.director,
-        disc_number: m.disc_number,
-        formats: m.formats ? (typeof m.formats === 'string' ? JSON.parse(m.formats) : m.formats) : [],
-        cast: m.cast ? (typeof m.cast === 'string' ? JSON.parse(m.cast) : m.cast) : [],
-        genres: m.genres ? (typeof m.genres === 'string' ? JSON.parse(m.genres) : m.genres) : [],
-      }));
+      const media = linkedMedia.map(m => {
+        const mediaSeries = allMediaSeriesAssociations
+          .filter(assoc => assoc.media_id === m.id)
+          .map(assoc => allSeriesData.get(assoc.series_id))
+          .filter(Boolean);
+
+        const preferredSeriesId = m.primary_series_id || itemFallbackSeriesId;
+        if (preferredSeriesId) {
+          const existingIdx = mediaSeries.findIndex((s: any) => s.id === preferredSeriesId);
+          if (existingIdx > 0) {
+            const [preferred] = mediaSeries.splice(existingIdx, 1);
+            mediaSeries.unshift(preferred);
+          } else if (existingIdx === -1) {
+            const preferred = allSeriesData.get(preferredSeriesId);
+            if (preferred) {
+              mediaSeries.unshift(preferred);
+            }
+          }
+        }
+
+        return {
+          id: m.id,
+          title: m.title,
+          tmdb_id: m.tmdb_id,
+          synopsis: m.synopsis,
+          cover_art_url: m.cover_art_url,
+          release_date: m.release_date,
+          director: m.director,
+          disc_number: m.disc_number,
+          formats: m.formats ? (typeof m.formats === 'string' ? JSON.parse(m.formats) : m.formats) : [],
+          cast: m.cast ? (typeof m.cast === 'string' ? JSON.parse(m.cast) : m.cast) : [],
+          genres: m.genres ? (typeof m.genres === 'string' ? JSON.parse(m.genres) : m.genres) : [],
+          series: mediaSeries.length > 0 ? mediaSeries : undefined,
+          primary_series_id: m.primary_series_id,
+          media_type: m.media_type,
+          tv_show_tmdb_id: m.tv_show_tmdb_id,
+          tv_show_name: m.tv_show_name,
+          season_number: m.season_number,
+          episode_count: m.episode_count,
+        };
+      });
 
       // Clean up the aggregated fields from the main query
       // Only include notes if notes_public is true (public view)
-      const cleanedItem: PhysicalItemWithMedia = {
+      const cleanedItem: any = {
         ...item,
         physical_format: item.physical_format ? (typeof item.physical_format === 'string' ? JSON.parse(item.physical_format) : item.physical_format) : [],
         store_links: item.store_links ? (typeof item.store_links === 'string' ? JSON.parse(item.store_links) : item.store_links) : [],
         notes: item.notes_public ? item.notes : undefined,
+        thickness_units: item.thickness_units || 1,
+        shelf_placement: placementByItemId.get(item.id) || null,
         media,
       };
       
@@ -682,20 +770,90 @@ router.get('/:id', async (req: Request, res: Response) => {
         'physical_item_media.formats'
       );
 
+    // Get shelf placement
+    const placement = await db('shelf_placements')
+      .leftJoin('shelves', 'shelf_placements.shelf_id', 'shelves.id')
+      .leftJoin('shelf_groups', 'shelves.group_id', 'shelf_groups.id')
+      .where('shelf_placements.physical_item_id', id)
+      .select(
+        'shelf_placements.id',
+        'shelf_placements.shelf_id',
+        'shelf_placements.physical_item_id',
+        'shelf_placements.position',
+        'shelves.display_name as shelf_display_name',
+        'shelf_groups.display_name as group_display_name'
+      )
+      .first();
+
+    // Fetch series data for linked media
+    const mediaIds = linkedMedia.map(m => m.id);
+    let mediaSeriesAssociations: any[] = [];
+    const seriesDataMap = new Map<number, any>();
+
+    if (mediaIds.length > 0 || physicalItem) {
+      if (mediaIds.length > 0) {
+        mediaSeriesAssociations = await db('movie_series')
+          .whereIn('media_id', mediaIds)
+          .select('media_id', 'series_id', 'sort_order');
+      }
+
+      const seriesIds = new Set<number>();
+      mediaSeriesAssociations.forEach(assoc => seriesIds.add(assoc.series_id));
+      linkedMedia.forEach((m: any) => {
+        if (m.primary_series_id) seriesIds.add(m.primary_series_id);
+      });
+      if (physicalItem.sort_series_id) seriesIds.add(physicalItem.sort_series_id);
+      if (physicalItem.primary_series_id) seriesIds.add(physicalItem.primary_series_id);
+
+      if (seriesIds.size > 0) {
+        const seriesRows = await db('series')
+          .whereIn('id', Array.from(seriesIds))
+          .select('id', 'name', 'sort_name');
+
+        seriesRows.forEach(s => seriesDataMap.set(s.id, s));
+      }
+    }
+
+    const itemFallbackSeriesId = physicalItem.sort_series_id || physicalItem.primary_series_id;
+
     // Parse JSON fields
-    const media = linkedMedia.map(m => ({
-      ...m,
-      cast: m.cast ? JSON.parse(m.cast) : [],
-      genres: m.genres ? JSON.parse(m.genres) : [],
-      formats: m.formats ? JSON.parse(m.formats) : [],
-    }));
+    const media = linkedMedia.map(m => {
+      const mediaSeries = mediaSeriesAssociations
+        .filter(assoc => assoc.media_id === m.id)
+        .map(assoc => seriesDataMap.get(assoc.series_id))
+        .filter(Boolean);
+
+      const preferredSeriesId = m.primary_series_id || itemFallbackSeriesId;
+      if (preferredSeriesId) {
+        const existingIdx = mediaSeries.findIndex((s: any) => s.id === preferredSeriesId);
+        if (existingIdx > 0) {
+          const [preferred] = mediaSeries.splice(existingIdx, 1);
+          mediaSeries.unshift(preferred);
+        } else if (existingIdx === -1) {
+          const preferred = seriesDataMap.get(preferredSeriesId);
+          if (preferred) {
+            mediaSeries.unshift(preferred);
+          }
+        }
+      }
+
+      return {
+        ...m,
+        cast: m.cast ? JSON.parse(m.cast) : [],
+        genres: m.genres ? JSON.parse(m.genres) : [],
+        formats: m.formats ? JSON.parse(m.formats) : [],
+        series: mediaSeries.length > 0 ? mediaSeries : undefined,
+      };
+    });
 
     // Only include notes if notes_public is true (public view)
-    const result: PhysicalItemWithMedia = {
+    const result: any = {
       ...physicalItem,
       physical_format: JSON.parse(physicalItem.physical_format),
       store_links: physicalItem.store_links ? JSON.parse(physicalItem.store_links) : [],
       notes: physicalItem.notes_public ? physicalItem.notes : undefined,
+      thickness_units: physicalItem.thickness_units || 1,
+      shelf_placement: placement || null,
       media,
     };
     

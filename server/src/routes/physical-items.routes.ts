@@ -512,18 +512,27 @@ router.get('/', async (req: Request, res: Response) => {
       });
     }
 
-    // Fetch series data for all media items (for display in detail modal)
+    // Fetch series data for all media items (for display in cards and detail modal)
     const allMediaIds = allLinkedMedia.map(m => m.id);
     let allMediaSeriesAssociations: any[] = [];
     let allSeriesData = new Map<number, any>();
     
-    if (allMediaIds.length > 0) {
-      allMediaSeriesAssociations = await db('movie_series')
-        .whereIn('media_id', allMediaIds)
-        .select('media_id', 'series_id', 'sort_order');
+    if (allMediaIds.length > 0 || physicalItems.length > 0) {
+      if (allMediaIds.length > 0) {
+        allMediaSeriesAssociations = await db('movie_series')
+          .whereIn('media_id', allMediaIds)
+          .select('media_id', 'series_id', 'sort_order');
+      }
       
       const allSeriesIdsForDisplay = new Set<number>();
       allMediaSeriesAssociations.forEach(assoc => allSeriesIdsForDisplay.add(assoc.series_id));
+      allLinkedMedia.forEach((m: any) => {
+        if (m.primary_series_id) allSeriesIdsForDisplay.add(m.primary_series_id);
+      });
+      physicalItems.forEach((item: any) => {
+        if (item.sort_series_id) allSeriesIdsForDisplay.add(item.sort_series_id);
+        if (item.primary_series_id) allSeriesIdsForDisplay.add(item.primary_series_id);
+      });
       
       if (allSeriesIdsForDisplay.size > 0) {
         const seriesRows = await db('series')
@@ -547,6 +556,7 @@ router.get('/', async (req: Request, res: Response) => {
     // Build response with media grouped by physical item
     let physicalItemsWithMedia: PhysicalItemWithMedia[] = physicalItems.map((item) => {
       const linkedMedia = mediaByItemId.get(item.id) || [];
+      const itemFallbackSeriesId = item.sort_series_id || item.primary_series_id;
       
       // Parse JSON fields
       const media = linkedMedia.map(m => {
@@ -555,6 +565,20 @@ router.get('/', async (req: Request, res: Response) => {
           .filter(assoc => assoc.media_id === m.id)
           .map(assoc => allSeriesData.get(assoc.series_id))
           .filter(Boolean);
+
+        const preferredSeriesId = m.primary_series_id || itemFallbackSeriesId;
+        if (preferredSeriesId) {
+          const existingIdx = mediaSeries.findIndex((s: any) => s.id === preferredSeriesId);
+          if (existingIdx > 0) {
+            const [preferred] = mediaSeries.splice(existingIdx, 1);
+            mediaSeries.unshift(preferred);
+          } else if (existingIdx === -1) {
+            const preferred = allSeriesData.get(preferredSeriesId);
+            if (preferred) {
+              mediaSeries.unshift(preferred);
+            }
+          }
+        }
         
         return {
           id: m.id,
@@ -569,6 +593,12 @@ router.get('/', async (req: Request, res: Response) => {
           cast: m.cast ? (typeof m.cast === 'string' ? JSON.parse(m.cast) : m.cast) : [],
           genres: m.genres ? (typeof m.genres === 'string' ? JSON.parse(m.genres) : m.genres) : [],
           series: mediaSeries.length > 0 ? mediaSeries : undefined,
+          primary_series_id: m.primary_series_id,
+          media_type: m.media_type,
+          tv_show_tmdb_id: m.tv_show_tmdb_id,
+          tv_show_name: m.tv_show_name,
+          season_number: m.season_number,
+          episode_count: m.episode_count,
         };
       });
 
@@ -796,13 +826,20 @@ router.get('/:id', async (req: Request, res: Response) => {
     let mediaSeriesAssociations: any[] = [];
     const seriesDataMap = new Map<number, any>();
     
-    if (mediaIds.length > 0) {
-      mediaSeriesAssociations = await db('movie_series')
-        .whereIn('media_id', mediaIds)
-        .select('media_id', 'series_id', 'sort_order');
+    if (mediaIds.length > 0 || physicalItem) {
+      if (mediaIds.length > 0) {
+        mediaSeriesAssociations = await db('movie_series')
+          .whereIn('media_id', mediaIds)
+          .select('media_id', 'series_id', 'sort_order');
+      }
       
       const seriesIds = new Set<number>();
       mediaSeriesAssociations.forEach(assoc => seriesIds.add(assoc.series_id));
+      linkedMedia.forEach((m: any) => {
+        if (m.primary_series_id) seriesIds.add(m.primary_series_id);
+      });
+      if (physicalItem.sort_series_id) seriesIds.add(physicalItem.sort_series_id);
+      if (physicalItem.primary_series_id) seriesIds.add(physicalItem.primary_series_id);
       
       if (seriesIds.size > 0) {
         const seriesRows = await db('series')
@@ -813,12 +850,28 @@ router.get('/:id', async (req: Request, res: Response) => {
       }
     }
 
+    const itemFallbackSeriesId = physicalItem.sort_series_id || physicalItem.primary_series_id;
+
     // Parse JSON fields
     const media = linkedMedia.map(m => {
       const mediaSeries = mediaSeriesAssociations
         .filter(assoc => assoc.media_id === m.id)
         .map(assoc => seriesDataMap.get(assoc.series_id))
         .filter(Boolean);
+
+      const preferredSeriesId = m.primary_series_id || itemFallbackSeriesId;
+      if (preferredSeriesId) {
+        const existingIdx = mediaSeries.findIndex((s: any) => s.id === preferredSeriesId);
+        if (existingIdx > 0) {
+          const [preferred] = mediaSeries.splice(existingIdx, 1);
+          mediaSeries.unshift(preferred);
+        } else if (existingIdx === -1) {
+          const preferred = seriesDataMap.get(preferredSeriesId);
+          if (preferred) {
+            mediaSeries.unshift(preferred);
+          }
+        }
+      }
       
       return {
         ...m,

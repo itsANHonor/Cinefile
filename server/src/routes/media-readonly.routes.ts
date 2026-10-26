@@ -154,6 +154,14 @@ router.get('/:id', async (req: Request, res: Response) => {
       media.genres = JSON.parse(media.genres);
     }
 
+    // Fetch series data
+    const seriesData = await db('movie_series')
+      .join('series', 'movie_series.series_id', 'series.id')
+      .where('movie_series.media_id', id)
+      .select('series.*', 'movie_series.sort_order', 'movie_series.auto_sort');
+
+    media.series = seriesData;
+
     res.json(media);
   } catch (error) {
     console.error('Error fetching media item:', error);

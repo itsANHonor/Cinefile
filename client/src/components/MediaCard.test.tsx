@@ -98,4 +98,27 @@ describe('MediaCard', () => {
     expect(screen.getByText('Archived')).toBeInTheDocument();
     expect(screen.getByText('2010 · Archived: Given away to friend')).toBeInTheDocument();
   });
+
+  it('aggregates series across all linked media in multi-movie items', () => {
+    const multiItem = {
+      ...mockItem,
+      name: 'Double Feature',
+      media: [
+        {
+          id: 10,
+          title: 'Movie One',
+          release_date: '2010-07-16',
+        },
+        {
+          id: 11,
+          title: 'Movie Two',
+          release_date: '2012-07-20',
+          series: [{ id: 2, name: 'Dark Knight Trilogy', sort_name: 'Dark Knight Trilogy' }],
+        },
+      ],
+    } as unknown as import('../types').PhysicalItem;
+
+    renderWithProviders(<MediaCard physicalItem={multiItem} />);
+    expect(screen.getByText('2010 · Dark Knight Trilogy')).toBeInTheDocument();
+  });
 });
