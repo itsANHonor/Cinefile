@@ -62,7 +62,7 @@ describe('MediaCard', () => {
     expect(handleArchive).toHaveBeenCalledWith(mockItem.id, true, 'Given away to friend');
   });
 
-  it('consolidates secondary metadata into a single uniform slot and sets title attributes', () => {
+  it('renders series as a top eyebrow above a single-line truncated title while keeping metadata clean', () => {
     const richItem = {
       ...mockItem,
       edition_notes: 'Steelbook Edition',
@@ -77,14 +77,25 @@ describe('MediaCard', () => {
     } as unknown as import('../types').PhysicalItem;
 
     renderWithProviders(<MediaCard physicalItem={richItem} />);
+    const seriesEyebrow = screen.getByTestId('media-card-series');
+    expect(seriesEyebrow).toHaveTextContent('Christopher Nolan Collection');
+    expect(seriesEyebrow).toHaveAttribute('title', 'Christopher Nolan Collection');
+
     const heading = screen.getByRole('heading', { name: 'Inception Blu-ray' });
     expect(heading).toHaveAttribute('title', 'Inception Blu-ray');
+    expect(heading.className).toContain('truncate');
+
+    const metadata = screen.getByText('2010 · Steelbook Edition');
+    expect(metadata).toHaveAttribute('title', '2010 · Steelbook Edition');
+    expect(metadata.className).toContain('truncate');
+  });
+
+  it('uses two-line clamp for title when item has no series', () => {
+    renderWithProviders(<MediaCard physicalItem={mockItem} />);
+    expect(screen.queryByTestId('media-card-series')).not.toBeInTheDocument();
+    const heading = screen.getByRole('heading', { name: 'Inception Blu-ray' });
     expect(heading.className).toContain('line-clamp-2');
     expect(heading.className).toContain('min-h-[2.5rem]');
-
-    const metadata = screen.getByText('2010 · Christopher Nolan Collection · Steelbook Edition');
-    expect(metadata).toHaveAttribute('title', '2010 · Christopher Nolan Collection · Steelbook Edition');
-    expect(metadata.className).toContain('truncate');
   });
 
   it('shows archived badge and archive reason when item is archived', () => {
@@ -119,6 +130,7 @@ describe('MediaCard', () => {
     } as unknown as import('../types').PhysicalItem;
 
     renderWithProviders(<MediaCard physicalItem={multiItem} />);
-    expect(screen.getByText('2010 · Dark Knight Trilogy')).toBeInTheDocument();
+    expect(screen.getByTestId('media-card-series')).toHaveTextContent('Dark Knight Trilogy');
+    expect(screen.getByText('2010')).toBeInTheDocument();
   });
 });

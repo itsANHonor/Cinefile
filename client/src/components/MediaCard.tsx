@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useLayoutEffect, useEffect, useCallback } from 'react';
 import { PhysicalItem } from '../types';
 import { useDisplayPreferences } from '../context/DisplayPreferencesContext';
 import { useConfirm } from '../context/ConfirmContext';
@@ -6,6 +6,7 @@ import { IconButton } from './ui/IconButton';
 import { Sheet } from './ui/Sheet';
 import { Button } from './ui/Button';
 import { formatBadgeClasses } from '../lib/formats';
+import { getItemSeriesList } from '../lib/series';
 
 interface MediaCardProps {
   physicalItem: PhysicalItem;
@@ -30,11 +31,32 @@ const MediaCard: React.FC<MediaCardProps> = ({
   const [showArchiveModal, setShowArchiveModal] = useState(false);
   const [archiveReason, setArchiveReason] = useState('');
   const [isArchiving, setIsArchiving] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
+  const [isUnclamped, setIsUnclamped] = useState(false);
+
+  const slotRef = useRef<HTMLDivElement>(null);
+  const drawerRef = useRef<HTMLDivElement>(null);
+  const seriesSpanRef = useRef<HTMLSpanElement>(null);
+  const titleRef = useRef<HTMLHeadingElement>(null);
+  const metaRef = useRef<HTMLParagraphElement>(null);
+  const lastMeasuredHeightRef = useRef<number | null>(null);
+  const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
+      if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
+    };
+  }, []);
 
   const primaryMedia = physicalItem.media[0];
   const imageUrl = physicalItem.custom_image_url || primaryMedia?.cover_art_url;
   const getFormatColor = (format: string) =>
     formatBadgeClasses[format] || 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200';
+
+  const itemSeries = getItemSeriesList(physicalItem);
+  const seriesText = itemSeries.map((s) => s.name).join(', ');
 
   const metadataParts: string[] = [];
   if (primaryMedia?.release_date) {
@@ -44,12 +66,6 @@ const MediaCard: React.FC<MediaCardProps> = ({
     metadataParts.push(
       `${primaryMedia.tv_show_name}${primaryMedia.season_number != null ? ` - Season ${primaryMedia.season_number}` : ''}`
     );
-  }
-  const itemSeries = Array.from(
-    new Map(physicalItem.media.flatMap((m) => m.series ?? []).map((s) => [s.id, s])).values()
-  );
-  if (itemSeries.length > 0) {
-    metadataParts.push(itemSeries.map((s) => s.name).join(', '));
   }
   if (physicalItem.edition_notes) {
     metadataParts.push(physicalItem.edition_notes);
@@ -103,6 +119,118 @@ const MediaCard: React.FC<MediaCardProps> = ({
     }
   };
 
+  const hasTextOverflow = useCallback(() => {
+    const checkEl = (el: HTMLElement | null) =>
+      Boolean(el && (el.scrollWidth > el.clientWidth + 1 || el.scrollHeight > el.clientHeight + 1));
+
+    return checkEl(seriesSpanRef.current) || checkEl(titleRef.current) || checkEl(metaRef.current);
+  }, []);
+
+  const expandCardInfo = useCallback(() => {
+    if (closeTimerRef.current) {
+      clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
+    if (!isUnclamped && !hasTextOverflow()) {
+      return;
+    }
+    const drawer = drawerRef.current;
+    const slot = slotRef.current;
+    if (drawer && slot) {
+      lastMeasuredHeightRef.current = drawer.offsetHeight || slot.clientHeight;
+    }
+    setIsUnclamped(true);
+    setIsExpanded(true);
+  }, [hasTextOverflow, isUnclamped]);
+
+  const collapseCardInfo = useCallback(() => {
+    if (hoverTimerRef.current) {
+      clearTimeout(hoverTimerRef.current);
+      hoverTimerRef.current = null;
+    }
+    if (!isExpanded && !isUnclamped) return;
+    setIsExpanded(false);
+    if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
+    closeTimerRef.current = setTimeout(() => {
+      if (drawerRef.current) {
+        drawerRef.current.style.height = '';
+      }
+      lastMeasuredHeightRef.current = null;
+      setIsUnclamped(false);
+    }, 240);
+  }, [isExpanded, isUnclamped]);
+
+  const handleMouseEnter = useCallback(() => {
+    if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
+    hoverTimerRef.current = setTimeout(() => {
+      expandCardInfo();
+    }, 70);
+  }, [expandCardInfo]);
+
+  const handleMouseLeave = useCallback(() => {
+    collapseCardInfo();
+  }, [collapseCardInfo]);
+
+  const handleFocus = useCallback(
+    (e: React.FocusEvent<HTMLDivElement>) => {
+      if (e.target !== e.currentTarget) return;
+      expandCardInfo();
+    },
+    [expandCardInfo]
+  );
+
+  const handleBlur = useCallback(
+    (e: React.FocusEvent<HTMLDivElement>) => {
+      if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+      collapseCardInfo();
+    },
+    [collapseCardInfo]
+  );
+
+  useLayoutEffect(() => {
+    const drawer = drawerRef.current;
+    const slot = slotRef.current;
+    if (!drawer || !slot) return;
+
+    const baseHeight = slot.clientHeight;
+    if (baseHeight === 0) return;
+
+    if (isExpanded && isUnclamped) {
+      const startHeight = lastMeasuredHeightRef.current ?? baseHeight;
+      drawer.style.height = 'auto';
+      const targetHeight = Math.max(baseHeight, drawer.scrollHeight);
+      if (targetHeight <= baseHeight + 1) {
+        drawer.style.height = '';
+        setIsExpanded(false);
+        setIsUnclamped(false);
+        return;
+      }
+      drawer.style.height = `${startHeight}px`;
+      void drawer.offsetHeight;
+      drawer.style.height = `${targetHeight}px`;
+    } else if (!isExpanded && isUnclamped) {
+      const currentHeight = drawer.offsetHeight || baseHeight;
+      drawer.style.height = `${currentHeight}px`;
+      void drawer.offsetHeight;
+      drawer.style.height = `${baseHeight}px`;
+    }
+  }, [isExpanded, isUnclamped]);
+
+  const handleDrawerTransitionEnd = (e: React.TransitionEvent<HTMLDivElement>) => {
+    if (e.target !== e.currentTarget || e.propertyName !== 'height') return;
+    if (!isExpanded) {
+      if (closeTimerRef.current) {
+        clearTimeout(closeTimerRef.current);
+        closeTimerRef.current = null;
+      }
+      if (drawerRef.current) {
+        drawerRef.current.style.height = '';
+      }
+      lastMeasuredHeightRef.current = null;
+      setIsUnclamped(false);
+    }
+  };
+
   return (
     <div
       role="button"
@@ -110,6 +238,10 @@ const MediaCard: React.FC<MediaCardProps> = ({
       aria-label={`Open details for ${physicalItem.name}`}
       onClick={onClick}
       onKeyDown={handleKeyDown}
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
+      onFocus={handleFocus}
+      onBlur={handleBlur}
       className="card group relative flex h-full cursor-pointer flex-col overflow-hidden p-0 text-left transition-shadow duration-200 hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
     >
       {/* Cover Image */}
@@ -227,20 +359,80 @@ const MediaCard: React.FC<MediaCardProps> = ({
         )}
       </div>
 
-      {/* Info */}
-      <div className="flex flex-1 flex-col justify-between p-3 sm:p-4">
-        <h3
-          title={physicalItem.name}
-          className="line-clamp-2 min-h-[2.5rem] font-semibold leading-5 text-content"
+      {/* Info (fixed outer height, smoothly animates upward only when text overflows) */}
+      <div ref={slotRef} className="relative h-[5.25rem] shrink-0 sm:h-[5.75rem]">
+        <div
+          ref={drawerRef}
+          onTransitionEnd={handleDrawerTransitionEnd}
+          className={`absolute inset-x-0 bottom-0 flex flex-col justify-between overflow-hidden border-t border-subtle/60 bg-surface p-3 transition-[height,box-shadow] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] dark:bg-surface-raised sm:p-4 ${
+            isExpanded
+              ? 'z-10 shadow-[0_-10px_24px_-6px_rgb(0_0_0/0.22)] dark:shadow-[0_-12px_28px_-6px_rgb(0_0_0/0.55)]'
+              : 'h-full'
+          }`}
         >
-          {physicalItem.name}
-        </h3>
-        <p
-          title={metadataText || undefined}
-          className="mt-1 h-4 truncate text-xs leading-4 text-content-muted"
-        >
-          {metadataText}
-        </p>
+          <div className="min-h-[2.5rem]">
+            {seriesText ? (
+              <>
+                <p
+                  title={seriesText}
+                  data-testid="media-card-series"
+                  className={`flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wider leading-4 text-primary-600 dark:text-primary-400 ${
+                    isUnclamped ? 'h-auto items-start' : 'h-4'
+                  }`}
+                >
+                  <svg
+                    className={`h-3 w-3 shrink-0 ${isUnclamped ? 'mt-0.5' : ''}`}
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                    aria-hidden="true"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"
+                    />
+                  </svg>
+                  <span
+                    ref={seriesSpanRef}
+                    className={isUnclamped ? 'whitespace-normal break-words' : 'truncate'}
+                  >
+                    {seriesText}
+                  </span>
+                </p>
+                <h3
+                  ref={titleRef}
+                  title={physicalItem.name}
+                  className={`mt-1 font-semibold leading-5 text-content ${
+                    isUnclamped ? 'h-auto whitespace-normal break-words' : 'h-5 truncate'
+                  }`}
+                >
+                  {physicalItem.name}
+                </h3>
+              </>
+            ) : (
+              <h3
+                ref={titleRef}
+                title={physicalItem.name}
+                className={`min-h-[2.5rem] font-semibold leading-5 text-content ${
+                  isUnclamped ? 'line-clamp-none break-words' : 'line-clamp-2'
+                }`}
+              >
+                {physicalItem.name}
+              </h3>
+            )}
+          </div>
+          <p
+            ref={metaRef}
+            title={metadataText || undefined}
+            className={`mt-1 text-xs leading-4 text-content-muted ${
+              isUnclamped ? 'h-auto whitespace-normal break-words' : 'h-4 truncate'
+            }`}
+          >
+            {metadataText}
+          </p>
+        </div>
       </div>
 
       {/* Archive Reason Prompt Modal */}

@@ -736,6 +736,7 @@ const CollectionPage: React.FC = () => {
                 onEditItem={canEdit ? handleEditItem : undefined}
                 onArchiveItem={canEdit ? handleArchiveItem : undefined}
                 skeletonCount={showSkeletons ? 8 : 0}
+                sortBy={params.sortBy}
               />
 
               {loadMoreError && (

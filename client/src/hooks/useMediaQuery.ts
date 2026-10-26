@@ -4,7 +4,7 @@ function getMatches(query: string): boolean {
   if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
     return false;
   }
-  return window.matchMedia(query).matches;
+  return Boolean(window.matchMedia(query)?.matches);
 }
 
 /**
@@ -20,7 +20,10 @@ export function useMediaQuery(query: string): boolean {
     }
 
     const mediaQuery = window.matchMedia(query);
-    const update = () => setMatches(mediaQuery.matches);
+    if (!mediaQuery) {
+      return;
+    }
+    const update = () => setMatches(Boolean(mediaQuery.matches));
 
     update();
 
@@ -30,8 +33,10 @@ export function useMediaQuery(query: string): boolean {
     }
 
     // Fallback for older browsers
-    mediaQuery.addListener(update);
-    return () => mediaQuery.removeListener(update);
+    if (typeof mediaQuery.addListener === 'function') {
+      mediaQuery.addListener(update);
+      return () => mediaQuery.removeListener(update);
+    }
   }, [query]);
 
   return matches;
