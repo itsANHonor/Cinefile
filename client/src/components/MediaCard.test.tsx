@@ -83,11 +83,11 @@ describe('MediaCard', () => {
 
     const heading = screen.getByRole('heading', { name: 'Inception Blu-ray' });
     expect(heading).toHaveAttribute('title', 'Inception Blu-ray');
-    expect(heading.className).toContain('truncate');
+    expect(heading.className).toContain('line-clamp-1');
 
     const metadata = screen.getByText('2010 · Steelbook Edition');
     expect(metadata).toHaveAttribute('title', '2010 · Steelbook Edition');
-    expect(metadata.className).toContain('truncate');
+    expect(metadata.className).toContain('line-clamp-1');
   });
 
   it('uses two-line clamp for title when item has no series', () => {

@@ -525,7 +525,7 @@ const CollectionPage: React.FC = () => {
 
   if (isPrivateCollection && !canEdit) {
     return (
-      <main className="container mx-auto px-4 py-12">
+      <main className="w-full px-4 py-12 sm:px-6 lg:px-8">
         <EmptyState
           title="This collection is private"
           description="The owner has set this media collection to private."
@@ -552,7 +552,7 @@ const CollectionPage: React.FC = () => {
   }
 
   return (
-    <main className="container mx-auto px-4 py-6 sm:py-8">
+    <main className="w-full px-4 py-6 sm:px-6 sm:py-8 lg:px-8">
       {/* Live region for collection status announcements */}
       <div aria-live="polite" aria-atomic="true" className="sr-only">
         {announcement}

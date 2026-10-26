@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useRef, useState, useLayoutEffect } from 'react';
 import { PhysicalItem, SortField } from '../types';
 import MediaCard from './MediaCard';
 import { Skeleton } from './ui/Skeleton';
@@ -16,6 +16,15 @@ interface MediaGridProps {
   sortBy?: SortField;
 }
 
+const TARGET_CARD_MIN_WIDTH = 185;
+const GRID_GAP_PX = 16;
+
+function computeColumnsFromWidth(width: number, fallbackCols: number): number {
+  if (!width || width <= 0) return fallbackCols;
+  if (width < 520) return 2;
+  return Math.max(2, Math.floor((width + GRID_GAP_PX) / (TARGET_CARD_MIN_WIDTH + GRID_GAP_PX)));
+}
+
 const MediaGrid: React.FC<MediaGridProps> = ({
   physicalItems,
   onItemClick,
@@ -28,12 +37,47 @@ const MediaGrid: React.FC<MediaGridProps> = ({
 }) => {
   const items = physicalItems;
   const showSkeletons = skeletonCount > 0;
+  const gridRef = useRef<HTMLDivElement>(null);
+  const [containerWidth, setContainerWidth] = useState(0);
 
   const isXl = useMediaQuery('(min-width: 1280px)');
   const isLg = useMediaQuery('(min-width: 1024px)');
   const isMd = useMediaQuery('(min-width: 768px)');
   const isSm = useMediaQuery('(min-width: 640px)');
-  const columns = isXl ? 6 : isLg ? 5 : isMd ? 4 : isSm ? 3 : 2;
+  const fallbackColumns = isXl ? 6 : isLg ? 5 : isMd ? 4 : isSm ? 3 : 2;
+
+  useLayoutEffect(() => {
+    const el = gridRef.current;
+    if (!el) return;
+
+    const updateWidth = () => {
+      const nextWidth = el.clientWidth;
+      if (nextWidth > 0) {
+        setContainerWidth((prev) => (prev === nextWidth ? prev : nextWidth));
+      }
+    };
+
+    updateWidth();
+
+    if (typeof ResizeObserver !== 'undefined') {
+      const observer = new ResizeObserver(() => {
+        updateWidth();
+      });
+      observer.observe(el);
+      return () => observer.disconnect();
+    }
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener('resize', updateWidth);
+      return () => window.removeEventListener('resize', updateWidth);
+    }
+  }, []);
+
+  const columns = computeColumnsFromWidth(containerWidth, fallbackColumns);
+  const gridTemplateStyle = useMemo(
+    () => ({ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }),
+    [columns]
+  );
 
   const rows = useMemo(
     () =>
@@ -45,8 +89,10 @@ const MediaGrid: React.FC<MediaGridProps> = ({
 
   return (
     <div
+      ref={gridRef}
       role="list"
       aria-busy={showSkeletons || undefined}
+      style={gridTemplateStyle}
       className="grid grid-cols-2 gap-x-3 gap-y-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 sm:gap-x-4 sm:gap-y-5"
     >
       {rows.map((row) => (
@@ -55,6 +101,7 @@ const MediaGrid: React.FC<MediaGridProps> = ({
             <div
               role="presentation"
               data-testid={`series-row-track-${row.rowIndex}`}
+              style={gridTemplateStyle}
               className="col-span-full -mb-2.5 grid grid-cols-2 gap-x-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 sm:gap-x-4"
             >
               {row.segments.map((seg) => (

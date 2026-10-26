@@ -590,7 +590,7 @@ const PhysicalLibraryPage: React.FC<PhysicalLibraryPageProps> = ({
   // =============================================
   // Render
   // =============================================
-  const containerClass = embedded ? '' : 'container mx-auto px-4 py-8';
+  const containerClass = embedded ? '' : 'w-full px-4 py-6 sm:px-6 sm:py-8 lg:px-8';
 
   if (isLoading) {
     const Wrapper = embedded ? 'div' : 'main';

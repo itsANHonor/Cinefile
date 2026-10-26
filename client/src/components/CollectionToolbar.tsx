@@ -82,7 +82,7 @@ const CollectionToolbar: React.FC<CollectionToolbarProps> = ({
     availableGenres.find((g) => g.id === id)?.name ?? `Genre ${id}`;
 
   return (
-    <div className="sticky top-16 lg:top-16 z-20 -mx-4 px-4 py-2 bg-white/85 dark:bg-gray-900/85 backdrop-blur border-b border-gray-200 dark:border-gray-700">
+    <div className="sticky top-16 lg:top-16 z-20 -mx-4 px-4 sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8 py-2 bg-white/85 dark:bg-gray-900/85 backdrop-blur border-b border-gray-200 dark:border-gray-700">
       <div className="flex items-center gap-2">
         <div className="relative flex-1 min-w-0">
           <input

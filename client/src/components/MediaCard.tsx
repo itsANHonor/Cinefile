@@ -36,10 +36,16 @@ const MediaCard: React.FC<MediaCardProps> = ({
 
   const slotRef = useRef<HTMLDivElement>(null);
   const drawerRef = useRef<HTMLDivElement>(null);
+  const seriesRowRef = useRef<HTMLParagraphElement>(null);
   const seriesSpanRef = useRef<HTMLSpanElement>(null);
   const titleRef = useRef<HTMLHeadingElement>(null);
   const metaRef = useRef<HTMLParagraphElement>(null);
-  const lastMeasuredHeightRef = useRef<number | null>(null);
+  const lastMeasuredHeightsRef = useRef<{
+    drawer: number;
+    series: number;
+    title: number;
+    meta: number;
+  } | null>(null);
   const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -126,6 +132,14 @@ const MediaCard: React.FC<MediaCardProps> = ({
     return checkEl(seriesSpanRef.current) || checkEl(titleRef.current) || checkEl(metaRef.current);
   }, []);
 
+  const clearInlineHeights = useCallback(() => {
+    if (drawerRef.current) drawerRef.current.style.height = '';
+    if (seriesRowRef.current) seriesRowRef.current.style.height = '';
+    if (titleRef.current) titleRef.current.style.height = '';
+    if (metaRef.current) metaRef.current.style.height = '';
+    lastMeasuredHeightsRef.current = null;
+  }, []);
+
   const expandCardInfo = useCallback(() => {
     if (closeTimerRef.current) {
       clearTimeout(closeTimerRef.current);
@@ -137,11 +151,16 @@ const MediaCard: React.FC<MediaCardProps> = ({
     const drawer = drawerRef.current;
     const slot = slotRef.current;
     if (drawer && slot) {
-      lastMeasuredHeightRef.current = drawer.offsetHeight || slot.clientHeight;
+      lastMeasuredHeightsRef.current = {
+        drawer: drawer.offsetHeight || slot.clientHeight,
+        series: seriesRowRef.current?.offsetHeight || 16,
+        title: titleRef.current?.offsetHeight || (seriesText ? 20 : 40),
+        meta: metaRef.current?.offsetHeight || 16,
+      };
     }
     setIsUnclamped(true);
     setIsExpanded(true);
-  }, [hasTextOverflow, isUnclamped]);
+  }, [hasTextOverflow, isUnclamped, seriesText]);
 
   const collapseCardInfo = useCallback(() => {
     if (hoverTimerRef.current) {
@@ -152,13 +171,10 @@ const MediaCard: React.FC<MediaCardProps> = ({
     setIsExpanded(false);
     if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
     closeTimerRef.current = setTimeout(() => {
-      if (drawerRef.current) {
-        drawerRef.current.style.height = '';
-      }
-      lastMeasuredHeightRef.current = null;
+      clearInlineHeights();
       setIsUnclamped(false);
     }, 240);
-  }, [isExpanded, isUnclamped]);
+  }, [clearInlineHeights, isExpanded, isUnclamped]);
 
   const handleMouseEnter = useCallback(() => {
     if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
@@ -195,26 +211,72 @@ const MediaCard: React.FC<MediaCardProps> = ({
     const baseHeight = slot.clientHeight;
     if (baseHeight === 0) return;
 
+    const seriesEl = seriesRowRef.current;
+    const titleEl = titleRef.current;
+    const metaEl = metaRef.current;
+    const restSeriesH = 16;
+    const restTitleH = seriesText ? 20 : 40;
+    const restMetaH = 16;
+
     if (isExpanded && isUnclamped) {
-      const startHeight = lastMeasuredHeightRef.current ?? baseHeight;
+      const starts = lastMeasuredHeightsRef.current ?? {
+        drawer: baseHeight,
+        series: restSeriesH,
+        title: restTitleH,
+        meta: restMetaH,
+      };
+
+      if (seriesEl) seriesEl.style.height = 'auto';
+      if (titleEl) titleEl.style.height = 'auto';
+      if (metaEl) metaEl.style.height = 'auto';
       drawer.style.height = 'auto';
-      const targetHeight = Math.max(baseHeight, drawer.scrollHeight);
-      if (targetHeight <= baseHeight + 1) {
-        drawer.style.height = '';
+
+      const targetSeriesH = seriesEl ? Math.max(restSeriesH, seriesEl.scrollHeight) : restSeriesH;
+      const targetTitleH = titleEl ? Math.max(restTitleH, titleEl.scrollHeight) : restTitleH;
+      const targetMetaH = metaEl ? Math.max(restMetaH, metaEl.scrollHeight) : restMetaH;
+      const targetDrawerH = Math.max(
+        baseHeight,
+        drawer.scrollHeight,
+        baseHeight + (targetSeriesH - restSeriesH) + (targetTitleH - restTitleH) + (targetMetaH - restMetaH)
+      );
+
+      if (targetDrawerH <= baseHeight + 1) {
+        clearInlineHeights();
         setIsExpanded(false);
         setIsUnclamped(false);
         return;
       }
-      drawer.style.height = `${startHeight}px`;
+
+      if (seriesEl) seriesEl.style.height = `${starts.series}px`;
+      if (titleEl) titleEl.style.height = `${starts.title}px`;
+      if (metaEl) metaEl.style.height = `${starts.meta}px`;
+      drawer.style.height = `${starts.drawer}px`;
+
       void drawer.offsetHeight;
-      drawer.style.height = `${targetHeight}px`;
+
+      if (seriesEl) seriesEl.style.height = `${targetSeriesH}px`;
+      if (titleEl) titleEl.style.height = `${targetTitleH}px`;
+      if (metaEl) metaEl.style.height = `${targetMetaH}px`;
+      drawer.style.height = `${targetDrawerH}px`;
     } else if (!isExpanded && isUnclamped) {
-      const currentHeight = drawer.offsetHeight || baseHeight;
-      drawer.style.height = `${currentHeight}px`;
+      const curDrawerH = drawer.offsetHeight || baseHeight;
+      const curSeriesH = seriesEl ? seriesEl.offsetHeight || restSeriesH : restSeriesH;
+      const curTitleH = titleEl ? titleEl.offsetHeight || restTitleH : restTitleH;
+      const curMetaH = metaEl ? metaEl.offsetHeight || restMetaH : restMetaH;
+
+      if (seriesEl) seriesEl.style.height = `${curSeriesH}px`;
+      if (titleEl) titleEl.style.height = `${curTitleH}px`;
+      if (metaEl) metaEl.style.height = `${curMetaH}px`;
+      drawer.style.height = `${curDrawerH}px`;
+
       void drawer.offsetHeight;
+
+      if (seriesEl) seriesEl.style.height = `${restSeriesH}px`;
+      if (titleEl) titleEl.style.height = `${restTitleH}px`;
+      if (metaEl) metaEl.style.height = `${restMetaH}px`;
       drawer.style.height = `${baseHeight}px`;
     }
-  }, [isExpanded, isUnclamped]);
+  }, [clearInlineHeights, isExpanded, isUnclamped, seriesText]);
 
   const handleDrawerTransitionEnd = (e: React.TransitionEvent<HTMLDivElement>) => {
     if (e.target !== e.currentTarget || e.propertyName !== 'height') return;
@@ -223,10 +285,7 @@ const MediaCard: React.FC<MediaCardProps> = ({
         clearTimeout(closeTimerRef.current);
         closeTimerRef.current = null;
       }
-      if (drawerRef.current) {
-        drawerRef.current.style.height = '';
-      }
-      lastMeasuredHeightRef.current = null;
+      clearInlineHeights();
       setIsUnclamped(false);
     }
   };
@@ -374,14 +433,13 @@ const MediaCard: React.FC<MediaCardProps> = ({
             {seriesText ? (
               <>
                 <p
+                  ref={seriesRowRef}
                   title={seriesText}
                   data-testid="media-card-series"
-                  className={`flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wider leading-4 text-primary-600 dark:text-primary-400 ${
-                    isUnclamped ? 'h-auto items-start' : 'h-4'
-                  }`}
+                  className="flex h-4 items-start gap-1 overflow-hidden text-[11px] font-semibold uppercase tracking-wider leading-4 text-primary-600 transition-[height] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] dark:text-primary-400"
                 >
                   <svg
-                    className={`h-3 w-3 shrink-0 ${isUnclamped ? 'mt-0.5' : ''}`}
+                    className="mt-0.5 h-3 w-3 shrink-0"
                     fill="none"
                     stroke="currentColor"
                     viewBox="0 0 24 24"
@@ -396,7 +454,7 @@ const MediaCard: React.FC<MediaCardProps> = ({
                   </svg>
                   <span
                     ref={seriesSpanRef}
-                    className={isUnclamped ? 'whitespace-normal break-words' : 'truncate'}
+                    className={`min-w-0 flex-1 break-words ${isUnclamped ? 'line-clamp-none' : 'line-clamp-1'}`}
                   >
                     {seriesText}
                   </span>
@@ -404,8 +462,8 @@ const MediaCard: React.FC<MediaCardProps> = ({
                 <h3
                   ref={titleRef}
                   title={physicalItem.name}
-                  className={`mt-1 font-semibold leading-5 text-content ${
-                    isUnclamped ? 'h-auto whitespace-normal break-words' : 'h-5 truncate'
+                  className={`mt-1 h-5 overflow-hidden break-words font-semibold leading-5 text-content transition-[height] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+                    isUnclamped ? 'line-clamp-none' : 'line-clamp-1'
                   }`}
                 >
                   {physicalItem.name}
@@ -415,8 +473,8 @@ const MediaCard: React.FC<MediaCardProps> = ({
               <h3
                 ref={titleRef}
                 title={physicalItem.name}
-                className={`min-h-[2.5rem] font-semibold leading-5 text-content ${
-                  isUnclamped ? 'line-clamp-none break-words' : 'line-clamp-2'
+                className={`h-10 min-h-[2.5rem] overflow-hidden break-words font-semibold leading-5 text-content transition-[height] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+                  isUnclamped ? 'line-clamp-none' : 'line-clamp-2'
                 }`}
               >
                 {physicalItem.name}
@@ -426,8 +484,8 @@ const MediaCard: React.FC<MediaCardProps> = ({
           <p
             ref={metaRef}
             title={metadataText || undefined}
-            className={`mt-1 text-xs leading-4 text-content-muted ${
-              isUnclamped ? 'h-auto whitespace-normal break-words' : 'h-4 truncate'
+            className={`mt-1 h-4 overflow-hidden break-words text-xs leading-4 text-content-muted transition-[height] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+              isUnclamped ? 'line-clamp-none' : 'line-clamp-1'
             }`}
           >
             {metadataText}
