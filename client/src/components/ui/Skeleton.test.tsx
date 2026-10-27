@@ -9,5 +9,6 @@ describe('Skeleton', () => {
     expect(skeleton).toHaveAttribute('aria-hidden', 'true');
     expect(skeleton).toHaveClass('bg-surface-sunken');
     expect(skeleton).toHaveClass('animate-pulse');
+    expect(skeleton).toHaveClass('skeleton-shimmer');
   });
 });

@@ -1,8 +1,18 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { PhysicalFormat } from '../types';
 import { PHYSICAL_FORMATS } from '../lib/formats';
 import { Chip } from './ui/Chip';
 import { lockBodyScroll } from './ui/Sheet';
+
+const focusableSelector = [
+  'button:not([disabled])',
+  '[href]',
+  'input:not([disabled])',
+  'select:not([disabled])',
+  'textarea:not([disabled])',
+  '[tabindex]:not([tabindex="-1"])',
+].join(', ');
 
 interface ActiveFilterInput {
   format: PhysicalFormat | PhysicalFormat[];
@@ -96,10 +106,26 @@ const FilterPanel: React.FC<FilterPanelProps> = ({
   const [genreQuery, setGenreQuery] = useState('');
   const [editionQuery, setEditionQuery] = useState('');
   const [seriesQuery, setSeriesQuery] = useState('');
+  const panelRef = useRef<HTMLDivElement>(null);
+  const previouslyFocused = useRef<Element | null>(null);
 
   useEffect(() => {
     if (!isOpen) return;
-    return lockBodyScroll(true);
+    previouslyFocused.current = document.activeElement;
+    const timer = requestAnimationFrame(() => {
+      const panel = panelRef.current;
+      if (!panel) return;
+      const focusable = panel.querySelectorAll<HTMLElement>(focusableSelector);
+      focusable[0]?.focus();
+    });
+    const restore = lockBodyScroll(true);
+    return () => {
+      cancelAnimationFrame(timer);
+      restore();
+      if (previouslyFocused.current instanceof HTMLElement) {
+        previouslyFocused.current.focus();
+      }
+    };
   }, [isOpen]);
 
   useEffect(() => {
@@ -109,6 +135,31 @@ const FilterPanel: React.FC<FilterPanelProps> = ({
       setSeriesQuery('');
     }
   }, [isOpen]);
+
+  const handleDialogKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>) => {
+      if (event.key === 'Escape') {
+        event.stopPropagation();
+        onClose();
+        return;
+      }
+      if (event.key !== 'Tab') return;
+      const panel = panelRef.current;
+      if (!panel) return;
+      const nodes = Array.from(panel.querySelectorAll<HTMLElement>(focusableSelector));
+      if (nodes.length === 0) return;
+      const first = nodes[0];
+      const last = nodes[nodes.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    },
+    [onClose]
+  );
 
   useEffect(() => {
     if (!isOpen) return;
@@ -205,25 +256,27 @@ const FilterPanel: React.FC<FilterPanelProps> = ({
 
   if (!isOpen) return null;
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-[60] flex items-end sm:items-center sm:justify-center sm:p-4">
       <div
         className="absolute inset-0 bg-gray-900/60 backdrop-blur-sm animate-[fadeIn_150ms_ease-out]"
         onClick={onClose}
       />
       <div
-        className="relative w-full sm:max-w-2xl bg-white dark:bg-gray-900 rounded-t-2xl sm:rounded-2xl shadow-2xl ring-1 ring-black/5 dark:ring-white/10 max-h-[88vh] sm:max-h-[82vh] flex flex-col animate-[sheetIn_180ms_ease-out]"
+        ref={panelRef}
+        onKeyDown={handleDialogKeyDown}
+        className="relative w-full sm:max-w-2xl bg-white dark:bg-gray-900 rounded-t-2xl sm:rounded-2xl shadow-2xl ring-1 ring-black/5 dark:ring-white/10 max-h-[88dvh] sm:max-h-[calc(100dvh-2rem)] flex flex-col overflow-hidden outline-none animate-[sheetIn_180ms_ease-out]"
         role="dialog"
         aria-modal="true"
         aria-label="Filter options"
       >
         {/* Drag affordance on mobile */}
-        <div className="sm:hidden pt-3 pb-1 flex justify-center">
+        <div className="sm:hidden pt-3 pb-1 flex justify-center flex-shrink-0">
           <div className="h-1.5 w-10 rounded-full bg-gray-300 dark:bg-gray-600" />
         </div>
 
         {/* Header */}
-        <div className="px-5 pt-4 pb-3 sm:pt-5">
+        <div className="px-5 pt-4 pb-3 sm:pt-5 flex-shrink-0">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Filters</h2>
@@ -285,7 +338,7 @@ const FilterPanel: React.FC<FilterPanelProps> = ({
         </div>
 
         {/* Body */}
-        <div className="flex-1 overflow-y-auto px-5 pb-4 space-y-6 border-t border-gray-100 dark:border-gray-800 pt-5">
+        <div className="flex-1 min-h-0 overflow-y-auto px-5 pb-4 space-y-6 border-t border-gray-100 dark:border-gray-800 pt-5">
           {onMediaTypeChange && (
             <section>
               <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2">
@@ -585,7 +638,7 @@ const FilterPanel: React.FC<FilterPanelProps> = ({
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-between gap-3 px-5 py-4 border-t border-gray-100 dark:border-gray-800 bg-gray-50/80 dark:bg-gray-900/80 rounded-b-2xl">
+        <div className="flex-shrink-0 flex items-center justify-between gap-3 px-5 py-4 border-t border-gray-100 dark:border-gray-800 bg-gray-50/80 dark:bg-gray-900/80 rounded-b-2xl">
           <span className="text-sm text-gray-500 dark:text-gray-400">
             {activeCount === 0 ? 'No filters applied' : `${activeCount} filter${activeCount === 1 ? '' : 's'} applied`}
           </span>
@@ -596,7 +649,8 @@ const FilterPanel: React.FC<FilterPanelProps> = ({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };
 

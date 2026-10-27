@@ -14,6 +14,7 @@ export const Skeleton = React.forwardRef<HTMLDivElement, SkeletonProps>(
       className={`
         bg-surface-sunken
         animate-pulse
+        skeleton-shimmer
         motion-reduce:animate-none motion-reduce:opacity-70
         rounded-[--radius-control]
         ${className}

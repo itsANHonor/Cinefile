@@ -6,6 +6,7 @@ import { useAuth } from '../context/AuthContext';
 import { useServerMode } from '../context/ServerModeContext';
 import { useFacets, resetFacetsCache } from '../hooks/useFacets';
 import { useCollectionParams } from '../hooks/useCollectionParams';
+import { useInfiniteScroll } from '../hooks/useInfiniteScroll';
 import { useToast } from '../context/ToastContext';
 import MediaGrid from '../components/MediaGrid';
 import CollectionToolbar from '../components/CollectionToolbar';
@@ -187,6 +188,7 @@ const CollectionPage: React.FC = () => {
           decades: params.decades.length > 0 ? params.decades : undefined,
           editions: params.editions.length > 0 ? params.editions : undefined,
           series: params.series.length > 0 ? params.series : undefined,
+          media_type: params.type !== 'all' ? params.type : undefined,
           search: params.q || undefined,
           archived: effectiveArchived ? true : undefined,
         });
@@ -212,7 +214,7 @@ const CollectionPage: React.FC = () => {
     return () => {
       abortController.abort();
     };
-  }, [params.formats, params.genres, params.decades, params.editions, params.series, params.q, effectiveArchived, isInitialized]);
+  }, [params.formats, params.genres, params.decades, params.editions, params.series, params.type, params.q, effectiveArchived, isInitialized]);
 
   const loadInitialData = async () => {
     setIsLoading(true);
@@ -446,6 +448,7 @@ const CollectionPage: React.FC = () => {
         decades: params.decades.length > 0 ? params.decades : undefined,
         editions: params.editions.length > 0 ? params.editions : undefined,
         series: params.series.length > 0 ? params.series : undefined,
+        media_type: params.type !== 'all' ? params.type : undefined,
         search: params.q || undefined,
         archived: canEdit && params.archived ? true : undefined,
       });
@@ -472,32 +475,10 @@ const CollectionPage: React.FC = () => {
     setShelfRefreshKey((k) => k + 1);
   };
 
-  // Infinite scroll effect
-  useEffect(() => {
-    const handleScroll = () => {
-      if (params.view !== 'grid' || isLoading || isLoadingMore || !hasMore) return;
-      
-      const scrollPosition = window.innerHeight + window.scrollY;
-      const threshold = document.documentElement.scrollHeight - 300;
-      
-      if (scrollPosition >= threshold) {
-        loadMoreItems();
-      }
-    };
-
-    // Throttle scroll events
-    let timeoutId: number;
-    const throttledHandleScroll = () => {
-      clearTimeout(timeoutId);
-      timeoutId = window.setTimeout(handleScroll, 100);
-    };
-
-    window.addEventListener('scroll', throttledHandleScroll);
-    return () => {
-      window.removeEventListener('scroll', throttledHandleScroll);
-      clearTimeout(timeoutId);
-    };
-  }, [params.view, isLoading, isLoadingMore, hasMore, loadMoreItems]);
+  const sentinelRef = useInfiniteScroll(loadMoreItems, {
+    enabled: params.view === 'grid' && !isLoading && !isLoadingMore && hasMore && !loadMoreError,
+    rootMargin: '600px',
+  });
 
   const hasActiveFilters =
     Boolean(params.q) ||
@@ -748,8 +729,11 @@ const CollectionPage: React.FC = () => {
                 onEditItem={canEdit ? handleEditItem : undefined}
                 onArchiveItem={canEdit ? handleArchiveItem : undefined}
                 skeletonCount={showSkeletons ? 8 : 0}
+                isLoadingMore={isLoadingMore && !loadMoreError}
                 sortBy={params.sortBy}
               />
+
+              <div ref={sentinelRef} className="h-px" aria-hidden="true" />
 
               {loadMoreError && (
                 <div className="mt-6 flex flex-col items-center gap-3 rounded-[--radius-card] border border-subtle bg-surface-raised p-4 text-center">
@@ -761,12 +745,8 @@ const CollectionPage: React.FC = () => {
               )}
 
               {isLoadingMore && !loadMoreError && (
-                <div className="mt-6 flex items-center justify-center gap-2 text-content-muted">
-                  <svg className="h-5 w-5 animate-spin" fill="none" viewBox="0 0 24 24" aria-hidden="true">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                  </svg>
-                  <span className="text-sm">Loading more items…</span>
+                <div role="status" aria-live="polite" className="sr-only">
+                  Loading more items…
                 </div>
               )}
             </>

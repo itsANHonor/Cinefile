@@ -13,11 +13,13 @@ interface MediaGridProps {
   onEditItem?: (item: PhysicalItem) => void;
   onArchiveItem?: (itemId: number, archived: boolean, archiveReason: string | null) => Promise<void> | void;
   skeletonCount?: number;
+  isLoadingMore?: boolean;
   sortBy?: SortField;
 }
 
 const TARGET_CARD_MIN_WIDTH = 185;
 const GRID_GAP_PX = 16;
+const MAX_STAGGER_STEPS = 12;
 
 function computeColumnsFromWidth(width: number, fallbackCols: number): number {
   if (!width || width <= 0) return fallbackCols;
@@ -33,12 +35,13 @@ const MediaGrid: React.FC<MediaGridProps> = ({
   onEditItem,
   onArchiveItem,
   skeletonCount = 0,
+  isLoadingMore = false,
   sortBy,
 }) => {
   const items = physicalItems;
-  const showSkeletons = skeletonCount > 0;
   const gridRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState(0);
+  const staggerMapRef = useRef<Map<number, number>>(new Map());
 
   const isXl = useMediaQuery('(min-width: 1280px)');
   const isLg = useMediaQuery('(min-width: 1024px)');
@@ -74,6 +77,24 @@ const MediaGrid: React.FC<MediaGridProps> = ({
   }, []);
 
   const columns = computeColumnsFromWidth(containerWidth, fallbackColumns);
+  const effectiveSkeletonCount = skeletonCount > 0 ? skeletonCount : isLoadingMore ? columns : 0;
+  const showSkeletons = effectiveSkeletonCount > 0;
+
+  // Assign a batch-local stagger index to newly added items while preserving existing items' indices
+  const currentIds = new Set(items.map((item) => item.id));
+  for (const id of staggerMapRef.current.keys()) {
+    if (!currentIds.has(id)) {
+      staggerMapRef.current.delete(id);
+    }
+  }
+  let newBatchCounter = 0;
+  for (const item of items) {
+    if (!staggerMapRef.current.has(item.id)) {
+      staggerMapRef.current.set(item.id, Math.min(newBatchCounter, MAX_STAGGER_STEPS - 1));
+      newBatchCounter += 1;
+    }
+  }
+
   const gridTemplateStyle = useMemo(
     () => ({ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }),
     [columns]
@@ -158,26 +179,45 @@ const MediaGrid: React.FC<MediaGridProps> = ({
               ))}
             </div>
           )}
-          {row.items.map(({ item }) => (
-            <div key={item.id} role="listitem" className="h-full">
-              <MediaCard
-                physicalItem={item}
-                onClick={() => onItemClick(item)}
-                isEditMode={isEditMode}
-                isAuthenticated={isAuthenticated}
-                onEdit={onEditItem}
-                onArchive={onArchiveItem}
-              />
-            </div>
-          ))}
+          {row.items.map(({ item }) => {
+            const staggerIndex = staggerMapRef.current.get(item.id) ?? 0;
+            return (
+              <div
+                key={item.id}
+                role="listitem"
+                style={{ '--stagger-index': staggerIndex } as React.CSSProperties}
+                className="h-full media-card-batch-enter"
+              >
+                <MediaCard
+                  physicalItem={item}
+                  onClick={() => onItemClick(item)}
+                  isEditMode={isEditMode}
+                  isAuthenticated={isAuthenticated}
+                  onEdit={onEditItem}
+                  onArchive={onArchiveItem}
+                />
+              </div>
+            );
+          })}
         </React.Fragment>
       ))}
       {showSkeletons &&
-        Array.from({ length: skeletonCount }).map((_, i) => (
-          <div key={`skeleton-${i}`} role="listitem" aria-hidden="true">
-            <Skeleton className="aspect-[2/3] w-full rounded-[--radius-card]" />
-            <Skeleton className="mt-2 h-4 w-3/4 rounded-[--radius-control]" />
-            <Skeleton className="mt-1.5 h-3 w-1/2 rounded-[--radius-control]" />
+        Array.from({ length: effectiveSkeletonCount }).map((_, i) => (
+          <div
+            key={`skeleton-${i}`}
+            role="listitem"
+            aria-hidden="true"
+            data-testid="media-grid-skeleton"
+            className="card flex h-full flex-col overflow-hidden p-0"
+          >
+            <Skeleton className="aspect-[2/3] w-full rounded-none" />
+            <div className="flex h-[5.25rem] shrink-0 flex-col justify-between border-t border-subtle/60 p-3 sm:h-[5.75rem] sm:p-4">
+              <div className="space-y-2">
+                <Skeleton className="h-4 w-3/4 rounded-[--radius-control]" />
+                <Skeleton className="h-3.5 w-1/2 rounded-[--radius-control]" />
+              </div>
+              <Skeleton className="h-3 w-1/3 rounded-[--radius-control]" />
+            </div>
           </div>
         ))}
     </div>

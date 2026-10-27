@@ -387,6 +387,7 @@ class ApiService {
     editions?: string[];
     series?: number[];
     search?: string;
+    media_type?: 'all' | 'movie' | 'tv_season';
     archived?: boolean;
   }): Promise<CollectionStatistics> {
     const params: any = {};
@@ -413,6 +414,9 @@ class ApiService {
       }
       if (filters.search) {
         params.search = filters.search;
+      }
+      if (filters.media_type && filters.media_type !== 'all') {
+        params.media_type = filters.media_type;
       }
       if (filters.archived) {
         params.archived = 'true';

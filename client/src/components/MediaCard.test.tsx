@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { screen } from '@testing-library/react';
+import { fireEvent, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '../test/utils';
 import MediaCard from './MediaCard';
@@ -132,5 +132,26 @@ describe('MediaCard', () => {
     renderWithProviders(<MediaCard physicalItem={multiItem} />);
     expect(screen.getByTestId('media-card-series')).toHaveTextContent('Dark Knight Trilogy');
     expect(screen.getByText('2010')).toBeInTheDocument();
+  });
+
+  it('crossfades poster image in after onLoad fires', () => {
+    const itemWithCover = {
+      ...mockItem,
+      media: [
+        {
+          id: 10,
+          title: 'Inception',
+          release_date: '2010-07-16',
+          cover_art_url: 'https://example.com/inception.jpg',
+        },
+      ],
+    } as unknown as import('../types').PhysicalItem;
+
+    renderWithProviders(<MediaCard physicalItem={itemWithCover} />);
+    const img = screen.getByRole('img', { name: 'Inception Blu-ray' });
+    expect(img.className).toContain('opacity-0');
+
+    fireEvent.load(img);
+    expect(img.className).toContain('opacity-100');
   });
 });

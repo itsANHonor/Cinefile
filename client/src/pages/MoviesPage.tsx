@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Media, SortField, SortOrder } from '../types';
 import { apiService } from '../services/api.service';
 import { useAuth } from '../context/AuthContext';
@@ -36,6 +36,17 @@ const MoviesPage: React.FC = () => {
   const [hasMore, setHasMore] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [totalCount, setTotalCount] = useState(0);
+  const [loadedImageIds, setLoadedImageIds] = useState<Set<number>>(new Set());
+  const staggerMapRef = useRef<Map<number, number>>(new Map());
+
+  const markImageLoaded = useCallback((id: number) => {
+    setLoadedImageIds((prev) => {
+      if (prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.add(id);
+      return next;
+    });
+  }, []);
 
   useEffect(() => {
     const timeoutId = setTimeout(() => {
@@ -104,7 +115,25 @@ const MoviesPage: React.FC = () => {
     }
   }, [isLoadingMore, hasMore, currentPage, sortBy, sortOrder, debouncedSearchQuery, mediaType]);
 
-  const sentinelRef = useInfiniteScroll(loadMoreItems, { enabled: !isLoadingMore && hasMore });
+  const sentinelRef = useInfiniteScroll(loadMoreItems, {
+    enabled: !isLoadingMore && hasMore && !loadMoreError,
+    rootMargin: '600px',
+  });
+
+  // Assign a batch-local stagger index to newly added movies while preserving existing items' indices
+  const currentMovieIds = new Set(movies.map((m) => m.id));
+  for (const id of staggerMapRef.current.keys()) {
+    if (!currentMovieIds.has(id)) {
+      staggerMapRef.current.delete(id);
+    }
+  }
+  let newMovieBatchCounter = 0;
+  for (const movie of movies) {
+    if (!staggerMapRef.current.has(movie.id)) {
+      staggerMapRef.current.set(movie.id, Math.min(newMovieBatchCounter, 11));
+      newMovieBatchCounter += 1;
+    }
+  }
 
   const handleSortChange = (newSortBy: SortField) => {
     if (newSortBy === sortBy) {
@@ -373,12 +402,15 @@ const MoviesPage: React.FC = () => {
         >
           {movies.map((movie) => {
             const isTV = movie.media_type === 'tv_season';
+            const staggerIndex = staggerMapRef.current.get(movie.id) ?? 0;
+            const isImgLoaded = loadedImageIds.has(movie.id);
 
             return (
               <div
                 key={movie.id}
                 role="listitem"
-                className={`card group relative transition-shadow hover:shadow-lg ${
+                style={{ '--stagger-index': staggerIndex } as React.CSSProperties}
+                className={`card group relative transition-shadow hover:shadow-lg media-card-batch-enter ${
                   viewMode === 'list' ? 'flex items-center space-x-4' : ''
                 }`}
               >
@@ -417,14 +449,24 @@ const MoviesPage: React.FC = () => {
                 >
                   {viewMode === 'grid' ? (
                     <>
-                      <div className="aspect-[2/3] mb-4">
+                      <div
+                        className={`aspect-[2/3] mb-4 overflow-hidden rounded-lg bg-surface-sunken ${
+                          movie.cover_art_url && !isImgLoaded ? 'skeleton-shimmer' : ''
+                        }`}
+                      >
                         {movie.cover_art_url ? (
                           <img
                             src={movie.cover_art_url}
                             alt={movie.title}
-                            className="w-full h-full object-cover rounded-lg"
+                            loading="lazy"
+                            decoding="async"
+                            onLoad={() => markImageLoaded(movie.id)}
+                            className={`w-full h-full object-cover rounded-lg transition-[opacity,transform] duration-300 ease-out motion-reduce:transition-none ${
+                              isImgLoaded ? 'scale-100 opacity-100' : 'scale-[1.02] opacity-0'
+                            }`}
                             onError={(e) => {
                               (e.target as HTMLImageElement).src = '/placeholder-movie.jpg';
+                              markImageLoaded(movie.id);
                             }}
                           />
                         ) : (
@@ -469,7 +511,11 @@ const MoviesPage: React.FC = () => {
                   ) : (
                     <>
                       {/* List View */}
-                      <div className="w-16 h-24 flex-shrink-0 relative">
+                      <div
+                        className={`w-16 h-24 flex-shrink-0 relative overflow-hidden rounded bg-surface-sunken ${
+                          movie.cover_art_url && !isImgLoaded ? 'skeleton-shimmer' : ''
+                        }`}
+                      >
                         {isTV && (
                           <div className="absolute top-0 left-0 z-10 px-1 py-0.5 bg-purple-600 text-white text-[9px] font-bold rounded-br">
                             TV
@@ -479,9 +525,15 @@ const MoviesPage: React.FC = () => {
                           <img
                             src={movie.cover_art_url}
                             alt={movie.title}
-                            className="w-full h-full object-cover rounded"
+                            loading="lazy"
+                            decoding="async"
+                            onLoad={() => markImageLoaded(movie.id)}
+                            className={`w-full h-full object-cover rounded transition-[opacity,transform] duration-300 ease-out motion-reduce:transition-none ${
+                              isImgLoaded ? 'scale-100 opacity-100' : 'scale-[1.02] opacity-0'
+                            }`}
                             onError={(e) => {
                               (e.target as HTMLImageElement).src = '/placeholder-movie.jpg';
+                              markImageLoaded(movie.id);
                             }}
                           />
                         ) : (
@@ -533,6 +585,34 @@ const MoviesPage: React.FC = () => {
               </div>
             );
           })}
+          {isLoadingMore &&
+            !loadMoreError &&
+            Array.from({ length: viewMode === 'grid' ? 5 : 3 }).map((_, i) => (
+              <div
+                key={`load-more-skeleton-${i}`}
+                role="listitem"
+                aria-hidden="true"
+                data-testid="movies-load-more-skeleton"
+                className={`card ${viewMode === 'list' ? 'flex items-center space-x-4' : ''}`}
+              >
+                {viewMode === 'grid' ? (
+                  <>
+                    <Skeleton className="aspect-[2/3] w-full rounded-[--radius-control]" />
+                    <Skeleton className="mt-3 h-4 w-3/4 rounded-[--radius-control]" />
+                    <Skeleton className="mt-2 h-3 w-1/2 rounded-[--radius-control]" />
+                  </>
+                ) : (
+                  <>
+                    <Skeleton className="h-24 w-16 flex-shrink-0 rounded-[--radius-control]" />
+                    <div className="flex-1 space-y-2">
+                      <Skeleton className="h-4 w-1/3 rounded-[--radius-control]" />
+                      <Skeleton className="h-3 w-1/4 rounded-[--radius-control]" />
+                      <Skeleton className="h-3 w-1/5 rounded-[--radius-control]" />
+                    </div>
+                  </>
+                )}
+              </div>
+            ))}
         </div>
         <div ref={sentinelRef} className="h-px" aria-hidden="true" />
 
@@ -545,14 +625,10 @@ const MoviesPage: React.FC = () => {
         </>
       )}
 
-      {/* Loading more indicator */}
-      {isLoadingMore && (
-        <div className="mt-6 flex items-center justify-center gap-2 text-content-muted">
-          <svg className="h-5 w-5 animate-spin" fill="none" viewBox="0 0 24 24" aria-hidden="true">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-          </svg>
-          <span className="text-sm">Loading more…</span>
+      {/* Loading more screen-reader status */}
+      {isLoadingMore && !loadMoreError && (
+        <div role="status" aria-live="polite" className="sr-only">
+          Loading more…
         </div>
       )}
 

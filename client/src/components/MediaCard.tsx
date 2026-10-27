@@ -28,12 +28,14 @@ const MediaCard: React.FC<MediaCardProps> = ({
   const { showFormatBadges } = useDisplayPreferences();
   const confirm = useConfirm();
   const [imageFailed, setImageFailed] = useState(false);
+  const [imageLoaded, setImageLoaded] = useState(false);
   const [showArchiveModal, setShowArchiveModal] = useState(false);
   const [archiveReason, setArchiveReason] = useState('');
   const [isArchiving, setIsArchiving] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
   const [isUnclamped, setIsUnclamped] = useState(false);
 
+  const imgRef = useRef<HTMLImageElement>(null);
   const slotRef = useRef<HTMLDivElement>(null);
   const drawerRef = useRef<HTMLDivElement>(null);
   const seriesRowRef = useRef<HTMLParagraphElement>(null);
@@ -58,6 +60,16 @@ const MediaCard: React.FC<MediaCardProps> = ({
 
   const primaryMedia = physicalItem.media[0];
   const imageUrl = physicalItem.custom_image_url || primaryMedia?.cover_art_url;
+
+  useEffect(() => {
+    setImageFailed(false);
+    if (imgRef.current?.complete && imgRef.current.naturalWidth > 0) {
+      setImageLoaded(true);
+    } else {
+      setImageLoaded(false);
+    }
+  }, [imageUrl]);
+
   const getFormatColor = (format: string) =>
     formatBadgeClasses[format] || 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200';
 
@@ -304,17 +316,25 @@ const MediaCard: React.FC<MediaCardProps> = ({
       className="card group relative flex h-full cursor-pointer flex-col overflow-hidden p-0 text-left transition-shadow duration-200 hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
     >
       {/* Cover Image */}
-      <div className="relative aspect-[2/3] overflow-hidden bg-surface-sunken">
+      <div
+        className={`relative aspect-[2/3] overflow-hidden bg-surface-sunken ${
+          imageUrl && !imageFailed && !imageLoaded ? 'skeleton-shimmer' : ''
+        }`}
+      >
         {imageUrl && !imageFailed ? (
           <img
+            ref={imgRef}
             src={imageUrl}
             alt={physicalItem.name}
             width={300}
             height={450}
             decoding="async"
             loading="lazy"
+            onLoad={() => setImageLoaded(true)}
             onError={() => setImageFailed(true)}
-            className="h-full w-full object-cover"
+            className={`h-full w-full object-cover transition-[opacity,transform] duration-300 ease-out motion-reduce:transition-none ${
+              imageLoaded ? 'scale-100 opacity-100' : 'scale-[1.02] opacity-0'
+            }`}
           />
         ) : (
           <div className="flex h-full w-full items-center justify-center">

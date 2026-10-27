@@ -25,7 +25,7 @@ const STANDARD_UNIT_MM = 12.5;
 
 router.get('/', async (req: Request, res: Response) => {
   try {
-    const { format, genres, decades, editions, edition, series, search, archived } = req.query;
+    const { format, genres, decades, editions, edition, series, search, media_type, archived } = req.query;
 
     const isAdmin = isRequestAdmin(req);
     const showArchived = isAdmin && (archived === 'true' || archived === '1');
@@ -42,6 +42,26 @@ router.get('/', async (req: Request, res: Response) => {
     // Helper function to apply filters to a query (reused from physical-items route)
     const applyFilters = (query: any) => {
       query = applyArchivedFilter(query);
+
+      // Filter by media_type if specified (include physical item if ANY linked media matches)
+      if (media_type && typeof media_type === 'string' && media_type !== 'all') {
+        if (media_type === 'movie') {
+          query = query.whereRaw(`EXISTS (
+            SELECT 1 FROM physical_item_media
+            JOIN media ON physical_item_media.media_id = media.id
+            WHERE physical_item_media.physical_item_id = physical_items.id
+            AND (media.media_type = 'movie' OR media.media_type IS NULL)
+          )`);
+        } else {
+          query = query.whereRaw(`EXISTS (
+            SELECT 1 FROM physical_item_media
+            JOIN media ON physical_item_media.media_id = media.id
+            WHERE physical_item_media.physical_item_id = physical_items.id
+            AND media.media_type = ?
+          )`, [media_type]);
+        }
+      }
+
       // Filter by format if specified (support multi-select: comma-separated)
       if (format && format !== 'all') {
         const formats = typeof format === 'string' ? format.split(',').map(f => String(f).trim()) : [String(format)];
@@ -302,11 +322,13 @@ router.get('/', async (req: Request, res: Response) => {
       });
     }
 
-    const totalMovies = await totalMoviesQuery
-      .where(function(this: any) {
-        this.whereNull('media.media_type').orWhere('media.media_type', 'movie');
-      })
-      .countDistinct('physical_item_media.media_id as count').first();
+    const totalMovies = media_type === 'tv_season'
+      ? { count: 0 }
+      : await totalMoviesQuery
+          .where(function(this: any) {
+            this.whereNull('media.media_type').orWhere('media.media_type', 'movie');
+          })
+          .countDistinct('physical_item_media.media_id as count').first();
 
     // Count TV seasons (reuse the same base query structure)
     let totalTVSeasonsQuery = db('physical_item_media')
@@ -324,6 +346,51 @@ router.get('/', async (req: Request, res: Response) => {
               this.where('physical_items.physical_format', 'like', `%"${f}"%`);
             } else {
               this.orWhere('physical_items.physical_format', 'like', `%"${f}"%`);
+            }
+          });
+        });
+      }
+    }
+
+    if (genres && typeof genres === 'string') {
+      const genreIds = genres.split(',').map(g => parseInt(g.trim())).filter(id => !isNaN(id));
+      if (genreIds.length > 0) {
+        totalTVSeasonsQuery = totalTVSeasonsQuery.where(function(this: any) {
+          genreIds.forEach((genreId: number, index: number) => {
+            if (index === 0) {
+              this.whereRaw(`EXISTS (
+                SELECT 1 FROM json_each(media.genres) 
+                WHERE json_extract(json_each.value, '$.id') = ?
+              )`, [genreId]);
+            } else {
+              this.orWhereRaw(`EXISTS (
+                SELECT 1 FROM json_each(media.genres) 
+                WHERE json_extract(json_each.value, '$.id') = ?
+              )`, [genreId]);
+            }
+          });
+        });
+      }
+    }
+
+    if (decades && typeof decades === 'string') {
+      const decadeStrings = decades.split(',').map(d => d.trim()).filter(d => d.length > 0);
+      if (decadeStrings.length > 0) {
+        totalTVSeasonsQuery = totalTVSeasonsQuery.where(function(this: any) {
+          decadeStrings.forEach((decadeStr: string, index: number) => {
+            const decadeNum = parseInt(decadeStr.replace(/s$/, ''));
+            if (!isNaN(decadeNum)) {
+              const startYear = decadeNum;
+              const endYear = decadeNum + 9;
+              if (index === 0) {
+                this.whereRaw(`media.release_date IS NOT NULL
+                  AND CAST(SUBSTR(media.release_date, 1, 4) AS INTEGER) >= ?
+                  AND CAST(SUBSTR(media.release_date, 1, 4) AS INTEGER) <= ?`, [startYear, endYear]);
+              } else {
+                this.orWhereRaw(`media.release_date IS NOT NULL
+                  AND CAST(SUBSTR(media.release_date, 1, 4) AS INTEGER) >= ?
+                  AND CAST(SUBSTR(media.release_date, 1, 4) AS INTEGER) <= ?`, [startYear, endYear]);
+              }
             }
           });
         });
@@ -369,7 +436,9 @@ router.get('/', async (req: Request, res: Response) => {
       });
     }
 
-    const totalTVSeasons = await totalTVSeasonsQuery.countDistinct('physical_item_media.media_id as count').first();
+    const totalTVSeasons = media_type === 'movie'
+      ? { count: 0 }
+      : await totalTVSeasonsQuery.countDistinct('physical_item_media.media_id as count').first();
     
     // Count movies by format using SQL aggregation with filters applied
     let formatStatsQuery = db('physical_items')

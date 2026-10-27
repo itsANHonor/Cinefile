@@ -43,6 +43,47 @@ describe('MediaGrid', () => {
     expect(container.querySelectorAll('[role="listitem"]')).toHaveLength(3);
   });
 
+  it('appends an in-grid row of skeletons when isLoadingMore is true', () => {
+    renderWithProviders(<MediaGrid physicalItems={items} onItemClick={vi.fn()} isLoadingMore />);
+    const skeletons = screen.getAllByTestId('media-grid-skeleton');
+    expect(skeletons.length).toBeGreaterThanOrEqual(2);
+    expect(screen.getAllByRole('listitem', { hidden: true })).toHaveLength(items.length + skeletons.length);
+  });
+
+  it('assigns batch-local stagger indices to newly appended items without resetting existing items', () => {
+    const { rerender } = renderWithProviders(<MediaGrid physicalItems={items} onItemClick={vi.fn()} />);
+    const initialListItems = screen.getAllByRole('listitem');
+    expect(initialListItems[0]).toHaveClass('media-card-batch-enter');
+    expect(initialListItems[0].style.getPropertyValue('--stagger-index')).toBe('0');
+    expect(initialListItems[1].style.getPropertyValue('--stagger-index')).toBe('1');
+
+    const nextBatchItems: PhysicalItem[] = [
+      ...items,
+      {
+        id: 3,
+        name: 'Interstellar 4K',
+        physical_format: ['4K UHD'],
+        media: [{ id: 12, title: 'Interstellar' }],
+        thickness_units: 1,
+      },
+      {
+        id: 4,
+        name: 'Tenet 4K',
+        physical_format: ['4K UHD'],
+        media: [{ id: 13, title: 'Tenet' }],
+        thickness_units: 1,
+      },
+    ] as PhysicalItem[];
+
+    rerender(<MediaGrid physicalItems={nextBatchItems} onItemClick={vi.fn()} />);
+    const updatedListItems = screen.getAllByRole('listitem');
+    expect(updatedListItems[0].style.getPropertyValue('--stagger-index')).toBe('0');
+    expect(updatedListItems[1].style.getPropertyValue('--stagger-index')).toBe('1');
+    // Newly appended batch restarts stagger at 0
+    expect(updatedListItems[2].style.getPropertyValue('--stagger-index')).toBe('0');
+    expect(updatedListItems[3].style.getPropertyValue('--stagger-index')).toBe('1');
+  });
+
   it('renders a floating series bar above contiguous grouped series items', () => {
     const groupedItems: PhysicalItem[] = [
       {

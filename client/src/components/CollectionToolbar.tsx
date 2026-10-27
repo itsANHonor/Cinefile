@@ -133,6 +133,32 @@ const CollectionToolbar: React.FC<CollectionToolbarProps> = ({
           )}
         </div>
 
+        <div
+          role="group"
+          aria-label="Filter by media type"
+          className="hidden sm:inline-flex items-center rounded-lg bg-gray-100 dark:bg-gray-800 p-1 flex-shrink-0"
+        >
+          {(['all', 'movie', 'tv_season'] as const).map((type) => {
+            const isSelected = params.type === type;
+            return (
+              <button
+                key={type}
+                type="button"
+                aria-pressed={isSelected}
+                disabled={isLoading}
+                onClick={() => setParams({ type })}
+                className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors whitespace-nowrap ${
+                  isSelected
+                    ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-sm'
+                    : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
+                }`}
+              >
+                {MEDIA_TYPE_LABELS[type]}
+              </button>
+            );
+          })}
+        </div>
+
         <button
           type="button"
           onClick={() => setIsFilterOpen(true)}
