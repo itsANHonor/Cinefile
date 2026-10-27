@@ -9,6 +9,7 @@ interface ActiveFilterInput {
   selectedGenres: number[];
   selectedDecades: string[];
   selectedEditions?: string[];
+  selectedSeries?: number[];
   mediaType?: 'all' | 'movie' | 'tv_season';
   archived?: boolean;
 }
@@ -19,6 +20,7 @@ export const countActiveFilters = ({
   selectedGenres,
   selectedDecades,
   selectedEditions = [],
+  selectedSeries = [],
   mediaType = 'all',
   archived = false,
 }: ActiveFilterInput): number => {
@@ -28,6 +30,7 @@ export const countActiveFilters = ({
     selectedGenres.length +
     selectedDecades.length +
     selectedEditions.length +
+    selectedSeries.length +
     (mediaType === 'all' ? 0 : 1) +
     (archived ? 1 : 0)
   );
@@ -40,9 +43,11 @@ interface FilterPanelProps {
   selectedGenres: number[];
   selectedDecades: string[];
   selectedEditions?: string[];
+  selectedSeries?: number[];
   availableGenres: Array<{ id: number; name: string }>;
   availableDecades: string[];
   availableEditions?: Array<{ tag: string; count?: number }>;
+  availableSeries?: Array<{ id: number; name: string; count?: number }>;
   mediaType?: 'all' | 'movie' | 'tv_season';
   archived?: boolean;
   showArchivedFilter?: boolean;
@@ -50,6 +55,7 @@ interface FilterPanelProps {
   onGenresChange: (genres: number[]) => void;
   onDecadesChange: (decades: string[]) => void;
   onEditionsChange?: (editions: string[]) => void;
+  onSeriesChange?: (series: number[]) => void;
   onMediaTypeChange?: (mediaType: 'all' | 'movie' | 'tv_season') => void;
   onArchivedChange?: (archived: boolean) => void;
   onClearFilters: () => void;
@@ -69,9 +75,11 @@ const FilterPanel: React.FC<FilterPanelProps> = ({
   selectedGenres,
   selectedDecades,
   selectedEditions = [],
+  selectedSeries = [],
   availableGenres,
   availableDecades,
   availableEditions = [],
+  availableSeries = [],
   mediaType = 'all',
   archived = false,
   showArchivedFilter = false,
@@ -79,6 +87,7 @@ const FilterPanel: React.FC<FilterPanelProps> = ({
   onGenresChange,
   onDecadesChange,
   onEditionsChange,
+  onSeriesChange,
   onMediaTypeChange,
   onArchivedChange,
   onClearFilters,
@@ -86,6 +95,7 @@ const FilterPanel: React.FC<FilterPanelProps> = ({
 }) => {
   const [genreQuery, setGenreQuery] = useState('');
   const [editionQuery, setEditionQuery] = useState('');
+  const [seriesQuery, setSeriesQuery] = useState('');
 
   useEffect(() => {
     if (!isOpen) return;
@@ -96,6 +106,7 @@ const FilterPanel: React.FC<FilterPanelProps> = ({
     if (!isOpen) {
       setGenreQuery('');
       setEditionQuery('');
+      setSeriesQuery('');
     }
   }, [isOpen]);
 
@@ -150,11 +161,21 @@ const FilterPanel: React.FC<FilterPanelProps> = ({
     }
   };
 
+  const handleSeriesToggle = (seriesId: number) => {
+    if (!onSeriesChange) return;
+    if (selectedSeries.includes(seriesId)) {
+      onSeriesChange(selectedSeries.filter((id) => id !== seriesId));
+    } else {
+      onSeriesChange([...selectedSeries, seriesId]);
+    }
+  };
+
   const activeCount = countActiveFilters({
     format,
     selectedGenres,
     selectedDecades,
     selectedEditions,
+    selectedSeries,
     mediaType,
     archived: showArchivedFilter && archived,
   });
@@ -173,7 +194,14 @@ const FilterPanel: React.FC<FilterPanelProps> = ({
     return availableEditions.filter((e) => e.tag.toLowerCase().includes(q));
   }, [availableEditions, editionQuery]);
 
+  const filteredSeries = useMemo(() => {
+    const q = seriesQuery.trim().toLowerCase();
+    if (!q) return availableSeries;
+    return availableSeries.filter((s) => s.name.toLowerCase().includes(q));
+  }, [availableSeries, seriesQuery]);
+
   const genreName = (id: number) => availableGenres.find(g => g.id === id)?.name ?? `Genre ${id}`;
+  const seriesName = (id: number) => availableSeries.find(s => s.id === id)?.name ?? `Series ${id}`;
 
   if (!isOpen) return null;
 
@@ -248,6 +276,9 @@ const FilterPanel: React.FC<FilterPanelProps> = ({
               ))}
               {selectedEditions.map((tag) => (
                 <Chip key={tag} label={tag} onRemove={() => handleEditionToggle(tag)} />
+              ))}
+              {selectedSeries.map((id) => (
+                <Chip key={`series-${id}`} label={seriesName(id)} onRemove={() => handleSeriesToggle(id)} />
               ))}
             </div>
           )}
@@ -393,6 +424,67 @@ const FilterPanel: React.FC<FilterPanelProps> = ({
               </div>
             )}
           </section>
+
+          {onSeriesChange && (
+            <section>
+              <div className="flex items-baseline justify-between mb-2">
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                  Series
+                </h3>
+                {selectedSeries.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => onSeriesChange([])}
+                    className="text-xs text-primary-600 dark:text-primary-400 hover:underline"
+                  >
+                    Reset
+                  </button>
+                )}
+              </div>
+              {availableSeries.length === 0 ? (
+                <p className="text-sm text-gray-500 dark:text-gray-400">No series available</p>
+              ) : (
+                <>
+                  {availableSeries.length > 10 && (
+                    <div className="relative mb-3">
+                      <input
+                        type="text"
+                        value={seriesQuery}
+                        onChange={(e) => setSeriesQuery(e.target.value)}
+                        placeholder="Find a series..."
+                        className="w-full pl-9 pr-3 py-2 text-sm rounded-lg bg-gray-100 dark:bg-gray-800 border border-transparent focus:border-primary-500 focus:bg-white dark:focus:bg-gray-900 focus-visible:ring-2 focus-visible:ring-ring/30 focus-visible:ring-offset-2 focus-visible:ring-offset-surface text-gray-900 dark:text-gray-100 placeholder-gray-500"
+                      />
+                      <svg
+                        className="absolute left-3 top-2.5 w-4 h-4 text-gray-400"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                      </svg>
+                    </div>
+                  )}
+                  {filteredSeries.length === 0 ? (
+                    <p className="text-sm text-gray-500 dark:text-gray-400">
+                      No series match "{seriesQuery}"
+                    </p>
+                  ) : (
+                    <div className="flex flex-wrap gap-2">
+                      {filteredSeries.map((s) => (
+                        <Chip
+                          key={s.id}
+                          label={s.name}
+                          count={s.count}
+                          selected={selectedSeries.includes(s.id)}
+                          onClick={() => handleSeriesToggle(s.id)}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
+            </section>
+          )}
 
           {onEditionsChange && (
             <section>

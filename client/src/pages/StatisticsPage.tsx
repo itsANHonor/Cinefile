@@ -919,7 +919,7 @@ const StatisticsPage: React.FC = () => {
                   return (
                     <Link
                       key={s.id}
-                      to={`/?q=${encodeURIComponent(s.name)}`}
+                      to={`/?series=${s.id}`}
                       className="group rounded-[--radius-control] border border-subtle bg-surface-sunken/60 p-3 hover:border-primary-400 transition-colors"
                     >
                       <div className="flex items-center justify-between text-sm mb-1.5">

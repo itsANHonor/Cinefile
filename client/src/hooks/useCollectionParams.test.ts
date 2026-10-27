@@ -13,12 +13,13 @@ function wrapperForRoute(initialRoute: string) {
 
 it('parses and serializes a full filter URL', () => {
   const { result } = renderHook(() => useCollectionParams(), {
-    wrapper: wrapperForRoute('/?q=alien&format=DVD&genre=18&edition=Steelbook,Criterion&archived=true&sort=release_date.desc'),
+    wrapper: wrapperForRoute('/?q=alien&format=DVD&genre=18&series=2,13&edition=Steelbook,Criterion&archived=true&sort=release_date.desc'),
   });
 
   expect(result.current.params.q).toBe('alien');
   expect(result.current.params.formats).toEqual(['DVD']);
   expect(result.current.params.genres).toEqual([18]);
+  expect(result.current.params.series).toEqual([2, 13]);
   expect(result.current.params.decades).toEqual([]);
   expect(result.current.params.editions).toEqual(['Steelbook', 'Criterion']);
   expect(result.current.params.type).toBe('all');

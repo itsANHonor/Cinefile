@@ -25,7 +25,7 @@ const STANDARD_UNIT_MM = 12.5;
 
 router.get('/', async (req: Request, res: Response) => {
   try {
-    const { format, genres, decades, editions, edition, search, archived } = req.query;
+    const { format, genres, decades, editions, edition, series, search, archived } = req.query;
 
     const isAdmin = isRequestAdmin(req);
     const showArchived = isAdmin && (archived === 'true' || archived === '1');
@@ -128,6 +128,34 @@ router.get('/', async (req: Request, res: Response) => {
 
       if (editions || edition) {
         query = applyEditionTagFilter(query, editions || edition);
+      }
+
+      // Filter by series if specified (multi-select: comma-separated series IDs)
+      if (series && typeof series === 'string') {
+        const seriesIds = series.split(',').map(s => parseInt(s.trim(), 10)).filter(id => !isNaN(id));
+        if (seriesIds.length > 0) {
+          query = query.where(function(this: any) {
+            seriesIds.forEach((seriesId: number, index: number) => {
+              const clause = `(
+                physical_items.sort_series_id = ?
+                OR physical_items.primary_series_id = ?
+                OR EXISTS (
+                  SELECT 1 FROM physical_item_media
+                  JOIN media ON physical_item_media.media_id = media.id
+                  LEFT JOIN movie_series ON movie_series.media_id = media.id
+                  WHERE physical_item_media.physical_item_id = physical_items.id
+                  AND (movie_series.series_id = ? OR media.primary_series_id = ?)
+                )
+              )`;
+              const bindings = [seriesId, seriesId, seriesId, seriesId];
+              if (index === 0) {
+                this.whereRaw(clause, bindings);
+              } else {
+                this.orWhereRaw(clause, bindings);
+              }
+            });
+          });
+        }
       }
 
       // Search functionality
@@ -233,6 +261,32 @@ router.get('/', async (req: Request, res: Response) => {
       totalMoviesQuery = applyEditionTagFilter(totalMoviesQuery, editions || edition);
     }
 
+    if (series && typeof series === 'string') {
+      const seriesIds = series.split(',').map(s => parseInt(s.trim(), 10)).filter(id => !isNaN(id));
+      if (seriesIds.length > 0) {
+        totalMoviesQuery = totalMoviesQuery.where(function(this: any) {
+          seriesIds.forEach((seriesId: number, index: number) => {
+            const clause = `(
+              physical_items.sort_series_id = ?
+              OR physical_items.primary_series_id = ?
+              OR media.primary_series_id = ?
+              OR EXISTS (
+                SELECT 1 FROM movie_series
+                WHERE movie_series.media_id = media.id
+                AND movie_series.series_id = ?
+              )
+            )`;
+            const bindings = [seriesId, seriesId, seriesId, seriesId];
+            if (index === 0) {
+              this.whereRaw(clause, bindings);
+            } else {
+              this.orWhereRaw(clause, bindings);
+            }
+          });
+        });
+      }
+    }
+
     if (search && typeof search === 'string' && search.trim() !== '') {
       const searchTerm = `%${search.trim()}%`;
       totalMoviesQuery = totalMoviesQuery.where(function(this: any) {
@@ -278,6 +332,32 @@ router.get('/', async (req: Request, res: Response) => {
 
     if (editions || edition) {
       totalTVSeasonsQuery = applyEditionTagFilter(totalTVSeasonsQuery, editions || edition);
+    }
+
+    if (series && typeof series === 'string') {
+      const seriesIds = series.split(',').map(s => parseInt(s.trim(), 10)).filter(id => !isNaN(id));
+      if (seriesIds.length > 0) {
+        totalTVSeasonsQuery = totalTVSeasonsQuery.where(function(this: any) {
+          seriesIds.forEach((seriesId: number, index: number) => {
+            const clause = `(
+              physical_items.sort_series_id = ?
+              OR physical_items.primary_series_id = ?
+              OR media.primary_series_id = ?
+              OR EXISTS (
+                SELECT 1 FROM movie_series
+                WHERE movie_series.media_id = media.id
+                AND movie_series.series_id = ?
+              )
+            )`;
+            const bindings = [seriesId, seriesId, seriesId, seriesId];
+            if (index === 0) {
+              this.whereRaw(clause, bindings);
+            } else {
+              this.orWhereRaw(clause, bindings);
+            }
+          });
+        });
+      }
     }
 
     if (search && typeof search === 'string' && search.trim() !== '') {
@@ -466,11 +546,45 @@ router.get('/facets', async (req: Request, res: Response) => {
       (a, b) => b.count - a.count || a.tag.localeCompare(b.tag)
     );
 
+    // Full-collection series list with item counts
+    const seriesRows = await db.raw(`
+      SELECT s.id, s.name, s.sort_name, COUNT(DISTINCT item_series.item_id) AS count
+      FROM (
+        SELECT ms.series_id AS series_id, pi.id AS item_id
+        FROM physical_items pi
+        JOIN physical_item_media pim ON pim.physical_item_id = pi.id
+        JOIN movie_series ms ON ms.media_id = pim.media_id
+        WHERE (pi.archived = 0 OR pi.archived IS NULL)
+        UNION
+        SELECT m.primary_series_id AS series_id, pi.id AS item_id
+        FROM physical_items pi
+        JOIN physical_item_media pim ON pim.physical_item_id = pi.id
+        JOIN media m ON m.id = pim.media_id
+        WHERE m.primary_series_id IS NOT NULL
+        AND (pi.archived = 0 OR pi.archived IS NULL)
+        UNION
+        SELECT COALESCE(pi.sort_series_id, pi.primary_series_id) AS series_id, pi.id AS item_id
+        FROM physical_items pi
+        WHERE COALESCE(pi.sort_series_id, pi.primary_series_id) IS NOT NULL
+        AND (pi.archived = 0 OR pi.archived IS NULL)
+      ) item_series
+      JOIN series s ON s.id = item_series.series_id
+      GROUP BY s.id, s.name, s.sort_name
+      ORDER BY COALESCE(s.sort_name, s.name) ASC
+    `);
+
+    const series = (seriesRows || []).map((row: any) => ({
+      id: Number(row.id),
+      name: String(row.name),
+      count: Number(row.count),
+    }));
+
     res.json({
       genres,
       decades,
       formats,
       editions,
+      series,
     });
   } catch (error) {
     console.error('Error fetching facets:', error);

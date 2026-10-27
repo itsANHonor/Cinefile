@@ -6,6 +6,7 @@ import { useConfirm } from '../context/ConfirmContext';
 import { Button } from './ui/Button';
 import { EmptyState } from './ui/EmptyState';
 import { Skeleton } from './ui/Skeleton';
+import { resetFacetsCache } from '../hooks/useFacets';
 
 interface SeriesFormData {
   name: string;
@@ -469,6 +470,7 @@ const SeriesManager: React.FC = () => {
     if (!confirmed) return;
     try {
       await apiService.deleteSeries(target.id);
+      resetFacetsCache();
       toast({ message: `Deleted "${target.name}".`, type: 'success' });
       await loadSeries();
     } catch (error) {
@@ -478,6 +480,7 @@ const SeriesManager: React.FC = () => {
   };
 
   const handleSaved = async () => {
+    resetFacetsCache();
     setEditingSeriesId(null);
     setIsCreating(false);
     await loadSeries();

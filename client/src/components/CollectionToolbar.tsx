@@ -13,6 +13,7 @@ export interface CollectionToolbarProps {
   availableGenres: Array<{ id: number; name: string }>;
   availableDecades: string[];
   availableEditions?: Array<{ tag: string; count?: number }>;
+  availableSeries?: Array<{ id: number; name: string; count?: number }>;
   resultCount?: number;
   isLoading?: boolean;
   showArchivedFilter?: boolean;
@@ -46,6 +47,7 @@ const CollectionToolbar: React.FC<CollectionToolbarProps> = ({
   availableGenres,
   availableDecades,
   availableEditions = [],
+  availableSeries = [],
   resultCount,
   isLoading,
   showArchivedFilter = false,
@@ -55,12 +57,14 @@ const CollectionToolbar: React.FC<CollectionToolbarProps> = ({
   const [isFilterOpen, setIsFilterOpen] = useState(false);
 
   const selectedEditions = params.editions ?? [];
+  const selectedSeries = params.series ?? [];
 
   const activeFilterCount = countActiveFilters({
     format: params.formats,
     selectedGenres: params.genres,
     selectedDecades: params.decades,
     selectedEditions,
+    selectedSeries,
     mediaType: params.type,
     archived: showArchivedFilter && params.archived,
   });
@@ -80,6 +84,9 @@ const CollectionToolbar: React.FC<CollectionToolbarProps> = ({
 
   const genreName = (id: number) =>
     availableGenres.find((g) => g.id === id)?.name ?? `Genre ${id}`;
+
+  const seriesName = (id: number) =>
+    availableSeries.find((s) => s.id === id)?.name ?? `Series ${id}`;
 
   return (
     <div className="sticky top-16 lg:top-16 z-20 -mx-4 px-4 sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8 py-2 bg-white/85 dark:bg-gray-900/85 backdrop-blur border-b border-gray-200 dark:border-gray-700">
@@ -258,6 +265,17 @@ const CollectionToolbar: React.FC<CollectionToolbarProps> = ({
               }
             />
           ))}
+          {selectedSeries.map((id) => (
+            <Chip
+              key={`series-${id}`}
+              label={seriesName(id)}
+              onRemove={() =>
+                setParams({
+                  series: selectedSeries.filter((s) => s !== id),
+                })
+              }
+            />
+          ))}
           <button
             type="button"
             onClick={clearAll}
@@ -275,9 +293,11 @@ const CollectionToolbar: React.FC<CollectionToolbarProps> = ({
         selectedGenres={params.genres}
         selectedDecades={params.decades}
         selectedEditions={selectedEditions}
+        selectedSeries={selectedSeries}
         availableGenres={availableGenres}
         availableDecades={availableDecades}
         availableEditions={availableEditions}
+        availableSeries={availableSeries}
         mediaType={params.type}
         archived={showArchivedFilter ? params.archived : false}
         showArchivedFilter={showArchivedFilter}
@@ -288,6 +308,7 @@ const CollectionToolbar: React.FC<CollectionToolbarProps> = ({
         onGenresChange={(genres) => setParams({ genres })}
         onDecadesChange={(decades) => setParams({ decades })}
         onEditionsChange={(editions) => setParams({ editions })}
+        onSeriesChange={(series) => setParams({ series })}
         onMediaTypeChange={(type) => setParams({ type })}
         onArchivedChange={(archived) => setParams({ archived })}
         onClearFilters={clearAll}

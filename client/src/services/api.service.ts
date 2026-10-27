@@ -230,6 +230,9 @@ class ApiService {
       if (filterOptions.editions && filterOptions.editions.length > 0) {
         params.editions = filterOptions.editions.join(',');
       }
+      if (filterOptions.series && filterOptions.series.length > 0) {
+        params.series = filterOptions.series.join(',');
+      }
       if (filterOptions.media_type && filterOptions.media_type !== 'all') params.media_type = filterOptions.media_type;
       if (filterOptions.archived) params.archived = 'true';
       if (filterOptions.sort_by) params.sort_by = filterOptions.sort_by;
@@ -382,6 +385,7 @@ class ApiService {
     genres?: number[];
     decades?: string[];
     editions?: string[];
+    series?: number[];
     search?: string;
     archived?: boolean;
   }): Promise<CollectionStatistics> {
@@ -403,6 +407,9 @@ class ApiService {
       }
       if (filters.editions && filters.editions.length > 0) {
         params.editions = filters.editions.join(',');
+      }
+      if (filters.series && filters.series.length > 0) {
+        params.series = filters.series.join(',');
       }
       if (filters.search) {
         params.search = filters.search;

@@ -38,7 +38,7 @@ interface PhysicalItemWithMedia {
  */
 router.get('/', async (req: Request, res: Response) => {
   try {
-    const { format, genres, decades, editions, edition, sort_by = 'created_at', sort_order = 'desc', search, media_type, page = '1', limit = '24' } = req.query;
+    const { format, genres, decades, editions, edition, series, sort_by = 'created_at', sort_order = 'desc', search, media_type, page = '1', limit = '24' } = req.query;
 
     // Start with base query - fetch physical items WITHOUT joins first
     // This ensures all items are returned, then we'll filter and attach media separately
@@ -154,6 +154,34 @@ router.get('/', async (req: Request, res: Response) => {
     // Filter by edition tags if specified (multi-select: comma-separated tags)
     if (editions || edition) {
       query = applyEditionTagFilter(query, editions || edition);
+    }
+
+    // Filter by series if specified (multi-select: comma-separated series IDs)
+    if (series && typeof series === 'string') {
+      const seriesIds = series.split(',').map(s => parseInt(s.trim(), 10)).filter(id => !isNaN(id));
+      if (seriesIds.length > 0) {
+        query = query.where(function() {
+          seriesIds.forEach((seriesId: number, index: number) => {
+            const clause = `(
+              physical_items.sort_series_id = ?
+              OR physical_items.primary_series_id = ?
+              OR EXISTS (
+                SELECT 1 FROM physical_item_media
+                JOIN media ON physical_item_media.media_id = media.id
+                LEFT JOIN movie_series ON movie_series.media_id = media.id
+                WHERE physical_item_media.physical_item_id = physical_items.id
+                AND (movie_series.series_id = ? OR media.primary_series_id = ?)
+              )
+            )`;
+            const bindings = [seriesId, seriesId, seriesId, seriesId];
+            if (index === 0) {
+              this.whereRaw(clause, bindings);
+            } else {
+              this.orWhereRaw(clause, bindings);
+            }
+          });
+        });
+      }
     }
 
     // Search functionality
@@ -325,6 +353,34 @@ router.get('/', async (req: Request, res: Response) => {
     // Filter by edition tags in count query
     if (editions || edition) {
       countQuery = applyEditionTagFilter(countQuery, editions || edition);
+    }
+
+    // Filter by series in count query
+    if (series && typeof series === 'string') {
+      const seriesIds = series.split(',').map(s => parseInt(s.trim(), 10)).filter(id => !isNaN(id));
+      if (seriesIds.length > 0) {
+        countQuery = countQuery.where(function() {
+          seriesIds.forEach((seriesId: number, index: number) => {
+            const clause = `(
+              physical_items.sort_series_id = ?
+              OR physical_items.primary_series_id = ?
+              OR EXISTS (
+                SELECT 1 FROM physical_item_media
+                JOIN media ON physical_item_media.media_id = media.id
+                LEFT JOIN movie_series ON movie_series.media_id = media.id
+                WHERE physical_item_media.physical_item_id = physical_items.id
+                AND (movie_series.series_id = ? OR media.primary_series_id = ?)
+              )
+            )`;
+            const bindings = [seriesId, seriesId, seriesId, seriesId];
+            if (index === 0) {
+              this.whereRaw(clause, bindings);
+            } else {
+              this.orWhereRaw(clause, bindings);
+            }
+          });
+        });
+      }
     }
 
     if (search && typeof search === 'string' && search.trim() !== '') {

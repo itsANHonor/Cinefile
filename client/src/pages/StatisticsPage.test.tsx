@@ -191,7 +191,7 @@ describe('StatisticsPage', () => {
     // Fallback monogram initials when profileUrl is null
     expect(screen.getByText('CN')).toBeInTheDocument();
 
-    // Decades & Genres in Content Insights
+    // Decades, Genres & Series in Content Insights
     expect(screen.getByRole('link', { name: /Science Fiction/i })).toHaveAttribute(
       'href',
       '/?genre=878'
@@ -199,6 +199,10 @@ describe('StatisticsPage', () => {
     expect(screen.getByRole('link', { name: /1990s/i })).toHaveAttribute(
       'href',
       '/?decade=1990'
+    );
+    expect(screen.getByRole('link', { name: /Dune Collection/i })).toHaveAttribute(
+      'href',
+      '/?series=1'
     );
 
     // Switch to Physical Statistics tab

@@ -275,6 +275,7 @@ export interface FilterOptions {
   genres?: number[]; // Array of genre IDs for multi-select
   decades?: string[]; // Array of decade strings like ["1990", "2000"] for multi-select
   editions?: string[]; // Array of edition tag strings for multi-select
+  series?: number[]; // Array of series IDs for multi-select
   media_type?: 'all' | 'movie' | 'tv_season';
   archived?: boolean;
   sort_by?: SortField;
@@ -612,9 +613,16 @@ export interface CollectionFacetEdition {
   count: number;
 }
 
+export interface CollectionFacetSeries {
+  id: number;
+  name: string;
+  count: number;
+}
+
 export interface CollectionFacets {
   genres: CollectionFacetGenre[];
   decades: CollectionFacetDecade[];
   formats: CollectionFacetFormat[];
   editions?: CollectionFacetEdition[];
+  series?: CollectionFacetSeries[];
 }
