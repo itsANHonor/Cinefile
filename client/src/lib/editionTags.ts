@@ -24,3 +24,20 @@ export function parseEditionTags(raw: string | string[] | null | undefined): str
 export function formatEditionTags(tags: string[]): string {
   return parseEditionTags(tags).join(', ');
 }
+
+export const PRESET_VERSION_TAGS = [
+  'Theatrical',
+  'Extended',
+  "Director's Cut",
+  'Unrated',
+  'Ultimate Edition',
+  'Special Edition',
+  'Final Cut',
+  'Redux',
+  'IMAX',
+  'Remastered',
+  'Open Matte',
+  '3D',
+  'Black & White',
+] as const;
+

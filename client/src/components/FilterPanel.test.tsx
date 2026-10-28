@@ -11,6 +11,7 @@ const defaultParams: CollectionParams = {
   genres: [],
   decades: [],
   editions: [],
+  versions: [],
   series: [],
   type: 'all',
   archived: false,

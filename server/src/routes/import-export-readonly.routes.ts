@@ -98,6 +98,13 @@ router.get('/schema', (req: Request, res: Response) => {
         example: '1',
       },
       {
+        name: 'version_notes',
+        type: 'string',
+        required: false,
+        description: 'Movie version or cut included on this disc/entry (e.g., Theatrical, Extended, Director\'s Cut)',
+        example: 'Extended',
+      },
+      {
         name: 'edition_notes',
         type: 'string',
         required: false,

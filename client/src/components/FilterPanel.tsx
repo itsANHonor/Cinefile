@@ -19,6 +19,7 @@ interface ActiveFilterInput {
   selectedGenres: number[];
   selectedDecades: string[];
   selectedEditions?: string[];
+  selectedVersions?: string[];
   selectedSeries?: number[];
   mediaType?: 'all' | 'movie' | 'tv_season';
   archived?: boolean;
@@ -30,6 +31,7 @@ export const countActiveFilters = ({
   selectedGenres,
   selectedDecades,
   selectedEditions = [],
+  selectedVersions = [],
   selectedSeries = [],
   mediaType = 'all',
   archived = false,
@@ -40,6 +42,7 @@ export const countActiveFilters = ({
     selectedGenres.length +
     selectedDecades.length +
     selectedEditions.length +
+    selectedVersions.length +
     selectedSeries.length +
     (mediaType === 'all' ? 0 : 1) +
     (archived ? 1 : 0)
@@ -53,10 +56,12 @@ interface FilterPanelProps {
   selectedGenres: number[];
   selectedDecades: string[];
   selectedEditions?: string[];
+  selectedVersions?: string[];
   selectedSeries?: number[];
   availableGenres: Array<{ id: number; name: string }>;
   availableDecades: string[];
   availableEditions?: Array<{ tag: string; count?: number }>;
+  availableVersions?: Array<{ tag: string; count?: number }>;
   availableSeries?: Array<{ id: number; name: string; count?: number }>;
   mediaType?: 'all' | 'movie' | 'tv_season';
   archived?: boolean;
@@ -65,6 +70,7 @@ interface FilterPanelProps {
   onGenresChange: (genres: number[]) => void;
   onDecadesChange: (decades: string[]) => void;
   onEditionsChange?: (editions: string[]) => void;
+  onVersionsChange?: (versions: string[]) => void;
   onSeriesChange?: (series: number[]) => void;
   onMediaTypeChange?: (mediaType: 'all' | 'movie' | 'tv_season') => void;
   onArchivedChange?: (archived: boolean) => void;
@@ -85,10 +91,12 @@ const FilterPanel: React.FC<FilterPanelProps> = ({
   selectedGenres,
   selectedDecades,
   selectedEditions = [],
+  selectedVersions = [],
   selectedSeries = [],
   availableGenres,
   availableDecades,
   availableEditions = [],
+  availableVersions = [],
   availableSeries = [],
   mediaType = 'all',
   archived = false,
@@ -97,6 +105,7 @@ const FilterPanel: React.FC<FilterPanelProps> = ({
   onGenresChange,
   onDecadesChange,
   onEditionsChange,
+  onVersionsChange,
   onSeriesChange,
   onMediaTypeChange,
   onArchivedChange,
@@ -105,6 +114,7 @@ const FilterPanel: React.FC<FilterPanelProps> = ({
 }) => {
   const [genreQuery, setGenreQuery] = useState('');
   const [editionQuery, setEditionQuery] = useState('');
+  const [versionQuery, setVersionQuery] = useState('');
   const [seriesQuery, setSeriesQuery] = useState('');
   const panelRef = useRef<HTMLDivElement>(null);
   const previouslyFocused = useRef<Element | null>(null);
@@ -132,6 +142,7 @@ const FilterPanel: React.FC<FilterPanelProps> = ({
     if (!isOpen) {
       setGenreQuery('');
       setEditionQuery('');
+      setVersionQuery('');
       setSeriesQuery('');
     }
   }, [isOpen]);
@@ -212,6 +223,18 @@ const FilterPanel: React.FC<FilterPanelProps> = ({
     }
   };
 
+  const isVersionSelected = (tag: string) =>
+    selectedVersions.some((v) => v.toLowerCase() === tag.toLowerCase());
+
+  const handleVersionToggle = (tag: string) => {
+    if (!onVersionsChange) return;
+    if (isVersionSelected(tag)) {
+      onVersionsChange(selectedVersions.filter((v) => v.toLowerCase() !== tag.toLowerCase()));
+    } else {
+      onVersionsChange([...selectedVersions, tag]);
+    }
+  };
+
   const handleSeriesToggle = (seriesId: number) => {
     if (!onSeriesChange) return;
     if (selectedSeries.includes(seriesId)) {
@@ -226,6 +249,7 @@ const FilterPanel: React.FC<FilterPanelProps> = ({
     selectedGenres,
     selectedDecades,
     selectedEditions,
+    selectedVersions,
     selectedSeries,
     mediaType,
     archived: showArchivedFilter && archived,
@@ -244,6 +268,12 @@ const FilterPanel: React.FC<FilterPanelProps> = ({
     if (!q) return availableEditions;
     return availableEditions.filter((e) => e.tag.toLowerCase().includes(q));
   }, [availableEditions, editionQuery]);
+
+  const filteredVersions = useMemo(() => {
+    const q = versionQuery.trim().toLowerCase();
+    if (!q) return availableVersions;
+    return availableVersions.filter((v) => v.tag.toLowerCase().includes(q));
+  }, [availableVersions, versionQuery]);
 
   const filteredSeries = useMemo(() => {
     const q = seriesQuery.trim().toLowerCase();
@@ -329,6 +359,9 @@ const FilterPanel: React.FC<FilterPanelProps> = ({
               ))}
               {selectedEditions.map((tag) => (
                 <Chip key={tag} label={tag} onRemove={() => handleEditionToggle(tag)} />
+              ))}
+              {selectedVersions.map((tag) => (
+                <Chip key={`version-${tag}`} label={tag} onRemove={() => handleVersionToggle(tag)} />
               ))}
               {selectedSeries.map((id) => (
                 <Chip key={`series-${id}`} label={seriesName(id)} onRemove={() => handleSeriesToggle(id)} />
@@ -530,6 +563,67 @@ const FilterPanel: React.FC<FilterPanelProps> = ({
                           count={s.count}
                           selected={selectedSeries.includes(s.id)}
                           onClick={() => handleSeriesToggle(s.id)}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
+            </section>
+          )}
+
+          {onVersionsChange && (
+            <section>
+              <div className="flex items-baseline justify-between mb-2">
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                  Movie Versions
+                </h3>
+                {selectedVersions.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => onVersionsChange([])}
+                    className="text-xs text-primary-600 dark:text-primary-400 hover:underline"
+                  >
+                    Reset
+                  </button>
+                )}
+              </div>
+              {availableVersions.length === 0 ? (
+                <p className="text-sm text-gray-500 dark:text-gray-400">No version tags available</p>
+              ) : (
+                <>
+                  {availableVersions.length > 10 && (
+                    <div className="relative mb-3">
+                      <input
+                        type="text"
+                        value={versionQuery}
+                        onChange={(e) => setVersionQuery(e.target.value)}
+                        placeholder="Find a version tag..."
+                        className="w-full pl-9 pr-3 py-2 text-sm rounded-lg bg-gray-100 dark:bg-gray-800 border border-transparent focus:border-primary-500 focus:bg-white dark:focus:bg-gray-900 focus-visible:ring-2 focus-visible:ring-ring/30 focus-visible:ring-offset-2 focus-visible:ring-offset-surface text-gray-900 dark:text-gray-100 placeholder-gray-500"
+                      />
+                      <svg
+                        className="absolute left-3 top-2.5 w-4 h-4 text-gray-400"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                      </svg>
+                    </div>
+                  )}
+                  {filteredVersions.length === 0 ? (
+                    <p className="text-sm text-gray-500 dark:text-gray-400">
+                      No version tags match "{versionQuery}"
+                    </p>
+                  ) : (
+                    <div className="flex flex-wrap gap-2">
+                      {filteredVersions.map((version) => (
+                        <Chip
+                          key={version.tag}
+                          label={version.tag}
+                          count={version.count}
+                          selected={isVersionSelected(version.tag)}
+                          onClick={() => handleVersionToggle(version.tag)}
                         />
                       ))}
                     </div>

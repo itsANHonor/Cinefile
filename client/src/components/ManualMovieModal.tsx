@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import type { ManualMovieData } from '../types';
 import { apiService } from '../services/api.service';
 import { useToast } from '../context/ToastContext';
+import PosterSelector from './PosterSelector';
 
 interface ManualMovieModalProps {
   isOpen: boolean;
@@ -31,6 +32,7 @@ const ManualMovieModal: React.FC<ManualMovieModalProps> = ({
   const [episodeCountInput, setEpisodeCountInput] = useState('');
   const [castMember, setCastMember] = useState('');
   const [uploadingImage, setUploadingImage] = useState(false);
+  const [showCoverPicker, setShowCoverPicker] = useState(false);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -274,9 +276,18 @@ const ManualMovieModal: React.FC<ManualMovieModalProps> = ({
             </div>
 
             <div>
-              <label htmlFor="manual-movie-cover-art" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Cover art URL
-              </label>
+              <div className="flex items-center justify-between mb-1">
+                <label htmlFor="manual-movie-cover-art" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Cover art URL
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setShowCoverPicker(true)}
+                  className="text-xs font-medium text-primary-600 dark:text-primary-400 hover:underline"
+                >
+                  Search Cover Art (Amazon / Blu-ray.com)
+                </button>
+              </div>
               <input
                 id="manual-movie-cover-art"
                 type="url"
@@ -305,6 +316,20 @@ const ManualMovieModal: React.FC<ManualMovieModalProps> = ({
           </form>
         </div>
       </div>
+
+      {showCoverPicker && (
+        <PosterSelector
+          tmdbId={null}
+          movieTitle={formData.title || (isTV ? 'Manual TV Show' : 'Manual Movie')}
+          initialQuery={formData.title}
+          onSelect={(url) => {
+            updateField('cover_art_url', url);
+            setShowCoverPicker(false);
+          }}
+          onClose={() => setShowCoverPicker(false)}
+          currentPosterUrl={formData.cover_art_url}
+        />
+      )}
     </div>
   );
 };

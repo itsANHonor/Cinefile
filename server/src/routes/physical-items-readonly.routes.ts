@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { db } from '../database';
-import { applyEditionTagFilter } from '../utils/edition-tags.util';
+import { applyEditionTagFilter, applyVersionTagFilter } from '../utils/edition-tags.util';
 
 const router = Router();
 
@@ -20,6 +20,7 @@ interface PhysicalItemWithMedia {
   updated_at?: string;
   media: Array<{
     id: number;
+    link_id?: number;
     title: string;
     tmdb_id?: number;
     synopsis?: string;
@@ -29,6 +30,7 @@ interface PhysicalItemWithMedia {
     cast?: string[];
     disc_number?: number;
     formats?: string[];
+    version_notes?: string | null;
   }>;
 }
 
@@ -38,7 +40,7 @@ interface PhysicalItemWithMedia {
  */
 router.get('/', async (req: Request, res: Response) => {
   try {
-    const { format, genres, decades, editions, edition, series, sort_by = 'created_at', sort_order = 'desc', search, media_type, page = '1', limit = '24' } = req.query;
+    const { format, genres, decades, editions, edition, versions, version, series, sort_by = 'created_at', sort_order = 'desc', search, media_type, page = '1', limit = '24' } = req.query;
 
     // Start with base query - fetch physical items WITHOUT joins first
     // This ensures all items are returned, then we'll filter and attach media separately
@@ -156,6 +158,11 @@ router.get('/', async (req: Request, res: Response) => {
       query = applyEditionTagFilter(query, editions || edition);
     }
 
+    // Filter by movie version tags if specified (multi-select: comma-separated tags)
+    if (versions || version) {
+      query = applyVersionTagFilter(query, versions || version);
+    }
+
     // Filter by series if specified (multi-select: comma-separated series IDs)
     if (series && typeof series === 'string') {
       const seriesIds = series.split(',').map(s => parseInt(s.trim(), 10)).filter(id => !isNaN(id));
@@ -198,12 +205,13 @@ router.get('/', async (req: Request, res: Response) => {
               media.title LIKE ? OR
               media.director LIKE ? OR
               media.synopsis LIKE ? OR
+              physical_item_media.version_notes LIKE ? OR
               EXISTS (
                 SELECT 1 FROM json_each(media.cast) 
                 WHERE json_each.value LIKE ?
               )
             )
-          )`, [searchTerm, searchTerm, searchTerm, searchTerm]);
+          )`, [searchTerm, searchTerm, searchTerm, searchTerm, searchTerm]);
       });
     }
 
@@ -355,6 +363,11 @@ router.get('/', async (req: Request, res: Response) => {
       countQuery = applyEditionTagFilter(countQuery, editions || edition);
     }
 
+    // Filter by movie version tags in count query
+    if (versions || version) {
+      countQuery = applyVersionTagFilter(countQuery, versions || version);
+    }
+
     // Filter by series in count query
     if (series && typeof series === 'string') {
       const seriesIds = series.split(',').map(s => parseInt(s.trim(), 10)).filter(id => !isNaN(id));
@@ -396,12 +409,13 @@ router.get('/', async (req: Request, res: Response) => {
               media.title LIKE ? OR
               media.director LIKE ? OR
               media.synopsis LIKE ? OR
+              physical_item_media.version_notes LIKE ? OR
               EXISTS (
                 SELECT 1 FROM json_each(media.cast) 
                 WHERE json_each.value LIKE ?
               )
             )
-          )`, [searchTerm, searchTerm, searchTerm, searchTerm]);
+          )`, [searchTerm, searchTerm, searchTerm, searchTerm, searchTerm]);
       });
     }
 
@@ -458,12 +472,15 @@ router.get('/', async (req: Request, res: Response) => {
       .whereIn('physical_item_media.physical_item_id', itemIds)
       .select(
         'physical_item_media.physical_item_id',
+        'physical_item_media.id as link_id',
         'media.*',
         'physical_item_media.disc_number',
-        'physical_item_media.formats'
+        'physical_item_media.formats',
+        'physical_item_media.version_notes'
       )
       .orderBy('physical_item_media.physical_item_id')
-      .orderBy('physical_item_media.disc_number') : [];
+      .orderBy('physical_item_media.disc_number')
+      .orderBy('physical_item_media.id') : [];
 
     // For series_sort, fetch series data and movie_series data
     let seriesMap = new Map<number, any>();
@@ -610,6 +627,7 @@ router.get('/', async (req: Request, res: Response) => {
 
         return {
           id: m.id,
+          link_id: m.link_id,
           title: m.title,
           tmdb_id: m.tmdb_id,
           synopsis: m.synopsis,
@@ -617,6 +635,7 @@ router.get('/', async (req: Request, res: Response) => {
           release_date: m.release_date,
           director: m.director,
           disc_number: m.disc_number,
+          version_notes: m.version_notes || null,
           formats: m.formats ? (typeof m.formats === 'string' ? JSON.parse(m.formats) : m.formats) : [],
           cast: m.cast ? (typeof m.cast === 'string' ? JSON.parse(m.cast) : m.cast) : [],
           genres: m.genres ? (typeof m.genres === 'string' ? JSON.parse(m.genres) : m.genres) : [],
@@ -828,10 +847,14 @@ router.get('/:id', async (req: Request, res: Response) => {
       .join('media', 'physical_item_media.media_id', 'media.id')
       .where('physical_item_media.physical_item_id', id)
       .select(
+        'physical_item_media.id as link_id',
         'media.*',
         'physical_item_media.disc_number',
-        'physical_item_media.formats'
-      );
+        'physical_item_media.formats',
+        'physical_item_media.version_notes'
+      )
+      .orderBy('physical_item_media.disc_number')
+      .orderBy('physical_item_media.id');
 
     // Get shelf placement
     const placement = await db('shelf_placements')

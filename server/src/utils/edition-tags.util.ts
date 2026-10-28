@@ -116,3 +116,67 @@ export function applyEditionTagFilter(query: any, editionsParam: unknown): any {
     });
   });
 }
+
+export const PRESET_VERSION_TAGS = [
+  'Theatrical',
+  'Extended',
+  "Director's Cut",
+  'Unrated',
+  'Ultimate Edition',
+  'Special Edition',
+  'Final Cut',
+  'Redux',
+  'IMAX',
+  'Remastered',
+  'Open Matte',
+  '3D',
+  'Black & White',
+] as const;
+
+export function buildCanonicalVersionTagMap(
+  rows: Array<{ version_notes?: string | null }>
+): Map<string, string> {
+  const canonical = buildCanonicalEditionTagMap(
+    rows.map((r) => ({ edition_notes: r.version_notes }))
+  );
+  for (const preset of PRESET_VERSION_TAGS) {
+    const key = preset.toLowerCase();
+    if (!canonical.has(key)) {
+      canonical.set(key, preset);
+    }
+  }
+  return canonical;
+}
+
+export function normalizeVersionNotes(
+  raw: unknown,
+  canonicalMap?: Map<string, string>
+): string | null {
+  return normalizeEditionNotes(raw, canonicalMap);
+}
+
+/**
+ * Apply multi-select movie version tag filter to a Knex query on `physical_items`.
+ * Matches whole comma-separated tags in `physical_item_media.version_notes` case-insensitively.
+ */
+export function applyVersionTagFilter(query: any, versionsParam: unknown): any {
+  const tags = parseEditionTags(versionsParam);
+  if (tags.length === 0) return query;
+
+  return query.where(function (this: any) {
+    tags.forEach((tag, index) => {
+      const needle = `,${tag.toLowerCase()},`;
+      const sql = `EXISTS (
+        SELECT 1 FROM physical_item_media
+        WHERE physical_item_media.physical_item_id = physical_items.id
+        AND INSTR(',' || REPLACE(REPLACE(REPLACE(LOWER(TRIM(COALESCE(physical_item_media.version_notes, ''))), ',  ', ','), ', ', ','), ' ,', ',') || ',', ?) > 0
+      )`;
+      if (index === 0) {
+        this.whereRaw(sql, [needle]);
+      } else {
+        this.orWhereRaw(sql, [needle]);
+      }
+    });
+  });
+}
+

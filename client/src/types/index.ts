@@ -48,8 +48,10 @@ export interface Media {
   letterboxd_updated_at?: string | null;
   created_at?: string;
   updated_at?: string;
+  link_id?: number; // For junction table row ID (physical_item_media.id)
   disc_number?: number; // For junction table data
   formats?: string[]; // For junction table data - per-movie formats
+  version_notes?: string | null; // For junction table data - per-movie version/cut tags
 }
 
 export interface LetterboxdFuzzySuggestion {
@@ -217,6 +219,7 @@ export interface CreatePhysicalItemDto {
     cast?: string[];
     disc_number?: number;
     formats?: string[]; // Per-movie formats
+    version_notes?: string | null; // Per-movie version/cut tags
     media_type?: 'movie' | 'tv_season';
     tv_show_tmdb_id?: number;
     tv_show_name?: string;
@@ -234,6 +237,7 @@ export interface CreatePhysicalItemDto {
     cast?: string[];
     disc_number?: number;
     formats?: string[];
+    version_notes?: string | null;
     media_type?: 'movie' | 'tv_season';
     tv_show_tmdb_id?: number;
     tv_show_name?: string;
@@ -344,6 +348,7 @@ export interface FilterOptions {
   genres?: number[]; // Array of genre IDs for multi-select
   decades?: string[]; // Array of decade strings like ["1990", "2000"] for multi-select
   editions?: string[]; // Array of edition tag strings for multi-select
+  versions?: string[]; // Array of movie version tag strings for multi-select
   series?: number[]; // Array of series IDs for multi-select
   media_type?: 'all' | 'movie' | 'tv_season';
   archived?: boolean;
@@ -693,5 +698,28 @@ export interface CollectionFacets {
   decades: CollectionFacetDecade[];
   formats: CollectionFacetFormat[];
   editions?: CollectionFacetEdition[];
+  versions?: CollectionFacetEdition[];
   series?: CollectionFacetSeries[];
+}
+
+// Cover art scraper / picker types
+export type CoverSource = 'amazon' | 'bluray' | 'tmdb' | 'url';
+
+export interface CoverCandidate {
+  id: string;
+  url: string;
+  thumbnailUrl: string;
+  title: string;
+  subtitle?: string;
+  source: CoverSource;
+  productUrl?: string;
+  asin?: string;
+}
+
+export interface CoverSearchResponse {
+  results: CoverCandidate[];
+  sourcesStatus: {
+    amazon: 'ok' | 'empty' | 'error';
+    bluray: 'ok' | 'empty' | 'error';
+  };
 }

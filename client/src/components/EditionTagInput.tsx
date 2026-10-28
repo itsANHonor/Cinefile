@@ -7,14 +7,15 @@ export interface EditionTagInputProps {
   value: string;
   onChange: (value: string) => void;
   availableTags?: CollectionFacetEdition[];
+  presetTags?: readonly string[];
   placeholder?: string;
   className?: string;
 }
 
 /**
- * Letterboxd-style tag input for Edition Notes.
- * - Displays committed edition notes as removable tag pills.
- * - Autocompletes against existing edition tags in the collection as the user types.
+ * Letterboxd-style tag input for Edition Notes and Movie Versions.
+ * - Displays committed tags as removable tag pills.
+ * - Autocompletes against existing tags in the collection and optional presets as the user types.
  * - Commits tags on Enter, Tab, comma, suggestion click, or input blur.
  */
 export const EditionTagInput: React.FC<EditionTagInputProps> = ({
@@ -22,6 +23,7 @@ export const EditionTagInput: React.FC<EditionTagInputProps> = ({
   value,
   onChange,
   availableTags = [],
+  presetTags = [],
   placeholder = "Add edition tags (e.g., Steelbook, Collector's Edition, Criterion)...",
   className = '',
 }) => {
@@ -38,14 +40,29 @@ export const EditionTagInput: React.FC<EditionTagInputProps> = ({
   const inputRef = useRef<HTMLInputElement>(null);
   const lastEmittedValueRef = useRef<string>(formatEditionTags(parseEditionTags(value)));
 
+  // Merge availableTags with presetTags so presets are included in canonical lookup & autocomplete
+  const mergedAvailableTags = useMemo(() => {
+    const map = new Map<string, CollectionFacetEdition>();
+    for (const item of availableTags) {
+      map.set(item.tag.toLowerCase(), item);
+    }
+    for (const preset of presetTags) {
+      const key = preset.toLowerCase();
+      if (!map.has(key)) {
+        map.set(key, { tag: preset, count: 0 });
+      }
+    }
+    return Array.from(map.values());
+  }, [availableTags, presetTags]);
+
   // Map lowercase tag -> canonical existing tag name
   const canonicalLookup = useMemo(() => {
     const map = new Map<string, string>();
-    for (const item of availableTags) {
+    for (const item of mergedAvailableTags) {
       map.set(item.tag.toLowerCase(), item.tag);
     }
     return map;
-  }, [availableTags]);
+  }, [mergedAvailableTags]);
 
   const resolveCanonical = (rawTag: string): string => {
     const cleaned = rawTag.replace(/\s+/g, ' ').trim();
@@ -84,7 +101,7 @@ export const EditionTagInput: React.FC<EditionTagInputProps> = ({
     const prefixMatches: CollectionFacetEdition[] = [];
     const substringMatches: CollectionFacetEdition[] = [];
 
-    for (const item of availableTags) {
+    for (const item of mergedAvailableTags) {
       const lower = item.tag.toLowerCase();
       if (committedLowerSet.has(lower)) continue;
       if (lower.startsWith(q)) {
@@ -95,7 +112,7 @@ export const EditionTagInput: React.FC<EditionTagInputProps> = ({
     }
 
     return [...prefixMatches, ...substringMatches].slice(0, 8);
-  }, [availableTags, committedLowerSet, draft]);
+  }, [mergedAvailableTags, committedLowerSet, draft]);
 
   useEffect(() => {
     setHighlightedIndex(0);
@@ -229,6 +246,10 @@ export const EditionTagInput: React.FC<EditionTagInputProps> = ({
   };
 
   const showSuggestions = isOpen && suggestions.length > 0;
+  const availablePresets = useMemo(
+    () => presetTags.filter((p) => !committedLowerSet.has(p.toLowerCase())),
+    [presetTags, committedLowerSet]
+  );
 
   return (
     <div ref={containerRef} onBlur={handleBlur} className={`relative ${className}`}>
@@ -313,7 +334,7 @@ export const EditionTagInput: React.FC<EditionTagInputProps> = ({
                 }`}
               >
                 <span className="font-medium">{item.tag}</span>
-                {typeof item.count === 'number' && (
+                {typeof item.count === 'number' && item.count > 0 && (
                   <span className="text-xs text-gray-400 dark:text-gray-400">
                     {item.count} {item.count === 1 ? 'item' : 'items'}
                   </span>
@@ -322,6 +343,22 @@ export const EditionTagInput: React.FC<EditionTagInputProps> = ({
             );
           })}
         </ul>
+      )}
+
+      {availablePresets.length > 0 && (
+        <div className="mt-2 flex flex-wrap items-center gap-1.5" aria-label="Quick-add presets">
+          <span className="text-xs text-gray-500 dark:text-gray-400 mr-0.5">Presets:</span>
+          {availablePresets.slice(0, 8).map((preset) => (
+            <button
+              key={preset}
+              type="button"
+              onClick={() => addTag(preset)}
+              className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-gray-50 px-2.5 py-0.5 text-xs font-medium text-gray-700 hover:border-primary-300 hover:bg-primary-50 hover:text-primary-700 dark:border-gray-600 dark:bg-gray-700/60 dark:text-gray-300 dark:hover:border-primary-700 dark:hover:bg-primary-900/30 dark:hover:text-primary-300 transition-colors"
+            >
+              <span>+ {preset}</span>
+            </button>
+          ))}
+        </div>
       )}
     </div>
   );

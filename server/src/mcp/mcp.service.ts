@@ -5,8 +5,11 @@ import { extractSpineColors } from '../services/color.service';
 import { calculateSortName } from '../utils/sort-name.util';
 import {
   applyEditionTagFilter,
+  applyVersionTagFilter,
   buildCanonicalEditionTagMap,
+  buildCanonicalVersionTagMap,
   normalizeEditionNotes,
+  normalizeVersionNotes,
   parseEditionTags,
 } from '../utils/edition-tags.util';
 
@@ -76,6 +79,7 @@ export interface SearchCollectionParams {
   director?: string;
   actor?: string;
   edition_tag?: string;
+  version_tag?: string;
   media_type?: 'movie' | 'tv_season' | 'all';
   archived?: boolean;
   sort_by?: 'title' | 'release_date' | 'created_at' | 'purchase_date' | 'director_last_name' | 'series_sort';
@@ -262,6 +266,10 @@ function applySearchFilters(queryBuilder: any, params: SearchCollectionParams) {
     q = applyEditionTagFilter(q, params.edition_tag);
   }
 
+  if (params.version_tag && params.version_tag.trim()) {
+    q = applyVersionTagFilter(q, params.version_tag);
+  }
+
   if (params.query && params.query.trim()) {
     const searchTerm = `%${params.query.trim()}%`;
     q = q.where(function (this: any) {
@@ -278,13 +286,14 @@ function applySearchFilters(queryBuilder: any, params: SearchCollectionParams) {
             media.tv_show_name LIKE ? OR
             media.director LIKE ? OR
             media.synopsis LIKE ? OR
+            physical_item_media.version_notes LIKE ? OR
             (media.cast IS NOT NULL AND media.cast <> '' AND EXISTS (
               SELECT 1 FROM json_each(media.cast)
               WHERE json_each.value LIKE ?
             ))
           )
         )`,
-          [searchTerm, searchTerm, searchTerm, searchTerm, searchTerm],
+          [searchTerm, searchTerm, searchTerm, searchTerm, searchTerm, searchTerm],
         );
     });
   }
@@ -314,12 +323,15 @@ async function hydratePhysicalItems(physicalItems: any[], minimal: boolean = fal
       .whereIn('physical_item_media.physical_item_id', itemIds)
       .select(
         'physical_item_media.physical_item_id',
+        'physical_item_media.id as link_id',
         'media.*',
         'physical_item_media.disc_number',
         'physical_item_media.formats',
+        'physical_item_media.version_notes',
       )
       .orderBy('physical_item_media.physical_item_id')
-      .orderBy('physical_item_media.disc_number'),
+      .orderBy('physical_item_media.disc_number')
+      .orderBy('physical_item_media.id'),
   ]);
 
   const placementByItemId = new Map<number, any>();
@@ -369,6 +381,7 @@ async function hydratePhysicalItems(physicalItems: any[], minimal: boolean = fal
       const genres = parseJsonArray<{ id: number; name: string }>(m.genres);
       const cast = parseJsonArray<string>(m.cast);
       const formats = parseJsonArray<string>(m.formats);
+      const versionTags = parseEditionTags(m.version_notes);
       const mediaSeries = allMediaSeriesAssociations
         .filter((assoc) => assoc.media_id === m.id)
         .map((assoc) => allSeriesData.get(assoc.series_id))
@@ -377,6 +390,7 @@ async function hydratePhysicalItems(physicalItems: any[], minimal: boolean = fal
       if (minimal) {
         return {
           id: m.id,
+          link_id: m.link_id,
           title: m.title,
           tmdb_id: m.tmdb_id,
           media_type: m.media_type || 'movie',
@@ -384,11 +398,13 @@ async function hydratePhysicalItems(physicalItems: any[], minimal: boolean = fal
           director: m.director,
           genres: genres.map((g) => g.name),
           formats,
+          version_tags: versionTags.length > 0 ? versionTags : undefined,
         };
       }
 
       return {
         id: m.id,
+        link_id: m.link_id,
         title: m.title,
         tmdb_id: m.tmdb_id,
         media_type: m.media_type || 'movie',
@@ -401,6 +417,8 @@ async function hydratePhysicalItems(physicalItems: any[], minimal: boolean = fal
         release_date: m.release_date,
         director: m.director,
         disc_number: m.disc_number,
+        version_notes: m.version_notes || null,
+        version_tags: versionTags,
         formats,
         cast,
         genres,
@@ -630,7 +648,7 @@ export async function recommendForMood(params: RecommendForMoodParams) {
 }
 
 export async function getCollectionFacets() {
-  const [genreRows, decadeRows, formatStats, editionRows] = await Promise.all([
+  const [genreRows, decadeRows, formatStats, editionRows, versionRows] = await Promise.all([
     db.raw(`
       SELECT genre_id, genre_name, COUNT(DISTINCT item_id) AS count
       FROM (
@@ -680,6 +698,14 @@ export async function getCollectionFacets() {
       .whereNotNull('edition_notes')
       .andWhere('edition_notes', '<>', '')
       .select('id', 'edition_notes'),
+    db('physical_item_media as pim')
+      .join('physical_items as pi', 'pim.physical_item_id', 'pi.id')
+      .where(function () {
+        this.where('pi.archived', 0).orWhereNull('pi.archived');
+      })
+      .whereNotNull('pim.version_notes')
+      .andWhere('pim.version_notes', '<>', '')
+      .select('pi.id as item_id', 'pim.version_notes'),
   ]);
 
   const genres = (genreRows || []).map((row: any) => ({
@@ -724,11 +750,28 @@ export async function getCollectionFacets() {
     .map(([tag, count]) => ({ tag, count }))
     .sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag));
 
+  const canonicalVersionMap = buildCanonicalVersionTagMap(versionRows);
+  const versionItemSets = new Map<string, Set<number>>();
+  for (const row of versionRows) {
+    const tags = parseEditionTags(row.version_notes);
+    for (const tag of tags) {
+      const canonical = canonicalVersionMap.get(tag.toLowerCase()) || tag;
+      if (!versionItemSets.has(canonical)) {
+        versionItemSets.set(canonical, new Set());
+      }
+      versionItemSets.get(canonical)!.add(Number(row.item_id));
+    }
+  }
+  const version_tags = Array.from(versionItemSets.entries())
+    .map(([tag, itemSet]) => ({ tag, count: itemSet.size }))
+    .sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag));
+
   return {
     genres,
     decades,
     formats,
     edition_tags,
+    version_tags,
   };
 }
 
@@ -1940,6 +1983,7 @@ export interface AddPhysicalItemInput {
     episode_count?: number;
     disc_number?: number;
     formats?: string[];
+    version_notes?: string;
   }>;
 }
 
@@ -2040,6 +2084,9 @@ export async function addPhysicalItem(input: AddPhysicalItemInput) {
   const canonicalEditionMap = buildCanonicalEditionTagMap(existingEditions);
   const normalizedEditionNotes = normalizeEditionNotes(input.edition_notes, canonicalEditionMap);
 
+  const existingVersions = await db('physical_item_media').whereNotNull('version_notes').select('version_notes');
+  const canonicalVersionMap = buildCanonicalVersionTagMap(existingVersions);
+
   const createdId = await db.transaction(async (trx) => {
     if (input.sort_series_id) {
       const s = await trx('series').where('id', input.sort_series_id).first();
@@ -2099,6 +2146,7 @@ export async function addPhysicalItem(input: AddPhysicalItemInput) {
         media_id: mediaId,
         disc_number: mediaItem.disc_number || 1,
         formats: JSON.stringify(formats),
+        version_notes: normalizeVersionNotes(mediaItem.version_notes, canonicalVersionMap),
       });
 
       if (input.media_primary_series_id) {

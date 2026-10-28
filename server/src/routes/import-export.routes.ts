@@ -4,7 +4,9 @@ import { authMiddleware } from '../middleware/auth.middleware';
 import { calculateSortName } from '../utils/sort-name.util';
 import {
   buildCanonicalEditionTagMap,
+  buildCanonicalVersionTagMap,
   normalizeEditionNotes,
+  normalizeVersionNotes,
 } from '../utils/edition-tags.util';
 import { letterboxdService } from '../services/letterboxd.service';
 
@@ -29,6 +31,7 @@ interface MediaExportRow {
   physical_item_name: string;
   formats: string;
   disc_number: number | null;
+  version_notes: string | null;
   edition_notes: string | null;
   notes: string | null;
   notes_public: boolean | number | null;
@@ -59,6 +62,7 @@ interface MediaImportRow {
   genres?: string;
   series?: string;
   disc_number?: string | number;
+  version_notes?: string;
   edition_notes?: string;
   notes?: string;
   notes_public?: string | boolean;
@@ -274,6 +278,13 @@ router.get('/schema', (req: Request, res: Response) => {
         example: '1',
       },
       {
+        name: 'version_notes',
+        type: 'string',
+        required: false,
+        description: 'Movie version or cut included on this disc/entry (e.g., Theatrical, Extended, Director\'s Cut)',
+        example: 'Extended',
+      },
+      {
         name: 'edition_notes',
         type: 'string',
         required: false,
@@ -381,6 +392,7 @@ router.get('/export', authMiddleware, async (req: Request, res: Response) => {
         'physical_items.updated_at',
         'physical_item_media.disc_number',
         'physical_item_media.formats',
+        'physical_item_media.version_notes',
         'media.id',
         'media.title',
         'media.tmdb_id',
@@ -414,6 +426,7 @@ router.get('/export', authMiddleware, async (req: Request, res: Response) => {
         'physical_items.updated_at',
         'physical_item_media.disc_number',
         'physical_item_media.formats',
+        'physical_item_media.version_notes',
         'media.title',
         'media.tmdb_id',
         'media.media_type',
@@ -451,6 +464,7 @@ router.get('/export', authMiddleware, async (req: Request, res: Response) => {
       'physical_item_name',
       'formats',
       'disc_number',
+      'version_notes',
       'edition_notes',
       'notes',
       'notes_public',
@@ -494,6 +508,7 @@ router.get('/export', authMiddleware, async (req: Request, res: Response) => {
         escapeCSV(item.physical_item_name),
         escapeCSV(item.formats), // Already JSON string in DB
         escapeCSV(item.disc_number),
+        escapeCSV(item.version_notes),
         escapeCSV(item.edition_notes),
         escapeCSV(item.notes),
         escapeCSV(item.notes_public ? 'true' : 'false'),
@@ -819,6 +834,10 @@ router.post('/import', authMiddleware, async (req: Request, res: Response) => {
           }
 
           const allFormats = new Set<string>();
+          const existingVersionRows = await trx('physical_item_media')
+            .whereNotNull('version_notes')
+            .select('version_notes');
+          const canonicalVersionMap = buildCanonicalVersionTagMap(existingVersionRows);
           
           // Process each movie in this physical item
           for (const movie of movies) {
@@ -876,13 +895,19 @@ router.post('/import', authMiddleware, async (req: Request, res: Response) => {
               });
             }
 
-            // Create physical_item_media link (check for duplicates first)
-            const existingLink = await trx('physical_item_media')
-              .where({
-                physical_item_id: physicalItem.id,
-                media_id: mediaId,
-              })
-              .first();
+            const normalizedVersion = normalizeVersionNotes(movie.version_notes, canonicalVersionMap);
+
+            // Create physical_item_media link (match by physical_item_id, media_id, and version_notes so different versions of the same movie can coexist)
+            let existingLinkQuery = trx('physical_item_media').where({
+              physical_item_id: physicalItem.id,
+              media_id: mediaId,
+            });
+            if (normalizedVersion) {
+              existingLinkQuery = existingLinkQuery.where('version_notes', normalizedVersion);
+            } else {
+              existingLinkQuery = existingLinkQuery.whereNull('version_notes');
+            }
+            const existingLink = await existingLinkQuery.first();
 
             if (!existingLink) {
               await trx('physical_item_media').insert({
@@ -890,17 +915,18 @@ router.post('/import', authMiddleware, async (req: Request, res: Response) => {
                 media_id: mediaId,
                 disc_number: movie.disc_number || 1,
                 formats: JSON.stringify(formatArray),
+                version_notes: normalizedVersion,
               });
             } else {
               // Update existing link if formats or disc_number changed
               await trx('physical_item_media')
                 .where({
-                  physical_item_id: physicalItem.id,
-                  media_id: mediaId,
+                  id: existingLink.id,
                 })
                 .update({
                   disc_number: movie.disc_number || 1,
                   formats: JSON.stringify(formatArray),
+                  version_notes: normalizedVersion,
                   updated_at: db.fn.now(),
                 });
             }

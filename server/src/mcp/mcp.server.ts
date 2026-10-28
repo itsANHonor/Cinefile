@@ -131,6 +131,10 @@ export function createCinefileMcpServer(): McpServer {
           .string()
           .optional()
           .describe('Filter by edition tag(s), comma-separated (e.g. "Criterion", "Steelbook")'),
+        version_tag: z
+          .string()
+          .optional()
+          .describe('Filter by movie version/cut tag(s), comma-separated (e.g. "Extended", "Director\'s Cut", "Theatrical")'),
         media_type: z
           .enum(['movie', 'tv_season', 'all'])
           .optional()
@@ -679,6 +683,10 @@ export function createCinefileMcpServer(): McpServer {
                 .describe('Season number when adding a tv_season'),
               disc_number: z.number().int().optional().default(1),
               formats: z.array(z.string()).optional(),
+              version_notes: z
+                .string()
+                .optional()
+                .describe('Optional comma-separated movie version/cut tags (e.g. "Theatrical", "Extended", "Director\'s Cut")'),
             }),
           )
           .optional()

@@ -257,7 +257,7 @@ const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
               <div className="absolute bottom-4 left-1/2 z-20 flex -translate-x-1/2 items-center gap-1.5 rounded-full bg-black/55 px-3 py-1.5 backdrop-blur-md">
                 {mediaList.map((m, idx) => (
                   <button
-                    key={m.id || idx}
+                    key={m.link_id ?? `media-${idx}`}
                     type="button"
                     onClick={() => setActiveMediaIndex(idx)}
                     aria-label={`View ${m.title}`}
@@ -374,7 +374,7 @@ const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
                         : null;
                       return (
                         <button
-                          key={movie.id || idx}
+                          key={movie.link_id ?? `media-${idx}`}
                           type="button"
                           role="tab"
                           aria-selected={isActive}
@@ -388,6 +388,11 @@ const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
                           <span className="font-semibold">{idx + 1}.</span>
                           <span className="max-w-[180px] truncate">{movie.title}</span>
                           {yr && <span className="opacity-75">({yr})</span>}
+                          {movie.version_notes && (
+                            <span className="max-w-[140px] truncate rounded bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 dark:text-amber-300">
+                              {movie.version_notes}
+                            </span>
+                          )}
                         </button>
                       );
                     })}
@@ -402,9 +407,19 @@ const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
               {activeMovie && (
                 <div className="space-y-5">
                   <div>
-                    <h3 className="text-3xl font-extrabold tracking-tight text-content sm:text-4xl">
-                      {activeMovie.title}
-                    </h3>
+                    <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1.5">
+                      <h3 className="text-3xl font-extrabold tracking-tight text-content sm:text-4xl">
+                        {activeMovie.title}
+                      </h3>
+                      {parseEditionTags(activeMovie.version_notes).map((tag) => (
+                        <span
+                          key={tag}
+                          className="rounded-md bg-amber-100/80 px-2 py-0.5 text-sm font-semibold text-amber-900 dark:bg-amber-900/30 dark:text-amber-200"
+                        >
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
                     {(releaseYear || activeMovie.director || isTVSeason) && (
                       <div className="mt-2 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-sm text-content-muted">
                         {releaseYear && (
@@ -670,7 +685,7 @@ const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
                     const yr = m.release_date ? new Date(m.release_date).getFullYear() : null;
                     return (
                       <button
-                        key={m.id || idx}
+                        key={m.link_id ?? `media-${idx}`}
                         type="button"
                         onClick={() => setActiveMediaIndex(idx)}
                         className={`grid w-full grid-cols-[minmax(0,1fr)_4.5rem_1.25rem_9.75rem] items-center gap-2 py-1.5 text-left text-xs transition-colors hover:bg-surface-sunken/70 ${
@@ -691,6 +706,7 @@ const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
                           <span className="truncate text-content">
                             {m.title}
                             {yr ? ` (${yr})` : ''}
+                            {m.version_notes ? ` · ${m.version_notes}` : ''}
                           </span>
                         </div>
                         <span className="text-left font-semibold tracking-tight text-emerald-600 dark:text-emerald-400">

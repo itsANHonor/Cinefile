@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { authMiddleware } from '../middleware/auth.middleware';
 import { tmdbService } from '../services/tmdb.service';
+import { coverScraperService } from '../services/cover-scraper.service';
 
 const router = Router();
 
@@ -508,6 +509,81 @@ router.get('/tv/:id/season/:seasonNumber/posters', async (req: Request, res: Res
   } catch (error) {
     console.error('Error fetching TV season posters:', error);
     res.status(500).json({ error: 'Failed to fetch TV season posters' });
+  }
+});
+
+// =============================================
+// Box Art / Cover Scraper Endpoints
+// =============================================
+
+/**
+ * GET /api/search/covers
+ * Search for physical media box art across Amazon and Blu-ray.com
+ */
+router.get('/covers', async (req: Request, res: Response) => {
+  try {
+    const { q, sources } = req.query;
+
+    if (!q || typeof q !== 'string' || !q.trim()) {
+      return res.status(400).json({ error: 'Query parameter "q" is required' });
+    }
+
+    let parsedSources: Array<'amazon' | 'bluray'> = ['amazon', 'bluray'];
+    if (typeof sources === 'string' && sources.trim()) {
+      const valid = sources
+        .split(',')
+        .map((s) => s.trim().toLowerCase())
+        .filter((s): s is 'amazon' | 'bluray' => s === 'amazon' || s === 'bluray');
+      if (valid.length > 0) {
+        parsedSources = valid;
+      }
+    }
+
+    const result = await coverScraperService.searchCovers(q.trim(), parsedSources);
+    res.json(result);
+  } catch (error) {
+    console.error('Error searching covers:', error);
+    res.status(500).json({ error: 'Failed to search cover art' });
+  }
+});
+
+/**
+ * POST /api/search/covers/from-url
+ * Extract high-resolution cover candidates from an Amazon product URL, Blu-ray.com URL, ASIN, or direct image URL
+ */
+router.post('/covers/from-url', async (req: Request, res: Response) => {
+  try {
+    const { url } = req.body;
+
+    if (!url || typeof url !== 'string' || !url.trim()) {
+      return res.status(400).json({ error: 'URL or ASIN is required' });
+    }
+
+    const results = await coverScraperService.extractCoversFromUrl(url.trim());
+    res.json({ results });
+  } catch (error: any) {
+    console.error('Error extracting cover from URL:', error);
+    res.status(400).json({ error: error.message || 'Failed to extract cover art from URL' });
+  }
+});
+
+/**
+ * POST /api/search/covers/download
+ * Download a remote cover image, validate & process with sharp, and save locally to /uploads
+ */
+router.post('/covers/download', async (req: Request, res: Response) => {
+  try {
+    const { url } = req.body;
+
+    if (!url || typeof url !== 'string' || !url.trim()) {
+      return res.status(400).json({ error: 'Image URL is required' });
+    }
+
+    const saved = await coverScraperService.downloadCoverToUploads(url.trim());
+    res.json(saved);
+  } catch (error: any) {
+    console.error('Error downloading remote cover:', error);
+    res.status(400).json({ error: error.message || 'Failed to download cover image' });
   }
 });
 

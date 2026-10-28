@@ -7,6 +7,7 @@ import { Sheet } from './ui/Sheet';
 import { Button } from './ui/Button';
 import { formatBadgeClasses } from '../lib/formats';
 import { getItemSeriesList } from '../lib/series';
+import { parseEditionTags } from '../lib/editionTags';
 
 interface MediaCardProps {
   physicalItem: PhysicalItem;
@@ -87,6 +88,13 @@ const MediaCard: React.FC<MediaCardProps> = ({
   }
   if (physicalItem.edition_notes) {
     metadataParts.push(physicalItem.edition_notes);
+  }
+  // Unique version/cut tags across linked media (e.g., "Extended, Theatrical")
+  const versionTags = Array.from(
+    new Set(physicalItem.media.flatMap((m) => parseEditionTags(m.version_notes)))
+  );
+  if (versionTags.length > 0) {
+    metadataParts.push(versionTags.join(', '));
   }
   if (physicalItem.archived && physicalItem.archive_reason) {
     metadataParts.push(`Archived: ${physicalItem.archive_reason}`);
@@ -415,20 +423,33 @@ const MediaCard: React.FC<MediaCardProps> = ({
           </div>
         )}
 
-        {/* Multi-item indicator */}
-        {physicalItem.media.length > 1 && (
-          <div className="absolute bottom-2 left-2">
-            <span className="rounded bg-black/75 px-2 py-1 text-xs font-medium text-white">
-              {(() => {
-                const tvCount = physicalItem.media.filter((m) => m.media_type === 'tv_season').length;
-                const movieCount = physicalItem.media.length - tvCount;
-                if (tvCount > 0 && movieCount === 0) return `${tvCount} season${tvCount !== 1 ? 's' : ''}`;
-                if (movieCount > 0 && tvCount === 0) return `${movieCount} movie${movieCount !== 1 ? 's' : ''}`;
-                return `${physicalItem.media.length} items`;
-              })()}
-            </span>
-          </div>
-        )}
+        {/* Multi-item indicator - counts unique titles, not links (a movie
+            linked twice for different versions still counts once) */}
+        {(() => {
+          const tvCount = new Set(
+            physicalItem.media.filter((m) => m.media_type === 'tv_season').map((m) => m.id)
+          ).size;
+          const movieCount = new Set(
+            physicalItem.media.filter((m) => m.media_type !== 'tv_season').map((m) => m.id)
+          ).size;
+          const uniqueTotal = tvCount + movieCount;
+          if (uniqueTotal <= 1) return null;
+          let label: string;
+          if (tvCount > 0 && movieCount === 0) {
+            label = `${tvCount} season${tvCount !== 1 ? 's' : ''}`;
+          } else if (movieCount > 0 && tvCount === 0) {
+            label = `${movieCount} movie${movieCount !== 1 ? 's' : ''}`;
+          } else {
+            label = `${uniqueTotal} items`;
+          }
+          return (
+            <div className="absolute bottom-2 left-2">
+              <span className="rounded bg-black/75 px-2 py-1 text-xs font-medium text-white">
+                {label}
+              </span>
+            </div>
+          );
+        })()}
 
         {/* TV type badge */}
         {primaryMedia?.media_type === 'tv_season' && (

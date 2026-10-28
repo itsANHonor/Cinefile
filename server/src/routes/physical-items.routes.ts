@@ -4,8 +4,11 @@ import { authMiddleware, isRequestAdmin } from '../middleware/auth.middleware';
 import { calculateSortName } from '../utils/sort-name.util';
 import {
   applyEditionTagFilter,
+  applyVersionTagFilter,
   buildCanonicalEditionTagMap,
+  buildCanonicalVersionTagMap,
   normalizeEditionNotes,
+  normalizeVersionNotes,
 } from '../utils/edition-tags.util';
 import { extractSpineColors } from '../services/color.service';
 import { letterboxdService } from '../services/letterboxd.service';
@@ -34,6 +37,7 @@ interface PhysicalItem {
 interface PhysicalItemWithMedia extends PhysicalItem {
   media: Array<{
     id: number;
+    link_id?: number;
     title: string;
     tmdb_id?: number;
     synopsis?: string;
@@ -42,6 +46,7 @@ interface PhysicalItemWithMedia extends PhysicalItem {
     director?: string;
     cast?: string[];
     disc_number?: number;
+    version_notes?: string | null;
   }>;
 }
 
@@ -51,7 +56,7 @@ interface PhysicalItemWithMedia extends PhysicalItem {
  */
 router.get('/', async (req: Request, res: Response) => {
   try {
-    const { format, genres, decades, editions, edition, series, sort_by = 'created_at', sort_order = 'desc', search, media_type, archived, page = '1', limit = '24' } = req.query;
+    const { format, genres, decades, editions, edition, versions, version, series, sort_by = 'created_at', sort_order = 'desc', search, media_type, archived, page = '1', limit = '24' } = req.query;
 
     const isAdmin = isRequestAdmin(req);
     const showArchived = isAdmin && (archived === 'true' || archived === '1');
@@ -178,6 +183,11 @@ router.get('/', async (req: Request, res: Response) => {
       query = applyEditionTagFilter(query, editions || edition);
     }
 
+    // Filter by movie version tags if specified (multi-select: comma-separated tags)
+    if (versions || version) {
+      query = applyVersionTagFilter(query, versions || version);
+    }
+
     // Filter by series if specified (multi-select: comma-separated series IDs)
     if (series && typeof series === 'string') {
       const seriesIds = series.split(',').map(s => parseInt(s.trim(), 10)).filter(id => !isNaN(id));
@@ -220,12 +230,13 @@ router.get('/', async (req: Request, res: Response) => {
               media.title LIKE ? OR
               media.director LIKE ? OR
               media.synopsis LIKE ? OR
+              physical_item_media.version_notes LIKE ? OR
               EXISTS (
                 SELECT 1 FROM json_each(media.cast) 
                 WHERE json_each.value LIKE ?
               )
             )
-          )`, [searchTerm, searchTerm, searchTerm, searchTerm]);
+          )`, [searchTerm, searchTerm, searchTerm, searchTerm, searchTerm]);
       });
     }
 
@@ -383,6 +394,11 @@ router.get('/', async (req: Request, res: Response) => {
       countQuery = applyEditionTagFilter(countQuery, editions || edition);
     }
 
+    // Filter by movie version tags in count query
+    if (versions || version) {
+      countQuery = applyVersionTagFilter(countQuery, versions || version);
+    }
+
     // Filter by series in count query
     if (series && typeof series === 'string') {
       const seriesIds = series.split(',').map(s => parseInt(s.trim(), 10)).filter(id => !isNaN(id));
@@ -424,12 +440,13 @@ router.get('/', async (req: Request, res: Response) => {
               media.title LIKE ? OR
               media.director LIKE ? OR
               media.synopsis LIKE ? OR
+              physical_item_media.version_notes LIKE ? OR
               EXISTS (
                 SELECT 1 FROM json_each(media.cast) 
                 WHERE json_each.value LIKE ?
               )
             )
-          )`, [searchTerm, searchTerm, searchTerm, searchTerm]);
+          )`, [searchTerm, searchTerm, searchTerm, searchTerm, searchTerm]);
       });
     }
 
@@ -486,12 +503,15 @@ router.get('/', async (req: Request, res: Response) => {
       .whereIn('physical_item_media.physical_item_id', itemIds)
       .select(
         'physical_item_media.physical_item_id',
+        'physical_item_media.id as link_id',
         'media.*',
         'physical_item_media.disc_number',
-        'physical_item_media.formats'
+        'physical_item_media.formats',
+        'physical_item_media.version_notes'
       )
       .orderBy('physical_item_media.physical_item_id')
-      .orderBy('physical_item_media.disc_number') : [];
+      .orderBy('physical_item_media.disc_number')
+      .orderBy('physical_item_media.id') : [];
 
     // For series_sort, fetch series data and movie_series data
     let seriesMap = new Map<number, any>();
@@ -639,6 +659,7 @@ router.get('/', async (req: Request, res: Response) => {
         
         return {
           id: m.id,
+          link_id: m.link_id,
           title: m.title,
           tmdb_id: m.tmdb_id,
           synopsis: m.synopsis,
@@ -646,6 +667,7 @@ router.get('/', async (req: Request, res: Response) => {
           release_date: m.release_date,
           director: m.director,
           disc_number: m.disc_number,
+          version_notes: m.version_notes || null,
           formats: m.formats ? (typeof m.formats === 'string' ? JSON.parse(m.formats) : m.formats) : [],
           cast: m.cast ? (typeof m.cast === 'string' ? JSON.parse(m.cast) : m.cast) : [],
           genres: m.genres ? (typeof m.genres === 'string' ? JSON.parse(m.genres) : m.genres) : [],
@@ -865,10 +887,14 @@ router.get('/:id', async (req: Request, res: Response) => {
       .join('media', 'physical_item_media.media_id', 'media.id')
       .where('physical_item_media.physical_item_id', id)
       .select(
+        'physical_item_media.id as link_id',
         'media.*',
         'physical_item_media.disc_number',
-        'physical_item_media.formats'
-      );
+        'physical_item_media.formats',
+        'physical_item_media.version_notes'
+      )
+      .orderBy('physical_item_media.disc_number')
+      .orderBy('physical_item_media.id');
 
     // Get shelf placement
     const placement = await db('shelf_placements')
@@ -1073,6 +1099,11 @@ router.post('/', authMiddleware, async (req: Request, res: Response) => {
       const canonicalTagMap = buildCanonicalEditionTagMap(existingEditionRows);
       const normalizedEditionNotes = normalizeEditionNotes(edition_notes, canonicalTagMap);
 
+      const existingVersionRows = await trx('physical_item_media')
+        .whereNotNull('version_notes')
+        .select('version_notes');
+      const canonicalVersionMap = buildCanonicalVersionTagMap(existingVersionRows);
+
       // Create physical item first (formats will be calculated after linking media)
       // Calculate sort_name if not provided, but allow user override
       const calculatedSortName = sort_name !== undefined ? sort_name : calculateSortName(name);
@@ -1154,12 +1185,14 @@ router.post('/', authMiddleware, async (req: Request, res: Response) => {
           allFormats.add(format);
         }
 
-        // Link physical item to media with formats
+        // Link physical item to media with formats and optional version_notes
+        const normalizedVersion = normalizeVersionNotes(mediaItem.version_notes, canonicalVersionMap);
         await trx('physical_item_media').insert({
           physical_item_id: physicalItemId,
           media_id: mediaId,
           disc_number: mediaItem.disc_number,
           formats: JSON.stringify(mediaFormats),
+          version_notes: normalizedVersion,
         });
       }
 
@@ -1206,7 +1239,9 @@ router.post('/', authMiddleware, async (req: Request, res: Response) => {
       const linkedMedia = await trx('physical_item_media')
         .join('media', 'physical_item_media.media_id', 'media.id')
         .where('physical_item_media.physical_item_id', physicalItemId)
-        .select('media.*', 'physical_item_media.disc_number', 'physical_item_media.formats');
+        .select('physical_item_media.id as link_id', 'media.*', 'physical_item_media.disc_number', 'physical_item_media.formats', 'physical_item_media.version_notes')
+        .orderBy('physical_item_media.disc_number')
+        .orderBy('physical_item_media.id');
 
       return {
         ...createdItem,
@@ -1436,7 +1471,9 @@ router.put('/:id', authMiddleware, async (req: Request, res: Response) => {
     const linkedMedia = await db('physical_item_media')
       .join('media', 'physical_item_media.media_id', 'media.id')
       .where('physical_item_media.physical_item_id', id)
-      .select('media.*', 'physical_item_media.disc_number', 'physical_item_media.formats');
+      .select('physical_item_media.id as link_id', 'media.*', 'physical_item_media.disc_number', 'physical_item_media.formats', 'physical_item_media.version_notes')
+      .orderBy('physical_item_media.disc_number')
+      .orderBy('physical_item_media.id');
 
     const result: PhysicalItemWithMedia = {
       ...updatedItem,
@@ -1450,6 +1487,23 @@ router.put('/:id', authMiddleware, async (req: Request, res: Response) => {
         formats: m.formats ? JSON.parse(m.formats) : [],
       })),
     };
+
+    // Re-extract spine colors when custom_image_url changes
+    if (custom_image_url !== undefined && custom_image_url !== existingItem.custom_image_url) {
+      const coverUrl = result.custom_image_url || result.media?.[0]?.cover_art_url;
+      if (coverUrl) {
+        extractSpineColors(coverUrl, result.name).then(async (colors) => {
+          try {
+            await db('physical_items').where('id', id).update({
+              spine_color: colors.dominant,
+              spine_color_accent: colors.accent,
+            });
+          } catch (e) {
+            console.warn('Failed to save extracted spine colors:', e);
+          }
+        }).catch(() => { /* silently ignore */ });
+      }
+    }
 
     res.json(result);
   } catch (error) {
@@ -1526,17 +1580,8 @@ router.post('/:id/media', authMiddleware, async (req: Request, res: Response) =>
       let mediaId: number;
 
       if (media.id) {
-        // Use existing media entry
+        // Use existing media entry (multiple entries for the same movie on one item are allowed for different versions/discs)
         mediaId = media.id;
-        
-        // Check if already linked
-        const existingLink = await trx('physical_item_media')
-          .where({ physical_item_id: id, media_id: mediaId })
-          .first();
-        
-        if (existingLink) {
-          throw new Error('Media is already linked to this physical item');
-        }
       } else {
         // Create new media entry
         if (!media.title) {
@@ -1566,12 +1611,19 @@ router.post('/:id/media', authMiddleware, async (req: Request, res: Response) =>
         mediaId = newMediaId;
       }
 
-      // Create link with formats
+      const existingVersionRows = await trx('physical_item_media')
+        .whereNotNull('version_notes')
+        .select('version_notes');
+      const canonicalVersionMap = buildCanonicalVersionTagMap(existingVersionRows);
+      const normalizedVersion = normalizeVersionNotes(media.version_notes, canonicalVersionMap);
+
+      // Create link with formats and optional version_notes
       await trx('physical_item_media').insert({
         physical_item_id: id,
         media_id: mediaId,
         disc_number: media.disc_number,
         formats: JSON.stringify(mediaFormats),
+        version_notes: normalizedVersion,
       });
 
       // Recalculate physical item formats
@@ -1599,7 +1651,9 @@ router.post('/:id/media', authMiddleware, async (req: Request, res: Response) =>
     const linkedMedia = await db('physical_item_media')
       .join('media', 'physical_item_media.media_id', 'media.id')
       .where('physical_item_media.physical_item_id', id)
-      .select('media.*', 'physical_item_media.disc_number', 'physical_item_media.formats');
+      .select('physical_item_media.id as link_id', 'media.*', 'physical_item_media.disc_number', 'physical_item_media.formats', 'physical_item_media.version_notes')
+      .orderBy('physical_item_media.disc_number')
+      .orderBy('physical_item_media.id');
 
     const result: PhysicalItemWithMedia = {
       ...updatedItem,
@@ -1625,6 +1679,7 @@ router.post('/:id/media', authMiddleware, async (req: Request, res: Response) =>
 router.delete('/:id/media/:mediaId', authMiddleware, async (req: Request, res: Response) => {
   try {
     const { id, mediaId } = req.params;
+    const linkId = req.query.linkId ? parseInt(String(req.query.linkId), 10) : undefined;
 
     // Check if physical item exists
     const existingItem = await db('physical_items').where('id', id).first();
@@ -1633,8 +1688,12 @@ router.delete('/:id/media/:mediaId', authMiddleware, async (req: Request, res: R
     }
 
     // Check if link exists
+    const linkWhere = linkId && !isNaN(linkId)
+      ? { id: linkId, physical_item_id: id }
+      : { physical_item_id: id, media_id: mediaId };
+
     const existingLink = await db('physical_item_media')
-      .where({ physical_item_id: id, media_id: mediaId })
+      .where(linkWhere)
       .first();
 
     if (!existingLink) {
@@ -1651,9 +1710,9 @@ router.delete('/:id/media/:mediaId', authMiddleware, async (req: Request, res: R
       return res.status(400).json({ error: 'Cannot remove the last media link from a physical item' });
     }
 
-    // Delete the link
+    // Delete the specific link row
     await db('physical_item_media')
-      .where({ physical_item_id: id, media_id: mediaId })
+      .where({ id: existingLink.id })
       .delete();
 
     // Fetch updated physical item with all media
@@ -1661,7 +1720,9 @@ router.delete('/:id/media/:mediaId', authMiddleware, async (req: Request, res: R
     const linkedMedia = await db('physical_item_media')
       .join('media', 'physical_item_media.media_id', 'media.id')
       .where('physical_item_media.physical_item_id', id)
-      .select('media.*', 'physical_item_media.disc_number', 'physical_item_media.formats');
+      .select('physical_item_media.id as link_id', 'media.*', 'physical_item_media.disc_number', 'physical_item_media.formats', 'physical_item_media.version_notes')
+      .orderBy('physical_item_media.disc_number')
+      .orderBy('physical_item_media.id');
 
     const result: PhysicalItemWithMedia = {
       ...updatedItem,
@@ -1782,11 +1843,16 @@ router.post('/bulk', authMiddleware, async (req: Request, res: Response) => {
           const [physicalItemId] = await trx('physical_items').insert(physicalItemData);
 
           // Link physical item to media with formats
+          const existingVersionRows = await trx('physical_item_media')
+            .whereNotNull('version_notes')
+            .select('version_notes');
+          const canonicalVersionMap = buildCanonicalVersionTagMap(existingVersionRows);
           await trx('physical_item_media').insert({
             physical_item_id: physicalItemId,
             media_id: mediaId,
             disc_number: item.media.disc_number,
             formats: JSON.stringify(formatArray),
+            version_notes: normalizeVersionNotes(item.media.version_notes, canonicalVersionMap),
           });
 
           // Fetch created item with media
@@ -1794,7 +1860,9 @@ router.post('/bulk', authMiddleware, async (req: Request, res: Response) => {
           const linkedMedia = await trx('physical_item_media')
             .join('media', 'physical_item_media.media_id', 'media.id')
             .where('physical_item_media.physical_item_id', physicalItemId)
-            .select('media.*', 'physical_item_media.disc_number', 'physical_item_media.formats');
+            .select('physical_item_media.id as link_id', 'media.*', 'physical_item_media.disc_number', 'physical_item_media.formats', 'physical_item_media.version_notes')
+            .orderBy('physical_item_media.disc_number')
+            .orderBy('physical_item_media.id');
 
           return {
             success: true,
@@ -1845,12 +1913,13 @@ router.post('/bulk', authMiddleware, async (req: Request, res: Response) => {
 
 /**
  * PUT /api/physical-items/:id/media/:mediaId/formats
- * Update formats for a specific movie in a physical item (protected)
+ * Update formats and/or version_notes for a specific movie in a physical item (protected)
  */
 router.put('/:id/media/:mediaId/formats', authMiddleware, async (req: Request, res: Response) => {
   try {
     const { id, mediaId } = req.params;
-    const { formats } = req.body;
+    const { formats, version_notes, link_id } = req.body;
+    const targetLinkId = link_id ? parseInt(String(link_id), 10) : (req.query.linkId ? parseInt(String(req.query.linkId), 10) : undefined);
 
     // Validate input
     if (!formats || !Array.isArray(formats) || formats.length === 0) {
@@ -1873,21 +1942,38 @@ router.put('/:id/media/:mediaId/formats', authMiddleware, async (req: Request, r
       return res.status(404).json({ error: 'Physical item not found' });
     }
 
+    const linkWhere = targetLinkId && !isNaN(targetLinkId)
+      ? { id: targetLinkId, physical_item_id: id }
+      : { physical_item_id: id, media_id: mediaId };
+
     // Check if media link exists
     const existingLink = await db('physical_item_media')
-      .where({ physical_item_id: id, media_id: mediaId })
+      .where(linkWhere)
       .first();
 
     if (!existingLink) {
       return res.status(404).json({ error: 'Media link not found' });
     }
 
-    // Update formats in transaction
+    // Update formats and version_notes in transaction
     await db.transaction(async (trx) => {
-      // Update the formats for this specific movie
+      const linkUpdate: Record<string, any> = {
+        formats: JSON.stringify(formats),
+      };
+
+      if (version_notes !== undefined) {
+        const existingVersionRows = await trx('physical_item_media')
+          .whereNot('id', existingLink.id)
+          .whereNotNull('version_notes')
+          .select('version_notes');
+        const canonicalVersionMap = buildCanonicalVersionTagMap(existingVersionRows);
+        linkUpdate.version_notes = normalizeVersionNotes(version_notes, canonicalVersionMap);
+      }
+
+      // Update the formats and version_notes for this specific movie link
       await trx('physical_item_media')
-        .where({ physical_item_id: id, media_id: mediaId })
-        .update({ formats: JSON.stringify(formats) });
+        .where({ id: existingLink.id })
+        .update(linkUpdate);
 
       // Recalculate physical item formats based on all linked media
       const allLinkedMedia = await trx('physical_item_media')
@@ -1915,7 +2001,9 @@ router.put('/:id/media/:mediaId/formats', authMiddleware, async (req: Request, r
     const linkedMedia = await db('physical_item_media')
       .join('media', 'physical_item_media.media_id', 'media.id')
       .where('physical_item_media.physical_item_id', id)
-      .select('media.*', 'physical_item_media.disc_number', 'physical_item_media.formats');
+      .select('physical_item_media.id as link_id', 'media.*', 'physical_item_media.disc_number', 'physical_item_media.formats', 'physical_item_media.version_notes')
+      .orderBy('physical_item_media.disc_number')
+      .orderBy('physical_item_media.id');
 
     const result: PhysicalItemWithMedia = {
       ...updatedItem,

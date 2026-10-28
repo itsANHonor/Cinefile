@@ -33,6 +33,8 @@ import {
   LetterboxdStatusResponse,
   LetterboxdSyncSummary,
   LetterboxdCacheItem,
+  CoverCandidate,
+  CoverSearchResponse,
 } from '../types';
 
 class ApiService {
@@ -212,6 +214,39 @@ class ApiService {
     return response.data;
   }
 
+  // Cover Art Scraper methods (Amazon / Blu-ray.com / Direct URL)
+  async searchCovers(
+    query: string,
+    sources: Array<'amazon' | 'bluray'> = ['amazon', 'bluray']
+  ): Promise<CoverSearchResponse> {
+    const response = await this.api.get<CoverSearchResponse>('/search/covers', {
+      params: { q: query, sources: sources.join(',') },
+    });
+    return response.data;
+  }
+
+  async extractCoversFromUrl(url: string): Promise<{ results: CoverCandidate[] }> {
+    const response = await this.api.post<{ results: CoverCandidate[] }>('/search/covers/from-url', {
+      url,
+    });
+    return response.data;
+  }
+
+  async downloadRemoteCover(url: string): Promise<{
+    url: string;
+    filename: string;
+    width?: number;
+    height?: number;
+  }> {
+    const response = await this.api.post<{
+      url: string;
+      filename: string;
+      width?: number;
+      height?: number;
+    }>('/search/covers/download', { url });
+    return response.data;
+  }
+
   // Physical Items methods
   async getPhysicalItems(filterOptions?: FilterOptions): Promise<{ items: PhysicalItem[]; matchingIds?: number[]; pagination: any }> {
     const params: any = {};
@@ -232,6 +267,9 @@ class ApiService {
       }
       if (filterOptions.editions && filterOptions.editions.length > 0) {
         params.editions = filterOptions.editions.join(',');
+      }
+      if (filterOptions.versions && filterOptions.versions.length > 0) {
+        params.versions = filterOptions.versions.join(',');
       }
       if (filterOptions.series && filterOptions.series.length > 0) {
         params.series = filterOptions.series.join(',');
@@ -272,13 +310,27 @@ class ApiService {
     return response.data;
   }
 
-  async removeMediaLink(physicalItemId: number, mediaId: number): Promise<PhysicalItem> {
-    const response = await this.api.delete<PhysicalItem>(`/physical-items/${physicalItemId}/media/${mediaId}`);
+  async removeMediaLink(physicalItemId: number, mediaId: number, linkId?: number): Promise<PhysicalItem> {
+    const params = linkId ? { linkId } : undefined;
+    const response = await this.api.delete<PhysicalItem>(`/physical-items/${physicalItemId}/media/${mediaId}`, { params });
     return response.data;
   }
 
-  async updateMovieFormats(physicalItemId: number, mediaId: number, formats: string[]): Promise<PhysicalItem> {
-    const response = await this.api.put<PhysicalItem>(`/physical-items/${physicalItemId}/media/${mediaId}/formats`, { formats });
+  async updateMovieFormats(
+    physicalItemId: number,
+    mediaId: number,
+    formats: string[],
+    versionNotes?: string | null,
+    linkId?: number
+  ): Promise<PhysicalItem> {
+    const payload: Record<string, any> = { formats };
+    if (versionNotes !== undefined) {
+      payload.version_notes = versionNotes;
+    }
+    if (linkId !== undefined) {
+      payload.link_id = linkId;
+    }
+    const response = await this.api.put<PhysicalItem>(`/physical-items/${physicalItemId}/media/${mediaId}/formats`, payload);
     return response.data;
   }
 
@@ -388,6 +440,7 @@ class ApiService {
     genres?: number[];
     decades?: string[];
     editions?: string[];
+    versions?: string[];
     series?: number[];
     search?: string;
     media_type?: 'all' | 'movie' | 'tv_season';
@@ -411,6 +464,9 @@ class ApiService {
       }
       if (filters.editions && filters.editions.length > 0) {
         params.editions = filters.editions.join(',');
+      }
+      if (filters.versions && filters.versions.length > 0) {
+        params.versions = filters.versions.join(',');
       }
       if (filters.series && filters.series.length > 0) {
         params.series = filters.series.join(',');

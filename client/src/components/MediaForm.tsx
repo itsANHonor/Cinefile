@@ -26,6 +26,8 @@ interface MovieWithFormats {
   formats: string[];
   details: any;
   mediaDbId?: number; // Track the actual database ID
+  link_id?: number; // Junction table row ID for existing links (physical_item_media.id)
+  version_notes?: string | null; // Per-link version/cut tags (e.g., Theatrical, Extended)
   isManual?: boolean;
   // TV-specific fields
   media_type?: 'movie' | 'tv_season';
@@ -48,13 +50,12 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
   const [movieDetails, setMovieDetails] = useState<Map<number, any>>(new Map());
   const [storeLinks, setStoreLinks] = useState<Array<{label: string; url: string}>>([]);
   const [showFormatSelector, setShowFormatSelector] = useState(false);
-  const [editingFormatsFor, setEditingFormatsFor] = useState<number | null>(null);
+  const [editingFormatsIndex, setEditingFormatsIndex] = useState<number | null>(null);
   const [originalFormats, setOriginalFormats] = useState<string[]>([]);
+  const [originalVersionNotes, setOriginalVersionNotes] = useState<string | null>(null);
   
   // Poster selection state
   const [showPosterSelector, setShowPosterSelector] = useState(false);
-  const [posterSelectorMovieId, setPosterSelectorMovieId] = useState<number | null>(null);
-  const [showMovieSelectionForPoster, setShowMovieSelectionForPoster] = useState(false);
   const [showArchivePrompt, setShowArchivePrompt] = useState(false);
   const [archivePromptReason, setArchivePromptReason] = useState('');
   const [isDeleting, setIsDeleting] = useState(false);
@@ -161,6 +162,8 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
         },
         formats: m.formats || ['Blu-ray'],
         mediaDbId: m.id, // Preserve the actual media database ID
+        link_id: m.link_id, // Preserve the junction row ID for per-link updates
+        version_notes: m.version_notes || null,
         media_type: m.media_type,
         tv_show_tmdb_id: m.tv_show_tmdb_id,
         tv_show_name: m.tv_show_name,
@@ -226,8 +229,9 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
     }
   }, [editItem, isOpen]);
 
-  const handleUnifiedSearchSelect = async (result: UnifiedSearchResult, formats: string[]) => {
+  const handleUnifiedSearchSelect = async (result: UnifiedSearchResult, formats: string[], versionNotes?: string) => {
     try {
+      const normalizedVersionNotes = versionNotes?.trim() || null;
       if (result.source === 'database') {
         // Handle existing database movie
         const existingMedia = result.originalData as Media;
@@ -245,6 +249,7 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
           },
           formats,
           mediaDbId: existingMedia.id, // Preserve the database ID for existing media
+          version_notes: normalizedVersionNotes,
           isManual: !existingMedia.tmdb_id,
           media_type: existingMedia.media_type,
           tv_show_tmdb_id: existingMedia.tv_show_tmdb_id,
@@ -299,6 +304,7 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
             vote_count: 0,
           },
           formats,
+          version_notes: normalizedVersionNotes,
           isManual: true,
           media_type: manualMediaType,
           tv_show_name: manualMovie.tv_show_name,
@@ -338,6 +344,7 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
         const newMovieWithFormats: MovieWithFormats = {
           movie: tmdbMovie,
           formats,
+          version_notes: normalizedVersionNotes,
           details,
           genres: details?.genres
         };
@@ -407,8 +414,8 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
     }
   };
 
-  const handleRemoveMovie = (movieId: number) => {
-    const newMovies = selectedMovies.filter(m => m.movie.id !== movieId);
+  const handleRemoveMovie = (index: number) => {
+    const newMovies = selectedMovies.filter((_, i) => i !== index);
     const oldAutoName = updatePhysicalItemName(selectedMovies); // Compare to OLD
     const newAutoName = updatePhysicalItemName(newMovies);
     
@@ -423,10 +430,13 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
     }
   };
 
-  const handleRemoveMovieFromPhysicalItem = async (movieWithFormats: MovieWithFormats) => {
-    if (!editItem) {
-      // Creating new item - just remove from local state
-      handleRemoveMovie(movieWithFormats.movie.id);
+  const handleRemoveMovieFromPhysicalItem = async (index: number) => {
+    const movieWithFormats = selectedMovies[index];
+    if (!movieWithFormats) return;
+
+    // Entries without a link_id were never persisted - just remove locally
+    if (!editItem || !movieWithFormats.link_id) {
+      handleRemoveMovie(index);
       return;
     }
     
@@ -442,8 +452,8 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
     if (!confirmed) return;
 
     try {
-      await apiService.removeMediaLink(editItem.id, movieWithFormats.mediaDbId!);
-      setSelectedMovies(prev => prev.filter(m => m.mediaDbId !== movieWithFormats.mediaDbId));
+      await apiService.removeMediaLink(editItem.id, movieWithFormats.mediaDbId!, movieWithFormats.link_id);
+      setSelectedMovies(prev => prev.filter((_, i) => i !== index));
       toast({ message: 'Movie removed from physical item.', type: 'success' });
     } catch (error) {
       toast({ message: 'Failed to remove movie. Please try again.', type: 'error' });
@@ -480,42 +490,50 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
     }
   };
 
-  const handleEditFormats = (movieId: number) => {
-    const movie = selectedMovies.find(m => m.movie.id === movieId);
+  const handleEditFormats = (index: number) => {
+    const movie = selectedMovies[index];
     if (movie) {
       setOriginalFormats([...movie.formats]);
-      setEditingFormatsFor(movieId);
+      setOriginalVersionNotes(movie.version_notes ?? null);
+      setEditingFormatsIndex(index);
       setShowFormatSelector(true);
     }
   };
 
-  const handleFormatsUpdated = async (formats: string[]) => {
-    if (editingFormatsFor === null || !editItem) return;
+  const handleFormatsUpdated = async (formats: string[], versionNotes?: string) => {
+    if (editingFormatsIndex === null) return;
+    
+    const index = editingFormatsIndex;
+    const movieWithFormats = selectedMovies[index];
+    const nextVersionNotes = versionNotes?.trim() || null;
     
     // Update local state immediately for UI responsiveness
     setSelectedMovies(prev => 
-      prev.map(movie => 
-        movie.movie.id === editingFormatsFor 
-          ? { ...movie, formats }
+      prev.map((movie, i) => 
+        i === index 
+          ? { ...movie, formats, version_notes: nextVersionNotes }
           : movie
       )
     );
     
-    // If editing an existing item, update the backend immediately
-    if (editItem) {
+    // If editing an existing persisted link, update the backend immediately
+    if (editItem && movieWithFormats?.mediaDbId && movieWithFormats?.link_id) {
       try {
-        const movieWithFormats = selectedMovies.find(m => m.movie.id === editingFormatsFor);
-        if (movieWithFormats?.mediaDbId) {
-          await apiService.updateMovieFormats(editItem.id, movieWithFormats.mediaDbId, formats);
-        }
+        await apiService.updateMovieFormats(
+          editItem.id,
+          movieWithFormats.mediaDbId,
+          formats,
+          nextVersionNotes,
+          movieWithFormats.link_id
+        );
       } catch (error) {
         console.error('Failed to update movie formats:', error);
         toast({ message: 'Failed to update movie formats. Please try again.', type: 'error' });
         // Revert the local state change on error
         setSelectedMovies(prev => 
-          prev.map(movie => 
-            movie.movie.id === editingFormatsFor 
-              ? { ...movie, formats: originalFormats }
+          prev.map((movie, i) => 
+            i === index 
+              ? { ...movie, formats: originalFormats, version_notes: originalVersionNotes }
               : movie
           )
         );
@@ -523,33 +541,47 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
     }
     
     setShowFormatSelector(false);
-    setEditingFormatsFor(null);
+    setEditingFormatsIndex(null);
     setOriginalFormats([]);
+    setOriginalVersionNotes(null);
   };
 
   const handleSelectPosterClick = () => {
     if (selectedMovies.length === 0) {
-      toast({ message: 'Please select a movie first to choose a poster.', type: 'warning' });
+      toast({ message: 'Please select a movie first to choose cover art.', type: 'warning' });
       return;
     }
 
-    if (selectedMovies.length === 1 && selectedMovies[0].isManual) {
-      toast({ message: 'Manual movies can use a cover image from the manual movie form or an upload.', type: 'warning' });
-      return;
-    }
-
-    if (selectedMovies.length === 1) {
-      setPosterSelectorMovieId(selectedMovies[0].movie.id);
-      setShowPosterSelector(true);
-    } else {
-      setShowMovieSelectionForPoster(true);
-    }
+    setShowPosterSelector(true);
   };
 
   const handlePosterSelected = (url: string) => {
     setFormData({ ...formData, custom_image_url: url });
     setShowPosterSelector(false);
-    setPosterSelectorMovieId(null);
+  };
+
+  const buildCoverSearchQuery = () => {
+    const baseTitle = (formData.name || updatePhysicalItemName(selectedMovies) || '').trim();
+    const parts: string[] = [];
+    if (baseTitle) parts.push(baseTitle);
+
+    const primaryFormats = Array.from(new Set(selectedMovies.flatMap((m) => m.formats)));
+    if (primaryFormats.includes('4K UHD') && !/\b4k\b/i.test(baseTitle)) {
+      parts.push('4K UHD');
+    } else if (primaryFormats.includes('Blu-ray') && !/\bblu-?ray\b/i.test(baseTitle)) {
+      parts.push('Blu-ray');
+    } else if (primaryFormats.includes('DVD') && !/\bdvd\b/i.test(baseTitle)) {
+      parts.push('DVD');
+    }
+
+    if (formData.edition_notes) {
+      const firstTag = formData.edition_notes.split(',')[0]?.trim();
+      if (firstTag && !baseTitle.toLowerCase().includes(firstTag.toLowerCase())) {
+        parts.push(firstTag);
+      }
+    }
+
+    return parts.join(' ').trim();
   };
 
   const handleMediaSaved = (updatedMedia: Media) => {
@@ -703,39 +735,39 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
         } as any);
 
         // Handle media links for existing physical items
-        // Get list of currently linked media IDs
-        const currentMediaIds = new Set(editItem.media.map(m => m.id));
-        const selectedMediaIds = new Set(selectedMovies.map(m => m.mediaDbId).filter(id => id !== undefined));
+        // Track links by their junction row ID so the same movie can be
+        // linked multiple times (e.g., Theatrical and Extended versions)
+        const currentLinks = editItem.media.filter(m => m.link_id != null);
+        const selectedLinkIds = new Set(selectedMovies.map(m => m.link_id).filter(id => id != null));
 
         console.log('🎬 Media link management:', {
-          currentMediaIds: Array.from(currentMediaIds),
-          selectedMediaIds: Array.from(selectedMediaIds)
+          currentLinkIds: currentLinks.map(m => m.link_id),
+          selectedLinkIds: Array.from(selectedLinkIds)
         });
 
         // Remove media links that are no longer selected
-        for (const mediaId of currentMediaIds) {
-          if (!selectedMediaIds.has(mediaId)) {
-            console.log('🗑️ Removing media link:', mediaId);
+        for (const linked of currentLinks) {
+          if (!selectedLinkIds.has(linked.link_id!)) {
+            console.log('🗑️ Removing media link:', linked.link_id);
             try {
-              await apiService.removeMediaLink(editItem.id, mediaId);
+              await apiService.removeMediaLink(editItem.id, linked.id, linked.link_id!);
             } catch (error) {
-              console.error(`Failed to remove media link ${mediaId}:`, error);
+              console.error(`Failed to remove media link ${linked.link_id}:`, error);
             }
           }
         }
 
         // Add new media links for selected movies
         for (const movieWithFormats of selectedMovies) {
-          const { movie, formats, details, mediaDbId } = movieWithFormats;
+          const { movie, formats, details, mediaDbId, link_id, version_notes } = movieWithFormats;
           
-          // Skip if this media is already linked
-          if (mediaDbId && currentMediaIds.has(mediaDbId)) {
-            console.log('📝 Updating formats for existing media:', mediaDbId);
-            // Update formats if they changed
+          // Existing junction link - update formats and version notes
+          if (link_id && mediaDbId) {
+            console.log('📝 Updating formats for existing link:', link_id);
             try {
-              await apiService.updateMovieFormats(editItem.id, mediaDbId, formats);
+              await apiService.updateMovieFormats(editItem.id, mediaDbId, formats, version_notes ?? null, link_id);
             } catch (error) {
-              console.error(`Failed to update formats for media ${mediaDbId}:`, error);
+              console.error(`Failed to update link ${link_id}:`, error);
             }
             continue;
           }
@@ -746,6 +778,7 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
             mediaData = {
               id: mediaDbId,
               formats: formats,
+              version_notes: version_notes || null,
               disc_number: 1,
             };
           } else {
@@ -759,6 +792,7 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
               cast: details?.cast || [],
               genres: details?.genres || movieWithFormats.genres || [],
               formats: formats,
+              version_notes: version_notes || null,
               disc_number: 1,
               media_type: movieWithFormats.media_type || 'movie',
             };
@@ -792,7 +826,7 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
       } else {
         // Create new physical item with linked media
         const mediaArray = selectedMovies.map(movieWithFormats => {
-          const { movie, formats, details } = movieWithFormats;
+          const { movie, formats, details, version_notes } = movieWithFormats;
           const mediaEntry: any = {
             title: details?.title || movie.title,
             ...(movieWithFormats.isManual ? {} : { tmdb_id: details?.id || movie.id }),
@@ -803,6 +837,7 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
             cast: details?.cast || [],
             genres: details?.genres || movieWithFormats.genres || [],
             formats: formats,
+            version_notes: version_notes || null,
             media_type: movieWithFormats.media_type || 'movie',
           };
           
@@ -959,11 +994,20 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
                       <button
                         type="button"
                         onClick={handleSelectPosterClick}
-                      disabled={selectedMovies.length === 1 && selectedMovies[0].isManual}
-                      className="flex-1 btn-secondary text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="flex-1 btn-secondary text-sm"
                       >
-                        Select Poster
+                        Find Cover Art
                       </button>
+                      {formData.custom_image_url && (
+                        <button
+                          type="button"
+                          onClick={() => setFormData({ ...formData, custom_image_url: '' })}
+                          className="px-3 py-2 text-xs font-medium rounded-lg border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                          title="Revert to default movie poster"
+                        >
+                          Reset
+                        </button>
+                      )}
                     </div>
                     <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
                       Or upload your own:
@@ -989,9 +1033,9 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
                     
                     {selectedMovies.length > 0 ? (
                       <div className="space-y-2 mb-3">
-                        {selectedMovies.map((movieWithFormats) => (
+                        {selectedMovies.map((movieWithFormats, index) => (
                           <div
-                            key={movieWithFormats.movie.id}
+                            key={movieWithFormats.link_id ?? `sel-${index}`}
                             className="p-3 bg-gray-50 dark:bg-gray-700 rounded border border-gray-200 dark:border-gray-600"
                           >
                             <div className="flex items-start justify-between">
@@ -1004,6 +1048,11 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
                                   {movieWithFormats.media_type === 'tv_season' && (
                                     <span className="ml-2 px-1.5 py-0.5 bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-300 rounded text-[10px] font-medium">
                                       TV
+                                    </span>
+                                  )}
+                                  {movieWithFormats.version_notes && (
+                                    <span className="ml-2 px-1.5 py-0.5 bg-amber-100 dark:bg-amber-900/50 text-amber-800 dark:text-amber-200 rounded text-[10px] font-medium">
+                                      {movieWithFormats.version_notes}
                                     </span>
                                   )}
                                 </p>
@@ -1023,10 +1072,10 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
                                   type="button"
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    handleEditFormats(movieWithFormats.movie.id);
+                                    handleEditFormats(index);
                                   }}
                                   className="text-gray-400 hover:text-green-600 dark:hover:text-green-400"
-                                  title="Edit formats"
+                                  title="Edit formats & version"
                                 >
                                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
@@ -1049,7 +1098,7 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
                                 </button>
                                 <button
                                   type="button"
-                                  onClick={() => handleRemoveMovieFromPhysicalItem(movieWithFormats)}
+                                  onClick={() => handleRemoveMovieFromPhysicalItem(index)}
                                   className="text-gray-400 hover:text-red-600 dark:hover:text-red-400"
                                   title="Remove movie"
                                 >
@@ -1478,12 +1527,15 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
         isOpen={showFormatSelector}
         onClose={() => {
           setShowFormatSelector(false);
-          setEditingFormatsFor(null);
+          setEditingFormatsIndex(null);
           setOriginalFormats([]);
+          setOriginalVersionNotes(null);
         }}
         onConfirm={handleFormatsUpdated}
-        movieTitle={editingFormatsFor ? selectedMovies.find(m => m.movie.id === editingFormatsFor)?.movie.title || '' : ''}
-        initialFormats={editingFormatsFor ? selectedMovies.find(m => m.movie.id === editingFormatsFor)?.formats || [] : []}
+        movieTitle={editingFormatsIndex !== null ? selectedMovies[editingFormatsIndex]?.movie.title || '' : ''}
+        initialFormats={editingFormatsIndex !== null ? selectedMovies[editingFormatsIndex]?.formats || [] : []}
+        initialVersionNotes={editingFormatsIndex !== null ? selectedMovies[editingFormatsIndex]?.version_notes || '' : ''}
+        confirmLabel={editingFormatsIndex !== null ? 'Save Changes' : undefined}
       />
 
       {/* Archive Reason Prompt Modal */}
@@ -1535,55 +1587,30 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
       </Sheet>
 
       {/* Poster Selector */}
-      {showPosterSelector && posterSelectorMovieId && (
+      {showPosterSelector && (
         <PosterSelector
-          tmdbId={posterSelectorMovieId}
-          movieTitle={selectedMovies.find(m => m.movie.id === posterSelectorMovieId)?.movie.title || ''}
+          tmdbId={
+            selectedMovies.find((m) => !m.isManual)?.tv_show_tmdb_id ||
+            selectedMovies.find((m) => !m.isManual)?.movie.id ||
+            null
+          }
+          movieTitle={formData.name || updatePhysicalItemName(selectedMovies)}
+          initialQuery={buildCoverSearchQuery()}
+          movieOptions={selectedMovies
+            .filter((m) => !m.isManual)
+            .map((m) => ({
+              tmdbId:
+                m.media_type === 'tv_season' && m.tv_show_tmdb_id
+                  ? m.tv_show_tmdb_id
+                  : m.movie.id,
+              title: m.movie.title,
+              mediaType: m.media_type,
+              seasonNumber: m.season_number,
+            }))}
           onSelect={handlePosterSelected}
-          onClose={() => {
-            setShowPosterSelector(false);
-            setPosterSelectorMovieId(null);
-          }}
+          onClose={() => setShowPosterSelector(false)}
           currentPosterUrl={formData.custom_image_url}
         />
-      )}
-
-      {/* Movie Selection for Poster Modal */}
-      {showMovieSelectionForPoster && (
-        <div className="fixed inset-0 z-[60] overflow-y-auto">
-          <div className="fixed inset-0 bg-black bg-opacity-50" onClick={() => setShowMovieSelectionForPoster(false)} />
-          <div className="flex min-h-screen items-center justify-center p-4">
-            <div className="relative bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full p-6">
-              <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">
-                Choose movie for poster
-              </h3>
-              <div className="space-y-2">
-                {selectedMovies.map((movie) => (
-                  <button
-                    key={movie.movie.id}
-                    onClick={() => {
-                      setPosterSelectorMovieId(movie.movie.id);
-                      setShowMovieSelectionForPoster(false);
-                      setShowPosterSelector(true);
-                    }}
-                    disabled={movie.isManual}
-                    className="w-full text-left px-4 py-3 rounded-lg bg-gray-50 dark:bg-gray-700 hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors text-gray-900 dark:text-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {movie.movie.title}
-                  </button>
-                ))}
-              </div>
-              <div className="mt-4 flex justify-end">
-                <button
-                  onClick={() => setShowMovieSelectionForPoster(false)}
-                  className="btn-secondary"
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
       )}
     </>
   );

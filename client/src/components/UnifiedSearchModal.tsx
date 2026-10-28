@@ -24,7 +24,7 @@ export type SearchMode = 'movies' | 'tv';
 interface UnifiedSearchModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSelect: (result: UnifiedSearchResult, formats: string[]) => void;
+  onSelect: (result: UnifiedSearchResult, formats: string[], versionNotes?: string) => void;
   onSelectTVSeasons?: (seasons: any[], formats: string[]) => void;
   currentPhysicalItem?: PhysicalItem | null;
 }
@@ -88,15 +88,14 @@ const UnifiedSearchModal: React.FC<UnifiedSearchModalProps> = ({
 
     try {
       if (searchMode === 'movies') {
-        // Search local database for movies
+        // Search local database for movies (allow already-linked movies so users can add another version/cut)
         const filteredMovies = allMovies.filter(movie => {
           const isMovie = !movie.media_type || movie.media_type === 'movie';
           const matchesSearch = 
             movie.title.toLowerCase().includes(query.toLowerCase()) ||
             movie.director?.toLowerCase().includes(query.toLowerCase()) ||
             movie.synopsis?.toLowerCase().includes(query.toLowerCase());
-          const notLinked = !linkedMovieIds.includes(movie.id);
-          return isMovie && matchesSearch && notLinked;
+          return isMovie && matchesSearch;
         });
 
         const dbResults: UnifiedSearchResult[] = filteredMovies.map(movie => ({
@@ -218,9 +217,9 @@ const UnifiedSearchModal: React.FC<UnifiedSearchModalProps> = ({
     setShowFormatSelector(true);
   };
 
-  const handleFormatsSelected = (formats: string[]) => {
+  const handleFormatsSelected = (formats: string[], versionNotes?: string) => {
     if (selectedResult) {
-      onSelect(selectedResult, formats);
+      onSelect(selectedResult, formats, versionNotes);
     }
     setShowFormatSelector(false);
     setSelectedResult(null);
@@ -448,9 +447,16 @@ const UnifiedSearchModal: React.FC<UnifiedSearchModalProps> = ({
                                 </p>
                               )}
                             </div>
-                            <span className="ml-2 px-2 py-1 text-xs font-medium bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200 rounded-full">
-                              Database
-                            </span>
+                            <div className="ml-2 flex flex-col items-end gap-1">
+                              <span className="px-2 py-1 text-xs font-medium bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200 rounded-full">
+                                Database
+                              </span>
+                              {linkedMovieIds.includes(result.id) && (
+                                <span className="px-2 py-0.5 text-[11px] font-medium bg-amber-100 dark:bg-amber-900/50 text-amber-800 dark:text-amber-200 rounded-full">
+                                  In this item
+                                </span>
+                              )}
+                            </div>
                           </div>
                         </div>
                       </div>

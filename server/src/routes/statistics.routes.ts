@@ -3,7 +3,9 @@ import { db } from '../database';
 import { isRequestAdmin } from '../middleware/auth.middleware';
 import {
   applyEditionTagFilter,
+  applyVersionTagFilter,
   buildCanonicalEditionTagMap,
+  buildCanonicalVersionTagMap,
   parseEditionTags,
 } from '../utils/edition-tags.util';
 
@@ -25,7 +27,7 @@ const STANDARD_UNIT_MM = 12.5;
 
 router.get('/', async (req: Request, res: Response) => {
   try {
-    const { format, genres, decades, editions, edition, series, search, media_type, archived } = req.query;
+    const { format, genres, decades, editions, edition, versions, version, series, search, media_type, archived } = req.query;
 
     const isAdmin = isRequestAdmin(req);
     const showArchived = isAdmin && (archived === 'true' || archived === '1');
@@ -150,6 +152,10 @@ router.get('/', async (req: Request, res: Response) => {
         query = applyEditionTagFilter(query, editions || edition);
       }
 
+      if (versions || version) {
+        query = applyVersionTagFilter(query, versions || version);
+      }
+
       // Filter by series if specified (multi-select: comma-separated series IDs)
       if (series && typeof series === 'string') {
         const seriesIds = series.split(',').map(s => parseInt(s.trim(), 10)).filter(id => !isNaN(id));
@@ -192,12 +198,13 @@ router.get('/', async (req: Request, res: Response) => {
                 media.title LIKE ? OR
                 media.director LIKE ? OR
                 media.synopsis LIKE ? OR
+                physical_item_media.version_notes LIKE ? OR
                 EXISTS (
                   SELECT 1 FROM json_each(media.cast) 
                   WHERE json_each.value LIKE ?
                 )
               )
-            )`, [searchTerm, searchTerm, searchTerm, searchTerm]);
+            )`, [searchTerm, searchTerm, searchTerm, searchTerm, searchTerm]);
         });
       }
 
@@ -281,6 +288,10 @@ router.get('/', async (req: Request, res: Response) => {
       totalMoviesQuery = applyEditionTagFilter(totalMoviesQuery, editions || edition);
     }
 
+    if (versions || version) {
+      totalMoviesQuery = applyVersionTagFilter(totalMoviesQuery, versions || version);
+    }
+
     if (series && typeof series === 'string') {
       const seriesIds = series.split(',').map(s => parseInt(s.trim(), 10)).filter(id => !isNaN(id));
       if (seriesIds.length > 0) {
@@ -312,6 +323,7 @@ router.get('/', async (req: Request, res: Response) => {
       totalMoviesQuery = totalMoviesQuery.where(function(this: any) {
         this.where('physical_items.name', 'like', searchTerm)
           .orWhere('physical_items.edition_notes', 'like', searchTerm)
+          .orWhere('physical_item_media.version_notes', 'like', searchTerm)
           .orWhere('media.title', 'like', searchTerm)
           .orWhere('media.director', 'like', searchTerm)
           .orWhere('media.synopsis', 'like', searchTerm)
@@ -399,6 +411,10 @@ router.get('/', async (req: Request, res: Response) => {
 
     if (editions || edition) {
       totalTVSeasonsQuery = applyEditionTagFilter(totalTVSeasonsQuery, editions || edition);
+    }
+
+    if (versions || version) {
+      totalTVSeasonsQuery = applyVersionTagFilter(totalTVSeasonsQuery, versions || version);
     }
 
     if (series && typeof series === 'string') {
@@ -615,6 +631,38 @@ router.get('/facets', async (req: Request, res: Response) => {
       (a, b) => b.count - a.count || a.tag.localeCompare(b.tag)
     );
 
+    // Full-collection movie version tags list with item counts
+    const versionRows = await db('physical_item_media as pim')
+      .join('physical_items as pi', 'pim.physical_item_id', 'pi.id')
+      .where(function() {
+        this.where('pi.archived', 0).orWhereNull('pi.archived');
+      })
+      .whereNotNull('pim.version_notes')
+      .andWhere('pim.version_notes', '<>', '')
+      .select('pi.id as item_id', 'pim.version_notes');
+
+    const canonicalVersionMap = buildCanonicalVersionTagMap(versionRows);
+    const versionItemSets = new Map<string, { tag: string; itemIds: Set<number> }>();
+
+    for (const row of versionRows) {
+      const tags = parseEditionTags(row.version_notes);
+      for (const rawTag of tags) {
+        const key = rawTag.toLowerCase();
+        const canonicalTag = canonicalVersionMap.get(key) ?? rawTag;
+        if (!versionItemSets.has(key)) {
+          versionItemSets.set(key, { tag: canonicalTag, itemIds: new Set() });
+        }
+        versionItemSets.get(key)!.itemIds.add(Number(row.item_id));
+      }
+    }
+
+    const versions = Array.from(versionItemSets.values())
+      .map((entry) => ({
+        tag: entry.tag,
+        count: entry.itemIds.size,
+      }))
+      .sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag));
+
     // Full-collection series list with item counts
     const seriesRows = await db.raw(`
       SELECT s.id, s.name, s.sort_name, COUNT(DISTINCT item_series.item_id) AS count
@@ -653,6 +701,7 @@ router.get('/facets', async (req: Request, res: Response) => {
       decades,
       formats,
       editions,
+      versions,
       series,
     });
   } catch (error) {

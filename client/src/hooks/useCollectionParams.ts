@@ -23,6 +23,7 @@ export interface CollectionParams {
   genres: number[];
   decades: string[];
   editions: string[];
+  versions: string[];
   series: number[];
   type: 'all' | 'movie' | 'tv_season';
   archived: boolean;
@@ -94,6 +95,7 @@ export function useCollectionParams(options: UseCollectionParamsOptions = {}) {
   const rawGenre = searchParams.get('genre');
   const rawDecade = searchParams.get('decade');
   const rawEdition = searchParams.get('edition');
+  const rawVersion = searchParams.get('version');
   const rawSeries = searchParams.get('series');
   const rawType = searchParams.get('type');
   const rawArchived = searchParams.get('archived');
@@ -104,6 +106,7 @@ export function useCollectionParams(options: UseCollectionParamsOptions = {}) {
   const genres = useMemo(() => parseGenres(rawGenre), [rawGenre]);
   const decades = useMemo(() => parseDecades(rawDecade), [rawDecade]);
   const editions = useMemo(() => parseCommaList(rawEdition), [rawEdition]);
+  const versions = useMemo(() => parseCommaList(rawVersion), [rawVersion]);
   const series = useMemo(() => parseGenres(rawSeries), [rawSeries]);
 
   const params = useMemo<CollectionParams>(() => {
@@ -114,6 +117,7 @@ export function useCollectionParams(options: UseCollectionParamsOptions = {}) {
       genres,
       decades,
       editions,
+      versions,
       series,
       type: parseType(rawType),
       archived: rawArchived === 'true',
@@ -126,6 +130,7 @@ export function useCollectionParams(options: UseCollectionParamsOptions = {}) {
     genres,
     decades,
     editions,
+    versions,
     series,
     rawType,
     rawArchived,
@@ -167,6 +172,12 @@ export function useCollectionParams(options: UseCollectionParamsOptions = {}) {
         const editions = updates.editions ?? [];
         if (editions.length) next.set('edition', editions.join(','));
         else next.delete('edition');
+      }
+
+      if ('versions' in updates) {
+        const versions = updates.versions ?? [];
+        if (versions.length) next.set('version', versions.join(','));
+        else next.delete('version');
       }
 
       if ('series' in updates) {

@@ -13,6 +13,7 @@ export interface CollectionToolbarProps {
   availableGenres: Array<{ id: number; name: string }>;
   availableDecades: string[];
   availableEditions?: Array<{ tag: string; count?: number }>;
+  availableVersions?: Array<{ tag: string; count?: number }>;
   availableSeries?: Array<{ id: number; name: string; count?: number }>;
   resultCount?: number;
   isLoading?: boolean;
@@ -47,6 +48,7 @@ const CollectionToolbar: React.FC<CollectionToolbarProps> = ({
   availableGenres,
   availableDecades,
   availableEditions = [],
+  availableVersions = [],
   availableSeries = [],
   resultCount,
   isLoading,
@@ -57,6 +59,7 @@ const CollectionToolbar: React.FC<CollectionToolbarProps> = ({
   const [isFilterOpen, setIsFilterOpen] = useState(false);
 
   const selectedEditions = params.editions ?? [];
+  const selectedVersions = params.versions ?? [];
   const selectedSeries = params.series ?? [];
 
   const activeFilterCount = countActiveFilters({
@@ -64,6 +67,7 @@ const CollectionToolbar: React.FC<CollectionToolbarProps> = ({
     selectedGenres: params.genres,
     selectedDecades: params.decades,
     selectedEditions,
+    selectedVersions,
     selectedSeries,
     mediaType: params.type,
     archived: showArchivedFilter && params.archived,
@@ -291,6 +295,17 @@ const CollectionToolbar: React.FC<CollectionToolbarProps> = ({
               }
             />
           ))}
+          {selectedVersions.map((tag) => (
+            <Chip
+              key={`version-${tag}`}
+              label={tag}
+              onRemove={() =>
+                setParams({
+                  versions: selectedVersions.filter((v) => v.toLowerCase() !== tag.toLowerCase()),
+                })
+              }
+            />
+          ))}
           {selectedSeries.map((id) => (
             <Chip
               key={`series-${id}`}
@@ -319,10 +334,12 @@ const CollectionToolbar: React.FC<CollectionToolbarProps> = ({
         selectedGenres={params.genres}
         selectedDecades={params.decades}
         selectedEditions={selectedEditions}
+        selectedVersions={selectedVersions}
         selectedSeries={selectedSeries}
         availableGenres={availableGenres}
         availableDecades={availableDecades}
         availableEditions={availableEditions}
+        availableVersions={availableVersions}
         availableSeries={availableSeries}
         mediaType={params.type}
         archived={showArchivedFilter ? params.archived : false}
@@ -334,6 +351,7 @@ const CollectionToolbar: React.FC<CollectionToolbarProps> = ({
         onGenresChange={(genres) => setParams({ genres })}
         onDecadesChange={(decades) => setParams({ decades })}
         onEditionsChange={(editions) => setParams({ editions })}
+        onVersionsChange={(versions) => setParams({ versions })}
         onSeriesChange={(series) => setParams({ series })}
         onMediaTypeChange={(type) => setParams({ type })}
         onArchivedChange={(archived) => setParams({ archived })}

@@ -154,6 +154,7 @@ const CollectionPage: React.FC = () => {
     params.genres,
     params.decades,
     params.editions,
+    params.versions,
     params.series,
     params.type,
     effectiveArchived,
@@ -187,6 +188,7 @@ const CollectionPage: React.FC = () => {
           genres: params.genres.length > 0 ? params.genres : undefined,
           decades: params.decades.length > 0 ? params.decades : undefined,
           editions: params.editions.length > 0 ? params.editions : undefined,
+          versions: params.versions.length > 0 ? params.versions : undefined,
           series: params.series.length > 0 ? params.series : undefined,
           media_type: params.type !== 'all' ? params.type : undefined,
           search: params.q || undefined,
@@ -214,7 +216,7 @@ const CollectionPage: React.FC = () => {
     return () => {
       abortController.abort();
     };
-  }, [params.formats, params.genres, params.decades, params.editions, params.series, params.type, params.q, effectiveArchived, isInitialized]);
+  }, [params.formats, params.genres, params.decades, params.editions, params.versions, params.series, params.type, params.q, effectiveArchived, isInitialized]);
 
   const loadInitialData = async () => {
     setIsLoading(true);
@@ -229,6 +231,7 @@ const CollectionPage: React.FC = () => {
         genres: params.genres.length > 0 ? params.genres : undefined,
         decades: params.decades.length > 0 ? params.decades : undefined,
         editions: params.editions.length > 0 ? params.editions : undefined,
+        versions: params.versions.length > 0 ? params.versions : undefined,
         series: params.series.length > 0 ? params.series : undefined,
         media_type: params.type !== 'all' ? params.type : undefined,
         archived: canEdit && params.archived ? true : undefined,
@@ -276,6 +279,7 @@ const CollectionPage: React.FC = () => {
         genres: params.genres.length > 0 ? params.genres : undefined,
         decades: params.decades.length > 0 ? params.decades : undefined,
         editions: params.editions.length > 0 ? params.editions : undefined,
+        versions: params.versions.length > 0 ? params.versions : undefined,
         series: params.series.length > 0 ? params.series : undefined,
         media_type: params.type !== 'all' ? params.type : undefined,
         archived: canEdit && params.archived ? true : undefined,
@@ -304,6 +308,7 @@ const CollectionPage: React.FC = () => {
     params.genres,
     params.decades,
     params.editions,
+    params.versions,
     params.series,
     params.type,
     params.archived,
@@ -343,6 +348,7 @@ const CollectionPage: React.FC = () => {
           genres: params.genres.length > 0 ? params.genres : undefined,
           decades: params.decades.length > 0 ? params.decades : undefined,
           editions: params.editions.length > 0 ? params.editions : undefined,
+          versions: params.versions.length > 0 ? params.versions : undefined,
           series: params.series.length > 0 ? params.series : undefined,
           media_type: params.type !== 'all' ? params.type : undefined,
           archived: canEdit && params.archived ? true : undefined,
@@ -364,6 +370,7 @@ const CollectionPage: React.FC = () => {
     params.genres,
     params.decades,
     params.editions,
+    params.versions,
     params.series,
     params.type,
     canEdit,
@@ -380,6 +387,7 @@ const CollectionPage: React.FC = () => {
     [facets]
   );
   const availableEditions = React.useMemo(() => facets?.editions ?? [], [facets]);
+  const availableVersions = React.useMemo(() => facets?.versions ?? [], [facets]);
   const availableSeries = React.useMemo(() => facets?.series ?? [], [facets]);
 
 
@@ -447,6 +455,7 @@ const CollectionPage: React.FC = () => {
         genres: params.genres.length > 0 ? params.genres : undefined,
         decades: params.decades.length > 0 ? params.decades : undefined,
         editions: params.editions.length > 0 ? params.editions : undefined,
+        versions: params.versions.length > 0 ? params.versions : undefined,
         series: params.series.length > 0 ? params.series : undefined,
         media_type: params.type !== 'all' ? params.type : undefined,
         search: params.q || undefined,
@@ -486,6 +495,7 @@ const CollectionPage: React.FC = () => {
     params.genres.length > 0 ||
     params.decades.length > 0 ||
     params.editions.length > 0 ||
+    params.versions.length > 0 ||
     params.series.length > 0 ||
     params.type !== 'all' ||
     (canEdit && params.archived);
@@ -504,6 +514,7 @@ const CollectionPage: React.FC = () => {
     params.genres.length === 0 &&
     params.decades.length === 0 &&
     params.editions.length === 0 &&
+    params.versions.length === 0 &&
     params.series.length === 0 &&
     params.type === 'all' &&
     !params.archived &&
@@ -559,6 +570,7 @@ const CollectionPage: React.FC = () => {
         availableGenres={availableGenres}
         availableDecades={availableDecades}
         availableEditions={availableEditions}
+        availableVersions={availableVersions}
         availableSeries={availableSeries}
         resultCount={totalCount}
         isLoading={isLoading}

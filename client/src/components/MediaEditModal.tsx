@@ -235,11 +235,6 @@ const MediaEditModal: React.FC<MediaEditModalProps> = ({ media, isOpen, onClose,
   };
 
   const handleSelectPosterClick = () => {
-    const hasTmdbLink = media?.tmdb_id || (media?.media_type === 'tv_season' && media?.tv_show_tmdb_id);
-    if (!hasTmdbLink) {
-      toast({ message: 'This media item is not linked to TMDB.', type: 'warning' });
-      return;
-    }
     setShowPosterSelector(true);
   };
 
@@ -504,11 +499,10 @@ const MediaEditModal: React.FC<MediaEditModalProps> = ({ media, isOpen, onClose,
                       <button
                         type="button"
                         onClick={handleSelectPosterClick}
-                        disabled={!media?.tmdb_id && !(media?.media_type === 'tv_season' && media?.tv_show_tmdb_id)}
-                        className="btn-secondary text-sm flex-1 disabled:opacity-50 disabled:cursor-not-allowed"
-                        title={(!media?.tmdb_id && !(media?.media_type === 'tv_season' && media?.tv_show_tmdb_id)) ? 'Not linked to TMDB' : 'Select alternative poster from TMDB'}
+                        className="btn-secondary text-sm flex-1"
+                        title="Search box art or select alternative poster"
                       >
-                        Select Poster
+                        Find Cover Art
                       </button>
                     </div>
                     <input
@@ -833,10 +827,14 @@ const MediaEditModal: React.FC<MediaEditModalProps> = ({ media, isOpen, onClose,
       </div>
 
       {/* Poster Selector */}
-      {showPosterSelector && (media?.tmdb_id || (media?.media_type === 'tv_season' && media?.tv_show_tmdb_id)) && (
+      {showPosterSelector && media && (
         <PosterSelector
-          tmdbId={(media.media_type === 'tv_season' ? (media.tv_show_tmdb_id || media.tmdb_id) : media.tmdb_id)!}
-          movieTitle={media.title}
+          tmdbId={
+            media.media_type === 'tv_season'
+              ? media.tv_show_tmdb_id || media.tmdb_id || null
+              : media.tmdb_id || null
+          }
+          movieTitle={formData.title || media.title}
           onSelect={handlePosterSelected}
           onClose={() => setShowPosterSelector(false)}
           currentPosterUrl={formData.cover_art_url}
