@@ -38,10 +38,75 @@ export interface Media {
   tv_show_name?: string;
   season_number?: number;
   episode_count?: number;
+  // Letterboxd integration fields
+  letterboxd_rating?: number | null;
+  letterboxd_liked?: boolean;
+  letterboxd_watched?: boolean;
+  letterboxd_last_watched_date?: string | null;
+  letterboxd_rewatch?: boolean;
+  letterboxd_uri?: string | null;
+  letterboxd_updated_at?: string | null;
   created_at?: string;
   updated_at?: string;
   disc_number?: number; // For junction table data
   formats?: string[]; // For junction table data - per-movie formats
+}
+
+export interface LetterboxdFuzzySuggestion {
+  mediaId: number;
+  mediaTitle: string;
+  mediaYear: number | null;
+  mediaCoverArtUrl: string | null;
+  mediaDirector: string | null;
+  cacheId: number;
+  letterboxdTitle: string;
+  letterboxdYear: number | null;
+  rating: number | null;
+  liked: boolean;
+  lastWatchedDate: string | null;
+  rewatch: boolean;
+  letterboxdUri: string | null;
+  confidence: number;
+  reason: string;
+}
+
+export interface LetterboxdSyncSummary {
+  status: 'success' | 'error';
+  source: 'rss' | 'export';
+  syncedAt: string;
+  itemsProcessed: number;
+  totalCached: number;
+  matchedInCollection: number;
+  fuzzySuggestionsCount: number;
+  error?: string | null;
+}
+
+export interface LetterboxdStatusResponse {
+  configured: boolean;
+  username: string;
+  autoSync: boolean;
+  syncIntervalHours: number;
+  lastSyncAt: string | null;
+  lastSyncStatus: LetterboxdSyncSummary | null;
+  totalCachedFilms: number;
+  matchedMoviesCount: number;
+  totalCollectionMovies: number;
+  fuzzySuggestions: LetterboxdFuzzySuggestion[];
+}
+
+export interface LetterboxdCacheItem {
+  id: number;
+  tmdbId: number | null;
+  matchedMediaId: number | null;
+  filmTitle: string;
+  filmYear: number | null;
+  rating: number | null;
+  liked: boolean;
+  watched: boolean;
+  lastWatchedDate: string | null;
+  rewatch: boolean;
+  letterboxdUri: string | null;
+  source: 'rss' | 'export';
 }
 
 export interface CreateMediaDto {
@@ -76,6 +141,10 @@ export interface ManualMovieData {
   release_date: string;
   cast: string[];
   cover_art_url: string;
+  media_type?: 'movie' | 'tv_season';
+  tv_show_name?: string;
+  season_number?: number;
+  episode_count?: number;
 }
 
 // Unified Search types

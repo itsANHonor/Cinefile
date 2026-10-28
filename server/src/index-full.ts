@@ -18,6 +18,8 @@ import importExportRoutes from './routes/import-export.routes';
 import statisticsRoutes from './routes/statistics.routes';
 import libraryRoutes from './routes/library.routes';
 import mcpRoutes from './routes/mcp.routes';
+import letterboxdRoutes from './routes/letterboxd.routes';
+import { letterboxdService } from './services/letterboxd.service';
 
 if (!isDesktopMode() && !process.env.SESSION_SECRET?.trim()) {
   console.error('FATAL: SESSION_SECRET must be set (signs admin JWTs). See server/env.example.');
@@ -110,6 +112,7 @@ app.use('/api/physical-items', requirePublicCollectionOrAuth, physicalItemsRoute
 app.use('/api/series', requirePublicCollectionOrAuth, seriesRoutes);
 app.use('/api/statistics', requirePublicCollectionOrAuth, statisticsRoutes);
 app.use('/api/library', requirePublicCollectionOrAuth, libraryRoutes);
+app.use('/api/letterboxd', requirePublicCollectionOrAuth, letterboxdRoutes);
 
 // Serve static frontend files (React build)
 // This must come AFTER API routes so API routes take precedence
@@ -129,6 +132,7 @@ export interface StartServerOptions {
 
 export async function startFullServer(options: StartServerOptions = {}): Promise<http.Server> {
   await setupDatabase();
+  letterboxdService.initializeScheduler({ isDesktop: isDesktopMode() });
 
   const port = options.port !== undefined ? options.port : DEFAULT_PORT;
   const host = options.host;

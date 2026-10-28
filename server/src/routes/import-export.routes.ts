@@ -6,6 +6,7 @@ import {
   buildCanonicalEditionTagMap,
   normalizeEditionNotes,
 } from '../utils/edition-tags.util';
+import { letterboxdService } from '../services/letterboxd.service';
 
 const router = Router();
 
@@ -970,6 +971,9 @@ router.post('/import', authMiddleware, async (req: Request, res: Response) => {
         });
       }
     }
+
+    // Reconcile any cached Letterboxd ratings/watch dates with newly imported movies
+    await letterboxdService.reconcileMediaWithCache().catch(() => { /* silently ignore */ });
 
     res.json({
       success: true,

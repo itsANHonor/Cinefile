@@ -199,15 +199,20 @@ const UnifiedSearchModal: React.FC<UnifiedSearchModalProps> = ({
 
   const handleManualMovieConfirm = (manualMovie: ManualMovieData) => {
     const manualId = -Date.now();
+    const mediaType = manualMovie.media_type || (searchMode === 'tv' ? 'tv_season' : 'movie');
     setSelectedResult({
       id: manualId,
       title: manualMovie.title,
       release_date: manualMovie.release_date,
       overview: manualMovie.synopsis,
       cover_art_url: manualMovie.cover_art_url || null,
+      director: manualMovie.director,
       source: 'manual',
-      media_type: 'movie',
-      originalData: manualMovie,
+      media_type: mediaType,
+      originalData: {
+        ...manualMovie,
+        media_type: mediaType,
+      },
     });
     setShowManualMovieModal(false);
     setShowFormatSelector(true);
@@ -358,15 +363,15 @@ const UnifiedSearchModal: React.FC<UnifiedSearchModalProps> = ({
                   </div>
                 )}
               </div>
-              {searchMode === 'movies' && (
-                <button
-                  type="button"
-                  onClick={() => setShowManualMovieModal(true)}
-                  className="mt-3 text-sm text-primary-600 dark:text-primary-400 hover:underline"
-                >
-                  Can’t find it? Create a movie manually
-                </button>
-              )}
+              <button
+                type="button"
+                onClick={() => setShowManualMovieModal(true)}
+                className="mt-3 text-sm text-primary-600 dark:text-primary-400 hover:underline"
+              >
+                {searchMode === 'movies'
+                  ? 'Can’t find it? Create a movie manually'
+                  : 'Can’t find it? Create a TV show manually'}
+              </button>
             </div>
 
             {/* Results */}
@@ -520,6 +525,7 @@ const UnifiedSearchModal: React.FC<UnifiedSearchModalProps> = ({
       <ManualMovieModal
         isOpen={showManualMovieModal}
         initialTitle={query.trim()}
+        mediaType={searchMode === 'tv' ? 'tv_season' : 'movie'}
         onClose={() => setShowManualMovieModal(false)}
         onConfirm={handleManualMovieConfirm}
       />

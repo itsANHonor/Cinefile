@@ -6,6 +6,13 @@ import { Button } from './ui/Button';
 import { VisuallyHidden } from './ui/VisuallyHidden';
 import { formatBadgeClasses } from '../lib/formats';
 import { parseEditionTags } from '../lib/editionTags';
+import {
+  LetterboxdActivityBanner,
+  LetterboxdDotsIcon,
+  formatStarString,
+  formatWatchedDate,
+  hasLetterboxdActivity,
+} from './LetterboxdBadge';
 
 interface MediaDetailModalProps {
   physicalItem: PhysicalItem | null;
@@ -135,6 +142,8 @@ const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
   const editionTags = parseEditionTags(physicalItem.edition_notes);
   const hasThickness = Boolean(physicalItem.thickness_units && physicalItem.thickness_units > 1);
   const hasStoreLinks = Boolean(physicalItem.store_links && physicalItem.store_links.length > 0);
+  const watchedMediaCount = mediaList.filter((m) => hasLetterboxdActivity(m)).length;
+  const hasAnyLetterboxdInItem = watchedMediaCount > 0;
   const hasDetailFields =
     showOverallFormats ||
     editionTags.length > 0 ||
@@ -435,6 +444,9 @@ const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
                     )}
                   </div>
 
+                  {/* Letterboxd Personal Activity Banner */}
+                  <LetterboxdActivityBanner movie={activeMovie} />
+
                   {/* Format, Series & Genre pills */}
                   <div className="flex flex-wrap items-center gap-2">
                     {movieFormats.map((format, i) => (
@@ -634,6 +646,70 @@ const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
                     </div>
                   </div>
                 )}
+              </div>
+            )}
+
+            {isMultiTitle && hasAnyLetterboxdInItem && (
+              <div
+                data-testid="letterboxd-multi-watch-log"
+                className="rounded-lg border border-subtle/60 bg-surface p-2.5"
+              >
+                <div className="mb-1.5 flex items-center justify-between gap-2">
+                  <h3 className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-content-muted">
+                    <LetterboxdDotsIcon className="h-2.5 w-auto" />
+                    <span>
+                      Letterboxd Watch Log ({watchedMediaCount} of {mediaList.length} watched)
+                    </span>
+                  </h3>
+                </div>
+                <div className="divide-y divide-subtle/40">
+                  {mediaList.map((m, idx) => {
+                    const isWatched = hasLetterboxdActivity(m);
+                    const stars = formatStarString(m.letterboxd_rating);
+                    const watchedDate = formatWatchedDate(m.letterboxd_last_watched_date);
+                    const yr = m.release_date ? new Date(m.release_date).getFullYear() : null;
+                    return (
+                      <button
+                        key={m.id || idx}
+                        type="button"
+                        onClick={() => setActiveMediaIndex(idx)}
+                        className={`grid w-full grid-cols-[minmax(0,1fr)_4.5rem_1.25rem_9.75rem] items-center gap-2 py-1.5 text-left text-xs transition-colors hover:bg-surface-sunken/70 ${
+                          idx === safeIndex ? 'font-semibold text-content' : 'text-content-muted'
+                        }`}
+                      >
+                        <div className="flex min-w-0 items-center gap-2">
+                          <span
+                            className={`inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[10px] font-bold ${
+                              isWatched
+                                ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
+                                : 'bg-surface-sunken text-content-muted'
+                            }`}
+                            aria-hidden="true"
+                          >
+                            {isWatched ? '✓' : '○'}
+                          </span>
+                          <span className="truncate text-content">
+                            {m.title}
+                            {yr ? ` (${yr})` : ''}
+                          </span>
+                        </div>
+                        <span className="text-left font-semibold tracking-tight text-emerald-600 dark:text-emerald-400">
+                          {stars || ''}
+                        </span>
+                        <span className="text-center text-orange-500 dark:text-orange-400" title={m.letterboxd_liked ? 'Liked' : undefined}>
+                          {m.letterboxd_liked ? '♥' : ''}
+                        </span>
+                        <span className="text-left text-[11px] tabular-nums text-content-muted">
+                          {watchedDate
+                            ? `Last watched ${watchedDate}`
+                            : isWatched
+                              ? 'Watched'
+                              : 'Unwatched'}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             )}
 

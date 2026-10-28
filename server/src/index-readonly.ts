@@ -14,6 +14,7 @@ import seriesReadOnlyRoutes from './routes/series-readonly.routes';
 import importExportReadOnlyRoutes from './routes/import-export-readonly.routes';
 import statisticsRoutes from './routes/statistics.routes';
 import libraryReadOnlyRoutes from './routes/library-readonly.routes';
+import letterboxdReadOnlyRoutes from './routes/letterboxd-readonly.routes';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -103,6 +104,7 @@ app.use('/api/physical-items', requirePublicCollectionOrAuth, physicalItemsReadO
 app.use('/api/series', requirePublicCollectionOrAuth, seriesReadOnlyRoutes);
 app.use('/api/statistics', requirePublicCollectionOrAuth, statisticsRoutes);
 app.use('/api/library', requirePublicCollectionOrAuth, libraryReadOnlyRoutes);
+app.use('/api/letterboxd', requirePublicCollectionOrAuth, letterboxdReadOnlyRoutes);
 
 // Serve static frontend files (React build)
 // This must come AFTER API routes so API routes take precedence

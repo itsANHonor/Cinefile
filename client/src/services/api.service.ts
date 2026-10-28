@@ -30,6 +30,9 @@ import {
   BulkCreateShelvesDto,
   UpdateShelfDto,
   ApplySortPreview,
+  LetterboxdStatusResponse,
+  LetterboxdSyncSummary,
+  LetterboxdCacheItem,
 } from '../types';
 
 class ApiService {
@@ -566,6 +569,74 @@ class ApiService {
       `/physical-items/${physicalItemId}/spine-colors`,
       data
     );
+    return response.data;
+  }
+
+  // =============================================
+  // Letterboxd Integration methods
+  // =============================================
+
+  async getLetterboxdStatus(): Promise<LetterboxdStatusResponse> {
+    const response = await this.api.get<LetterboxdStatusResponse>('/letterboxd/status');
+    return response.data;
+  }
+
+  async syncLetterboxdRss(username?: string): Promise<{ summary: LetterboxdSyncSummary; status: LetterboxdStatusResponse }> {
+    const response = await this.api.post<{ summary: LetterboxdSyncSummary; status: LetterboxdStatusResponse }>(
+      '/letterboxd/sync',
+      username !== undefined ? { username } : {},
+    );
+    return response.data;
+  }
+
+  async importLetterboxdExport(file: File): Promise<{ summary: LetterboxdSyncSummary; status: LetterboxdStatusResponse }> {
+    const formData = new FormData();
+    formData.append('file', file);
+    const response = await this.api.post<{ summary: LetterboxdSyncSummary; status: LetterboxdStatusResponse }>(
+      '/letterboxd/import',
+      formData,
+      {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      },
+    );
+    return response.data;
+  }
+
+  async searchLetterboxdCache(query: string, limit = 20): Promise<{ results: LetterboxdCacheItem[] }> {
+    const response = await this.api.get<{ results: LetterboxdCacheItem[] }>('/letterboxd/search-cache', {
+      params: { q: query, limit },
+    });
+    return response.data;
+  }
+
+  async linkLetterboxdMedia(mediaId: number, cacheId: number): Promise<{ media: Media; status: LetterboxdStatusResponse }> {
+    const response = await this.api.post<{ media: Media; status: LetterboxdStatusResponse }>(
+      '/letterboxd/link',
+      { mediaId, cacheId },
+    );
+    return response.data;
+  }
+
+  async unlinkLetterboxdMedia(mediaId: number): Promise<{ media: Media; status: LetterboxdStatusResponse }> {
+    const response = await this.api.post<{ media: Media; status: LetterboxdStatusResponse }>(
+      '/letterboxd/unlink',
+      { mediaId },
+    );
+    return response.data;
+  }
+
+  async dismissLetterboxdSuggestion(mediaId: number, cacheId: number): Promise<{ status: LetterboxdStatusResponse }> {
+    const response = await this.api.post<{ status: LetterboxdStatusResponse }>(
+      '/letterboxd/dismiss-suggestion',
+      { mediaId, cacheId },
+    );
+    return response.data;
+  }
+
+  async clearLetterboxdData(): Promise<{ status: LetterboxdStatusResponse }> {
+    const response = await this.api.delete<{ status: LetterboxdStatusResponse }>('/letterboxd/data');
     return response.data;
   }
 }

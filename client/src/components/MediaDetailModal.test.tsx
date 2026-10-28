@@ -138,4 +138,67 @@ describe('MediaDetailModal', () => {
     await user.click(editButton);
     expect(handleEdit).toHaveBeenCalledWith(singleMovieItem);
   });
+
+  it('displays Letterboxd star ratings, liked heart, and last watched date for single and multi-movie items', async () => {
+    const user = userEvent.setup();
+    const ratedSingleItem: PhysicalItem = {
+      ...singleMovieItem,
+      media: [
+        {
+          ...singleMovieItem.media[0],
+          letterboxd_rating: 4.5,
+          letterboxd_liked: true,
+          letterboxd_watched: true,
+          letterboxd_last_watched_date: '2026-10-14',
+          letterboxd_rewatch: true,
+          letterboxd_uri: 'https://letterboxd.com/alex/film/the-big-lebowski/',
+        },
+      ],
+    };
+
+    const { rerender } = render(
+      <MediaDetailModal physicalItem={ratedSingleItem} isOpen onClose={vi.fn()} />
+    );
+
+    const banner = screen.getByTestId('letterboxd-activity-banner');
+    expect(banner).toHaveTextContent('alex');
+    expect(banner).toHaveTextContent('★★★★½');
+    expect(banner).toHaveTextContent('4.5');
+    expect(banner).toHaveTextContent('Liked');
+    expect(banner).toHaveTextContent(/Last watched/i);
+    expect(banner).not.toHaveTextContent(/Rewatch/i);
+    expect(
+      within(banner).getByRole('link', { name: /View The Big Lebowski on Letterboxd/i })
+    ).toHaveAttribute('href', 'https://letterboxd.com/alex/film/the-big-lebowski/');
+
+    // Test multi-movie box set with partial Letterboxd watch progress
+    const ratedMultiItem: PhysicalItem = {
+      ...multiMovieItem,
+      media: [
+        {
+          ...multiMovieItem.media[0],
+          letterboxd_rating: 5,
+          letterboxd_liked: true,
+          letterboxd_watched: true,
+          letterboxd_last_watched_date: '2026-09-20',
+        },
+        {
+          ...multiMovieItem.media[1],
+          letterboxd_watched: false,
+        },
+      ],
+    };
+
+    rerender(<MediaDetailModal physicalItem={ratedMultiItem} isOpen onClose={vi.fn()} />);
+
+    expect(screen.queryByText('Watched 1 of 2')).not.toBeInTheDocument();
+    const watchLog = screen.getByTestId('letterboxd-multi-watch-log');
+    expect(watchLog).toHaveTextContent('Letterboxd Watch Log (1 of 2 watched)');
+    expect(watchLog).toHaveTextContent('★★★★★');
+    expect(watchLog).toHaveTextContent('Unwatched');
+
+    // Clicking the second movie in the watch log switches the active movie
+    await user.click(within(watchLog).getByRole('button', { name: /Before Sunset/i }));
+    expect(screen.getByRole('heading', { name: 'Before Sunset' })).toBeInTheDocument();
+  });
 });

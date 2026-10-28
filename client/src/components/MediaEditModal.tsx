@@ -1,8 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { Media, Series } from '../types';
+import { Media, Series, LetterboxdCacheItem } from '../types';
 import { apiService } from '../services/api.service';
 import { useToast } from '../context/ToastContext';
 import PosterSelector from './PosterSelector';
+import {
+  LetterboxdDotsIcon,
+  formatStarString,
+  formatWatchedDate,
+  hasLetterboxdActivity,
+} from './LetterboxdBadge';
 
 interface MediaEditModalProps {
   media: Media | null;
@@ -41,6 +47,27 @@ const MediaEditModal: React.FC<MediaEditModalProps> = ({ media, isOpen, onClose,
   const [seriesSearchQuery, setSeriesSearchQuery] = useState<string>('');
   const [showSeriesDropdown, setShowSeriesDropdown] = useState(false);
 
+  // Letterboxd manual link state
+  const [lbState, setLbState] = useState<{
+    rating: number | null;
+    liked: boolean;
+    watched: boolean;
+    lastWatchedDate: string | null;
+    rewatch: boolean;
+    uri: string | null;
+  }>({
+    rating: null,
+    liked: false,
+    watched: false,
+    lastWatchedDate: null,
+    rewatch: false,
+    uri: null,
+  });
+  const [lbSearchQuery, setLbSearchQuery] = useState('');
+  const [lbSearchResults, setLbSearchResults] = useState<LetterboxdCacheItem[]>([]);
+  const [isSearchingLb, setIsSearchingLb] = useState(false);
+  const [isLinkingLb, setIsLinkingLb] = useState(false);
+
   useEffect(() => {
     if (media && isOpen) {
       setFormData({
@@ -65,6 +92,16 @@ const MediaEditModal: React.FC<MediaEditModalProps> = ({ media, isOpen, onClose,
       setPrimarySeriesId(media.primary_series_id);
       setSeriesSearchQuery('');
       setShowSeriesDropdown(false);
+      setLbState({
+        rating: media.letterboxd_rating ?? null,
+        liked: Boolean(media.letterboxd_liked),
+        watched: Boolean(media.letterboxd_watched),
+        lastWatchedDate: media.letterboxd_last_watched_date || null,
+        rewatch: Boolean(media.letterboxd_rewatch),
+        uri: media.letterboxd_uri || null,
+      });
+      setLbSearchQuery('');
+      setLbSearchResults([]);
     }
   }, [media, isOpen]);
 
@@ -209,6 +246,74 @@ const MediaEditModal: React.FC<MediaEditModalProps> = ({ media, isOpen, onClose,
   const handlePosterSelected = (url: string) => {
     setFormData(prev => ({ ...prev, cover_art_url: url }));
     setShowPosterSelector(false);
+  };
+
+  const handleSearchLetterboxdCache = async (query: string) => {
+    setLbSearchQuery(query);
+    if (!query.trim()) {
+      setLbSearchResults([]);
+      return;
+    }
+    setIsSearchingLb(true);
+    try {
+      const { results } = await apiService.searchLetterboxdCache(query.trim(), 12);
+      setLbSearchResults(results);
+    } catch (error) {
+      console.error('Failed to search Letterboxd cache:', error);
+    } finally {
+      setIsSearchingLb(false);
+    }
+  };
+
+  const handleLinkLetterboxdItem = async (cacheItem: LetterboxdCacheItem) => {
+    if (!media) return;
+    setIsLinkingLb(true);
+    try {
+      const { media: updated } = await apiService.linkLetterboxdMedia(media.id, cacheItem.id);
+      setLbState({
+        rating: updated.letterboxd_rating ?? null,
+        liked: Boolean(updated.letterboxd_liked),
+        watched: Boolean(updated.letterboxd_watched),
+        lastWatchedDate: updated.letterboxd_last_watched_date || null,
+        rewatch: Boolean(updated.letterboxd_rewatch),
+        uri: updated.letterboxd_uri || null,
+      });
+      setLbSearchQuery('');
+      setLbSearchResults([]);
+      onSave(updated);
+      toast({
+        message: `Linked "${media.title}" to Letterboxd entry "${cacheItem.filmTitle}".`,
+        type: 'success',
+      });
+    } catch (error) {
+      console.error('Failed to link Letterboxd entry:', error);
+      toast({ message: 'Failed to link Letterboxd entry.', type: 'error' });
+    } finally {
+      setIsLinkingLb(false);
+    }
+  };
+
+  const handleUnlinkLetterboxd = async () => {
+    if (!media) return;
+    setIsLinkingLb(true);
+    try {
+      const { media: updated } = await apiService.unlinkLetterboxdMedia(media.id);
+      setLbState({
+        rating: null,
+        liked: false,
+        watched: false,
+        lastWatchedDate: null,
+        rewatch: false,
+        uri: null,
+      });
+      onSave(updated);
+      toast({ message: 'Unlinked Letterboxd data from this movie.', type: 'info' });
+    } catch (error) {
+      console.error('Failed to unlink Letterboxd entry:', error);
+      toast({ message: 'Failed to unlink Letterboxd entry.', type: 'error' });
+    } finally {
+      setIsLinkingLb(false);
+    }
   };
 
   // Filter available series for dropdown
@@ -604,6 +709,105 @@ const MediaEditModal: React.FC<MediaEditModalProps> = ({ media, isOpen, onClose,
                     </div>
                     
                   </div>
+
+                  {/* Letterboxd Link Section (for Movies) */}
+                  {media.media_type !== 'tv_season' && (
+                    <div className="rounded-lg border border-gray-200 dark:border-gray-700 p-4 space-y-3 bg-gray-50/60 dark:bg-gray-900/30">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <LetterboxdDotsIcon className="h-3 w-auto" />
+                          <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                            Letterboxd Activity Link
+                          </span>
+                        </div>
+                        {hasLetterboxdActivity({
+                          ...media,
+                          letterboxd_rating: lbState.rating,
+                          letterboxd_liked: lbState.liked,
+                          letterboxd_watched: lbState.watched,
+                          letterboxd_last_watched_date: lbState.lastWatchedDate,
+                        }) && (
+                          <button
+                            type="button"
+                            onClick={handleUnlinkLetterboxd}
+                            disabled={isLinkingLb}
+                            className="text-xs font-medium text-red-600 hover:underline dark:text-red-400"
+                          >
+                            Unlink
+                          </button>
+                        )}
+                      </div>
+
+                      {hasLetterboxdActivity({
+                        ...media,
+                        letterboxd_rating: lbState.rating,
+                        letterboxd_liked: lbState.liked,
+                        letterboxd_watched: lbState.watched,
+                        letterboxd_last_watched_date: lbState.lastWatchedDate,
+                      }) ? (
+                        <div className="flex flex-wrap items-center gap-2.5 text-xs text-gray-700 dark:text-gray-300">
+                          {lbState.rating != null && lbState.rating > 0 && (
+                            <span className="font-semibold text-emerald-600 dark:text-emerald-400 text-sm">
+                              {formatStarString(lbState.rating)} ({lbState.rating})
+                            </span>
+                          )}
+                          {lbState.liked && (
+                            <span className="font-semibold text-orange-500">♥ Liked</span>
+                          )}
+                          <span>
+                            {lbState.lastWatchedDate
+                              ? `Watched ${formatWatchedDate(lbState.lastWatchedDate)}`
+                              : 'Watched'}
+                          </span>
+                        </div>
+                      ) : (
+                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                          Not currently linked to a Letterboxd watch entry. Search your synced Letterboxd history below to link manually.
+                        </p>
+                      )}
+
+                      <div className="relative">
+                        <input
+                          type="text"
+                          value={lbSearchQuery}
+                          onChange={(e) => handleSearchLetterboxdCache(e.target.value)}
+                          placeholder="Search your Letterboxd history by film title..."
+                          className="w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-gray-100"
+                        />
+                        {lbSearchResults.length > 0 && (
+                          <div className="mt-1.5 max-h-48 overflow-y-auto rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 divide-y divide-gray-100 dark:divide-gray-700 shadow-lg">
+                            {lbSearchResults.map((item) => (
+                              <button
+                                key={item.id}
+                                type="button"
+                                disabled={isLinkingLb}
+                                onClick={() => handleLinkLetterboxdItem(item)}
+                                className="w-full px-3 py-2 text-left text-xs hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center justify-between gap-2"
+                              >
+                                <span className="font-medium text-gray-900 dark:text-gray-100 truncate">
+                                  {item.filmTitle} {item.filmYear ? `(${item.filmYear})` : ''}
+                                </span>
+                                <span className="flex shrink-0 items-center gap-1.5 text-gray-500 dark:text-gray-400">
+                                  {item.rating != null && item.rating > 0 && (
+                                    <span className="text-emerald-600 dark:text-emerald-400 font-semibold">
+                                      {formatStarString(item.rating)}
+                                    </span>
+                                  )}
+                                  {item.liked && <span className="text-orange-500">♥</span>}
+                                  {item.lastWatchedDate && <span>{item.lastWatchedDate}</span>}
+                                </span>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                        {lbSearchQuery.trim() && !isSearchingLb && lbSearchResults.length === 0 && (
+                          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                            No matching films found in your Letterboxd cache.
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>

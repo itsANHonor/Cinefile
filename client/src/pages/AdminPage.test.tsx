@@ -169,4 +169,77 @@ describe('AdminPage (Settings Hub)', () => {
       expect(updateSettingSpy).toHaveBeenCalledWith('tmdb_api_key', 'my_custom_tmdb_v3_key');
     });
   });
+
+  it('supports Letterboxd RSS sync and confirming fuzzy title match suggestions', async () => {
+    vi.spyOn(apiService, 'verifyAuth').mockResolvedValue(true);
+    vi.spyOn(apiService, 'getLetterboxdStatus').mockResolvedValue({
+      configured: true,
+      username: 'alexhsu',
+      autoSync: true,
+      syncIntervalHours: 4,
+      lastSyncAt: '2026-10-27T12:00:00.000Z',
+      lastSyncStatus: {
+        status: 'success',
+        source: 'export',
+        syncedAt: '2026-10-27T12:00:00.000Z',
+        itemsProcessed: 250,
+        totalCached: 250,
+        matchedInCollection: 42,
+        fuzzySuggestionsCount: 1,
+        error: null,
+      },
+      totalCachedFilms: 250,
+      matchedMoviesCount: 42,
+      totalCollectionMovies: 50,
+      fuzzySuggestions: [
+        {
+          mediaId: 10,
+          mediaTitle: 'Star Wars: Episode IV - A New Hope',
+          mediaYear: 1977,
+          mediaCoverArtUrl: null,
+          mediaDirector: 'George Lucas',
+          cacheId: 99,
+          letterboxdTitle: 'Star Wars',
+          letterboxdYear: 1977,
+          rating: 5,
+          liked: true,
+          lastWatchedDate: '2026-05-04',
+          rewatch: true,
+          letterboxdUri: 'https://boxd.it/2a2k',
+          confidence: 0.95,
+          reason: 'Base title matches (with subtitle difference) (1977)',
+        },
+      ],
+    });
+
+    const linkSpy = vi.spyOn(apiService, 'linkLetterboxdMedia').mockResolvedValue({
+      media: { id: 10, title: 'Star Wars: Episode IV - A New Hope', letterboxd_rating: 5 },
+      status: {
+        configured: true,
+        username: 'alexhsu',
+        autoSync: true,
+        syncIntervalHours: 4,
+        lastSyncAt: '2026-10-27T12:00:00.000Z',
+        lastSyncStatus: null,
+        totalCachedFilms: 250,
+        matchedMoviesCount: 43,
+        totalCollectionMovies: 50,
+        fuzzySuggestions: [],
+      },
+    });
+
+    const user = userEvent.setup();
+    renderWithProviders(<AdminPage />, { initialRoute: '/admin' });
+
+    expect(await screen.findByText('Connected: @alexhsu')).toBeInTheDocument();
+    const fuzzyReview = screen.getByTestId('letterboxd-fuzzy-review');
+    expect(fuzzyReview).toHaveTextContent('Confirm Close Title Matches (1)');
+    expect(fuzzyReview).toHaveTextContent('Star Wars: Episode IV - A New Hope');
+    expect(fuzzyReview).toHaveTextContent('★★★★★');
+
+    await user.click(screen.getByRole('button', { name: 'Link Match' }));
+    await waitFor(() => {
+      expect(linkSpy).toHaveBeenCalledWith(10, 99);
+    });
+  });
 });

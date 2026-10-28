@@ -6,6 +6,7 @@ import { useToast } from '../context/ToastContext';
 interface ManualMovieModalProps {
   isOpen: boolean;
   initialTitle?: string;
+  mediaType?: 'movie' | 'tv_season';
   onClose: () => void;
   onConfirm: (movie: ManualMovieData) => void;
 }
@@ -13,9 +14,11 @@ interface ManualMovieModalProps {
 const ManualMovieModal: React.FC<ManualMovieModalProps> = ({
   isOpen,
   initialTitle = '',
+  mediaType = 'movie',
   onClose,
   onConfirm,
 }) => {
+  const isTV = mediaType === 'tv_season';
   const [formData, setFormData] = useState<ManualMovieData>({
     title: '',
     synopsis: '',
@@ -24,6 +27,8 @@ const ManualMovieModal: React.FC<ManualMovieModalProps> = ({
     cast: [],
     cover_art_url: '',
   });
+  const [seasonNumberInput, setSeasonNumberInput] = useState('');
+  const [episodeCountInput, setEpisodeCountInput] = useState('');
   const [castMember, setCastMember] = useState('');
   const [uploadingImage, setUploadingImage] = useState(false);
   const { toast } = useToast();
@@ -38,11 +43,13 @@ const ManualMovieModal: React.FC<ManualMovieModalProps> = ({
         cast: [],
         cover_art_url: '',
       });
+      setSeasonNumberInput('');
+      setEpisodeCountInput('');
       setCastMember('');
     }
-  }, [initialTitle, isOpen]);
+  }, [initialTitle, isOpen, mediaType]);
 
-  const updateField = (field: keyof Omit<ManualMovieData, 'cast'>, value: string) => {
+  const updateField = (field: 'title' | 'synopsis' | 'director' | 'release_date' | 'cover_art_url', value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }));
   };
 
@@ -79,11 +86,41 @@ const ManualMovieModal: React.FC<ManualMovieModalProps> = ({
 
   const handleSubmit = (event: React.FormEvent) => {
     event.preventDefault();
-    if (!formData.title.trim() || uploadingImage) return;
+    const trimmedTitle = formData.title.trim();
+    if (!trimmedTitle || uploadingImage) return;
+
+    if (isTV) {
+      const hasSeasonNumber = seasonNumberInput.trim() !== '' && !Number.isNaN(Number(seasonNumberInput));
+      const parsedSeason = hasSeasonNumber ? Number(seasonNumberInput) : undefined;
+      const hasEpisodeCount = episodeCountInput.trim() !== '' && !Number.isNaN(Number(episodeCountInput));
+      const parsedEpisodes = hasEpisodeCount ? Number(episodeCountInput) : undefined;
+
+      let fullTitle = trimmedTitle;
+      if (parsedSeason !== undefined) {
+        const suffix = parsedSeason === 0 ? 'Specials' : `Season ${parsedSeason}`;
+        if (!trimmedTitle.toLowerCase().includes(suffix.toLowerCase())) {
+          fullTitle = `${trimmedTitle} - ${suffix}`;
+        }
+      }
+
+      onConfirm({
+        ...formData,
+        title: fullTitle,
+        tv_show_name: trimmedTitle,
+        season_number: parsedSeason,
+        episode_count: parsedEpisodes,
+        media_type: 'tv_season',
+        synopsis: formData.synopsis.trim(),
+        director: formData.director.trim(),
+        cast: formData.cast.filter(member => member.trim()),
+      });
+      return;
+    }
 
     onConfirm({
       ...formData,
-      title: formData.title.trim(),
+      media_type: 'movie',
+      title: trimmedTitle,
       synopsis: formData.synopsis.trim(),
       director: formData.director.trim(),
       cast: formData.cast.filter(member => member.trim()),
@@ -99,14 +136,20 @@ const ManualMovieModal: React.FC<ManualMovieModalProps> = ({
         <div className="relative bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
           <div className="sticky top-0 z-10 flex items-center justify-between p-6 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
             <div>
-              <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Create Movie Manually</h2>
-              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Add a movie that is not available on TMDB.</p>
+              <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+                {isTV ? 'Create TV Show Manually' : 'Create Movie Manually'}
+              </h2>
+              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                {isTV
+                  ? 'Add a TV show or season that is not available on TMDB.'
+                  : 'Add a movie that is not available on TMDB.'}
+              </p>
             </div>
             <button
               type="button"
               onClick={onClose}
               className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
-              aria-label="Close manual movie form"
+              aria-label={isTV ? 'Close manual TV show form' : 'Close manual movie form'}
             >
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -117,7 +160,7 @@ const ManualMovieModal: React.FC<ManualMovieModalProps> = ({
           <form onSubmit={handleSubmit} className="p-6 space-y-4">
             <div>
               <label htmlFor="manual-movie-title" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Title <span className="text-red-500">*</span>
+                {isTV ? 'Show title' : 'Title'} <span className="text-red-500">*</span>
               </label>
               <input
                 id="manual-movie-title"
@@ -128,6 +171,39 @@ const ManualMovieModal: React.FC<ManualMovieModalProps> = ({
                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-gray-100"
               />
             </div>
+
+            {isTV && (
+              <div className="grid md:grid-cols-2 gap-4">
+                <div>
+                  <label htmlFor="manual-tv-season-number" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Season number
+                  </label>
+                  <input
+                    id="manual-tv-season-number"
+                    type="number"
+                    min={0}
+                    value={seasonNumberInput}
+                    onChange={event => setSeasonNumberInput(event.target.value)}
+                    placeholder="e.g. 1 (optional)"
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-gray-100"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="manual-tv-episode-count" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Episode count
+                  </label>
+                  <input
+                    id="manual-tv-episode-count"
+                    type="number"
+                    min={1}
+                    value={episodeCountInput}
+                    onChange={event => setEpisodeCountInput(event.target.value)}
+                    placeholder="e.g. 10 (optional)"
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-gray-100"
+                  />
+                </div>
+              </div>
+            )}
 
             <div className="grid md:grid-cols-2 gap-4">
               <div>
@@ -144,7 +220,7 @@ const ManualMovieModal: React.FC<ManualMovieModalProps> = ({
               </div>
               <div>
                 <label htmlFor="manual-movie-director" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Director
+                  {isTV ? 'Creator' : 'Director'}
                 </label>
                 <input
                   id="manual-movie-director"

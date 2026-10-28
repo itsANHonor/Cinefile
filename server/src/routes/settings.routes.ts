@@ -2,10 +2,15 @@ import { Router, Request, Response } from 'express';
 import { db } from '../database';
 import { authMiddleware, isRequestAdmin } from '../middleware/auth.middleware';
 import { tmdbService } from '../services/tmdb.service';
+import { normalizeLetterboxdUsername } from '../services/letterboxd.service';
 
 const router = Router();
 
 const SENSITIVE_SETTING_KEYS = new Set(['tmdb_api_key']);
+const ADMIN_ONLY_SETTING_KEYS = new Set([
+  'letterboxd_auto_sync',
+  'letterboxd_sync_interval_hours',
+]);
 const ALLOWED_SETTING_KEYS = new Set([
   'collection_public',
   'site_title',
@@ -14,6 +19,9 @@ const ALLOWED_SETTING_KEYS = new Set([
   'default_sort_by',
   'default_sort_order',
   'tmdb_api_key',
+  'letterboxd_username',
+  'letterboxd_auto_sync',
+  'letterboxd_sync_interval_hours',
 ]);
 
 function maskApiKey(rawKey: string | undefined | null): string {
@@ -34,6 +42,9 @@ async function buildSettingsResponse(isAdmin: boolean): Promise<Record<string, s
       return;
     }
     if (!SENSITIVE_SETTING_KEYS.has(setting.key) && ALLOWED_SETTING_KEYS.has(setting.key)) {
+      if (ADMIN_ONLY_SETTING_KEYS.has(setting.key) && !isAdmin) {
+        return;
+      }
       settingsObj[setting.key] = setting.value;
     }
   });
@@ -73,7 +84,7 @@ router.get('/:key', async (req: Request, res: Response) => {
   try {
     const { key } = req.params;
 
-    if (SENSITIVE_SETTING_KEYS.has(key)) {
+    if (SENSITIVE_SETTING_KEYS.has(key) || (ADMIN_ONLY_SETTING_KEYS.has(key) && !isRequestAdmin(req))) {
       return res.status(403).json({ error: 'Access to sensitive setting is restricted' });
     }
     if (!ALLOWED_SETTING_KEYS.has(key)) {
@@ -110,7 +121,12 @@ router.put('/:key', authMiddleware, async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Value is required' });
     }
 
-    const normalizedValue = key === 'tmdb_api_key' ? String(value).trim() : String(value);
+    const normalizedValue =
+      key === 'tmdb_api_key'
+        ? String(value).trim()
+        : key === 'letterboxd_username'
+          ? normalizeLetterboxdUsername(String(value))
+          : String(value);
 
     // Check if setting exists
     const existingSetting = await db('settings').where({ key }).first();
@@ -170,7 +186,12 @@ router.post('/', authMiddleware, async (req: Request, res: Response) => {
 
     // Update each setting
     for (const [key, value] of Object.entries(settings)) {
-      const normalizedValue = key === 'tmdb_api_key' ? String(value).trim() : String(value);
+      const normalizedValue =
+      key === 'tmdb_api_key'
+        ? String(value).trim()
+        : key === 'letterboxd_username'
+          ? normalizeLetterboxdUsername(String(value))
+          : String(value);
       const existingSetting = await db('settings').where({ key }).first();
 
       if (existingSetting) {

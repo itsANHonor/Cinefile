@@ -8,6 +8,7 @@ import {
   normalizeEditionNotes,
 } from '../utils/edition-tags.util';
 import { extractSpineColors } from '../services/color.service';
+import { letterboxdService } from '../services/letterboxd.service';
 
 const router = Router();
 
@@ -655,6 +656,13 @@ router.get('/', async (req: Request, res: Response) => {
           tv_show_name: m.tv_show_name,
           season_number: m.season_number,
           episode_count: m.episode_count,
+          letterboxd_rating: m.letterboxd_rating ?? null,
+          letterboxd_liked: Boolean(m.letterboxd_liked),
+          letterboxd_watched: Boolean(m.letterboxd_watched),
+          letterboxd_last_watched_date: m.letterboxd_last_watched_date || null,
+          letterboxd_rewatch: Boolean(m.letterboxd_rewatch),
+          letterboxd_uri: m.letterboxd_uri || null,
+          letterboxd_updated_at: m.letterboxd_updated_at || null,
         };
       });
 
@@ -934,6 +942,9 @@ router.get('/:id', async (req: Request, res: Response) => {
         cast: m.cast ? JSON.parse(m.cast) : [],
         genres: m.genres ? JSON.parse(m.genres) : [],
         formats: m.formats ? JSON.parse(m.formats) : [],
+        letterboxd_liked: Boolean(m.letterboxd_liked),
+        letterboxd_watched: Boolean(m.letterboxd_watched),
+        letterboxd_rewatch: Boolean(m.letterboxd_rewatch),
         series: mediaSeries.length > 0 ? mediaSeries : undefined,
       };
     });
@@ -1226,6 +1237,9 @@ router.post('/', authMiddleware, async (req: Request, res: Response) => {
         }).catch(() => { /* silently ignore */ });
       }
     }
+
+    // Reconcile any Letterboxd cache entries for newly created media
+    letterboxdService.reconcileMediaWithCache().catch(() => { /* silently ignore */ });
 
     res.status(201).json(result);
   } catch (error: any) {
@@ -1811,6 +1825,8 @@ router.post('/bulk', authMiddleware, async (req: Request, res: Response) => {
         });
       }
     });
+
+    letterboxdService.reconcileMediaWithCache().catch(() => { /* silently ignore */ });
 
     res.status(201).json({
       successful,

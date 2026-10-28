@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { db } from '../database';
 import { authMiddleware } from '../middleware/auth.middleware';
 import { upload } from '../middleware/upload.middleware';
+import { letterboxdService, sanitizeLetterboxdUri } from '../services/letterboxd.service';
 
 const router = Router();
 
@@ -159,6 +160,9 @@ router.get('/', async (req: Request, res: Response) => {
         ...item,
         cast: item.cast ? JSON.parse(item.cast) : [],
         genres: item.genres ? JSON.parse(item.genres) : [],
+        letterboxd_liked: Boolean(item.letterboxd_liked),
+        letterboxd_watched: Boolean(item.letterboxd_watched),
+        letterboxd_rewatch: Boolean(item.letterboxd_rewatch),
         series,
         // Remove the concatenated fields
         series_ids: undefined,
@@ -236,6 +240,12 @@ const ALLOWED_MEDIA_FIELDS = [
   'tv_show_name',
   'season_number',
   'episode_count',
+  'letterboxd_rating',
+  'letterboxd_liked',
+  'letterboxd_watched',
+  'letterboxd_last_watched_date',
+  'letterboxd_rewatch',
+  'letterboxd_uri',
 ] as const;
 
 function pickAllowedMediaFields(raw: Record<string, any>): Record<string, any> {
@@ -244,6 +254,13 @@ function pickAllowedMediaFields(raw: Record<string, any>): Record<string, any> {
     if (raw[key] !== undefined) {
       picked[key] = raw[key];
     }
+  }
+  if (picked.letterboxd_uri !== undefined) {
+    picked.letterboxd_uri = sanitizeLetterboxdUri(picked.letterboxd_uri);
+  }
+  if (picked.letterboxd_rating !== undefined && picked.letterboxd_rating !== null) {
+    const r = Number(picked.letterboxd_rating);
+    picked.letterboxd_rating = !Number.isNaN(r) && r >= 0.5 && r <= 5 ? Math.round(r * 2) / 2 : null;
   }
   return picked;
 }
@@ -272,6 +289,7 @@ router.post('/', authMiddleware, async (req: Request, res: Response) => {
     }
 
     const [id] = await db('media').insert(mediaData);
+    await letterboxdService.reconcileSingleMedia(id);
 
     // Handle series associations
     if (series_associations && Array.isArray(series_associations) && series_associations.length > 0) {

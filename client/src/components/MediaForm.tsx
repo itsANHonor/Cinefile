@@ -83,6 +83,16 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
   const [showDimensions, setShowDimensions] = useState(false);
   const [availableSeries, setAvailableSeries] = useState<Series[]>([]);
   const autoOpenedSearchRef = useRef(false);
+  const hasSavedMediaChangesRef = useRef(false);
+
+  const handleFormClose = () => {
+    if (hasSavedMediaChangesRef.current) {
+      hasSavedMediaChangesRef.current = false;
+      resetFacetsCache();
+      onSuccess();
+    }
+    onClose();
+  };
 
   // Auto-open the search dialog once per open in create mode, so the
   // first (and required) step is front and center. Closing the search
@@ -94,6 +104,7 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
     }
     if (!isOpen) {
       autoOpenedSearchRef.current = false;
+      hasSavedMediaChangesRef.current = false;
     }
   }, [isOpen, editItem]);
 
@@ -235,6 +246,12 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
           formats,
           mediaDbId: existingMedia.id, // Preserve the database ID for existing media
           isManual: !existingMedia.tmdb_id,
+          media_type: existingMedia.media_type,
+          tv_show_tmdb_id: existingMedia.tv_show_tmdb_id,
+          tv_show_name: existingMedia.tv_show_name,
+          season_number: existingMedia.season_number,
+          episode_count: existingMedia.episode_count,
+          genres: existingMedia.genres,
           details: {
             title: existingMedia.title,
             id: existingMedia.tmdb_id || existingMedia.id,
@@ -270,6 +287,7 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
         }
       } else if (result.source === 'manual') {
         const manualMovie = result.originalData as ManualMovieData;
+        const manualMediaType = manualMovie.media_type || result.media_type || 'movie';
         const newMovieWithFormats: MovieWithFormats = {
           movie: {
             id: result.id,
@@ -282,6 +300,10 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
           },
           formats,
           isManual: true,
+          media_type: manualMediaType,
+          tv_show_name: manualMovie.tv_show_name,
+          season_number: manualMovie.season_number,
+          episode_count: manualMovie.episode_count,
           details: {
             title: manualMovie.title,
             synopsis: manualMovie.synopsis,
@@ -531,12 +553,48 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
   };
 
   const handleMediaSaved = (updatedMedia: Media) => {
-    // Update the movie in selectedMovies list
-    setSelectedMovies(prev => prev.map(m => 
-      m.mediaDbId === updatedMedia.id 
-        ? { ...m, details: { ...m.details, ...updatedMedia } }
+    hasSavedMediaChangesRef.current = true;
+    const oldAutoName = updatePhysicalItemName(selectedMovies);
+    const updatedMovies = selectedMovies.map(m =>
+      m.mediaDbId === updatedMedia.id
+        ? {
+            ...m,
+            movie: {
+              ...m.movie,
+              title: updatedMedia.title,
+              overview: updatedMedia.synopsis || '',
+              release_date: updatedMedia.release_date || '',
+            },
+            tv_show_name: updatedMedia.tv_show_name ?? m.tv_show_name,
+            season_number: updatedMedia.season_number ?? m.season_number,
+            episode_count: updatedMedia.episode_count ?? m.episode_count,
+            genres: updatedMedia.genres ?? m.genres,
+            details: {
+              ...m.details,
+              ...updatedMedia,
+              id: m.movie.id,
+              overview: updatedMedia.synopsis,
+              poster_url: updatedMedia.cover_art_url,
+              cover_art_url: updatedMedia.cover_art_url,
+            },
+          }
         : m
-    ));
+    );
+    setSelectedMovies(updatedMovies);
+
+    const newAutoName = updatePhysicalItemName(updatedMovies);
+    if (!formData.name || formData.name === oldAutoName) {
+      setFormData(prev => ({
+        ...prev,
+        name: newAutoName,
+      }));
+      if (editItem && newAutoName && newAutoName !== editItem.name) {
+        apiService.updatePhysicalItem(editItem.id, { name: newAutoName } as any).catch((err) => {
+          console.error('Failed to auto-sync physical item name:', err);
+        });
+      }
+    }
+
     setShowMediaEditModal(false);
     setEditingMedia(null);
   };
@@ -705,11 +763,13 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
               media_type: movieWithFormats.media_type || 'movie',
             };
             if (movieWithFormats.media_type === 'tv_season') {
-              mediaData.tv_show_tmdb_id = movieWithFormats.tv_show_tmdb_id;
+              if (!movieWithFormats.isManual && movieWithFormats.tv_show_tmdb_id) {
+                mediaData.tv_show_tmdb_id = movieWithFormats.tv_show_tmdb_id;
+              }
               mediaData.tv_show_name = movieWithFormats.tv_show_name;
               mediaData.season_number = movieWithFormats.season_number;
               mediaData.episode_count = movieWithFormats.episode_count;
-              mediaData.genres = movieWithFormats.genres;
+              mediaData.genres = movieWithFormats.genres || details?.genres || [];
             }
           }
 
@@ -747,11 +807,13 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
           };
           
           if (movieWithFormats.media_type === 'tv_season') {
-            mediaEntry.tv_show_tmdb_id = movieWithFormats.tv_show_tmdb_id;
+            if (!movieWithFormats.isManual && movieWithFormats.tv_show_tmdb_id) {
+              mediaEntry.tv_show_tmdb_id = movieWithFormats.tv_show_tmdb_id;
+            }
             mediaEntry.tv_show_name = movieWithFormats.tv_show_name;
             mediaEntry.season_number = movieWithFormats.season_number;
             mediaEntry.episode_count = movieWithFormats.episode_count;
-            mediaEntry.genres = movieWithFormats.genres;
+            mediaEntry.genres = movieWithFormats.genres || details?.genres || [];
           }
           
           return mediaEntry;
@@ -778,6 +840,7 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
           media: mediaArray,
         } as any);
       }
+      hasSavedMediaChangesRef.current = false;
       resetFacetsCache();
       onSuccess();
       onClose();
@@ -806,7 +869,7 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
     <>
       <div className="fixed inset-0 z-50 overflow-y-auto">
         {/* Backdrop */}
-        <div className="fixed inset-0 bg-black bg-opacity-50" onClick={onClose} />
+        <div className="fixed inset-0 bg-black bg-opacity-50" onClick={handleFormClose} />
 
         {/* Modal */}
         <div className="flex min-h-screen items-center justify-center p-4">
@@ -817,7 +880,7 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
                 <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">
                   {editItem ? 'Edit Physical Item' : 'Add New Media'}
                 </h2>
-                <button onClick={onClose} className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300">
+                <button onClick={handleFormClose} className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300">
                   <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                   </svg>
@@ -855,7 +918,7 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
                   </p>
                   <button
                     type="button"
-                    onClick={onClose}
+                    onClick={handleFormClose}
                     className="mt-6 text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 transition-colors"
                   >
                     Cancel
@@ -1351,7 +1414,7 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
                 )}
 
                 <div className="flex justify-end gap-3">
-                  <button type="button" onClick={onClose} className="btn-secondary">
+                  <button type="button" onClick={handleFormClose} className="btn-secondary">
                     Cancel
                   </button>
                   <button 

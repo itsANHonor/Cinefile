@@ -108,6 +108,9 @@ router.get('/', async (req: Request, res: Response) => {
         ...item,
         cast: item.cast ? JSON.parse(item.cast) : [],
         genres: item.genres ? JSON.parse(item.genres) : [],
+        letterboxd_liked: Boolean(item.letterboxd_liked),
+        letterboxd_watched: Boolean(item.letterboxd_watched),
+        letterboxd_rewatch: Boolean(item.letterboxd_rewatch),
         series,
         // Remove the concatenated fields
         series_ids: undefined,

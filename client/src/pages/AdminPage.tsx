@@ -7,11 +7,22 @@ import { useServerMode } from '../context/ServerModeContext';
 import { useToast } from '../context/ToastContext';
 import { useConfirm } from '../context/ConfirmContext';
 import Logo from '../components/Logo';
-import { SortField, SortOrder } from '../types';
+import {
+  SortField,
+  SortOrder,
+  LetterboxdStatusResponse,
+  LetterboxdFuzzySuggestion,
+} from '../types';
 import { apiService } from '../services/api.service';
 import MediaForm from '../components/MediaForm';
 import SeriesManager from '../components/SeriesManager';
 import BulkAddForm from '../components/BulkAddForm';
+import {
+  LetterboxdDotsIcon,
+  formatStarString,
+  formatWatchedDate,
+  setCachedLetterboxdUsername,
+} from '../components/LetterboxdBadge';
 import { Button } from '../components/ui/Button';
 import { SegmentedControl } from '../components/ui/SegmentedControl';
 import { Skeleton } from '../components/ui/Skeleton';
@@ -72,6 +83,15 @@ const AdminPage: React.FC = () => {
   const [isSavingTmdbKey, setIsSavingTmdbKey] = useState(false);
   const [isSavingSettings, setIsSavingSettings] = useState(false);
 
+  // Letterboxd Integration state
+  const [letterboxdStatus, setLetterboxdStatus] = useState<LetterboxdStatusResponse | null>(null);
+  const [letterboxdUsernameInput, setLetterboxdUsernameInput] = useState('');
+  const [isSyncingLetterboxd, setIsSyncingLetterboxd] = useState(false);
+  const [isImportingLetterboxd, setIsImportingLetterboxd] = useState(false);
+  const [isDraggingLetterboxdFile, setIsDraggingLetterboxdFile] = useState(false);
+  const [resolvingSuggestionKey, setResolvingSuggestionKey] = useState<string | null>(null);
+  const letterboxdFileInputRef = useRef<HTMLInputElement>(null);
+
   // Import / Export state
   const [isExporting, setIsExporting] = useState(false);
   const [isValidatingCsv, setIsValidatingCsv] = useState(false);
@@ -106,8 +126,21 @@ const AdminPage: React.FC = () => {
       setTmdbConfigured(settings.tmdb_configured !== 'false');
       setTmdbKeySource((settings.tmdb_key_source as 'database' | 'env' | 'none') || 'none');
       setTmdbKeyMasked(settings.tmdb_api_key_masked || '');
+      if (settings.letterboxd_username !== undefined) {
+        setLetterboxdUsernameInput(settings.letterboxd_username || '');
+      }
       if (settings.default_theme) {
         setTheme(settings.default_theme as 'light' | 'dark' | 'system');
+      }
+
+      try {
+        const lbStatus = await apiService.getLetterboxdStatus();
+        setLetterboxdStatus(lbStatus);
+        if (lbStatus.username) {
+          setLetterboxdUsernameInput(lbStatus.username);
+        }
+      } catch {
+        // Non-fatal if status endpoint is not available in mock/test environments
       }
     } catch (error) {
       console.error('Failed to load settings:', error);
@@ -240,6 +273,151 @@ const AdminPage: React.FC = () => {
       toast({ message: 'Failed to clear TMDb API key. Please try again.', type: 'error' });
     } finally {
       setIsSavingTmdbKey(false);
+    }
+  };
+
+  const handleSaveAndSyncLetterboxd = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const trimmed = letterboxdUsernameInput.trim();
+    if (!trimmed) {
+      toast({ message: 'Please enter a Letterboxd username.', type: 'error' });
+      return;
+    }
+
+    setIsSyncingLetterboxd(true);
+    try {
+      const { summary, status } = await apiService.syncLetterboxdRss(trimmed);
+      setLetterboxdStatus(status);
+      setLetterboxdUsernameInput(status.username || trimmed);
+      setCachedLetterboxdUsername(status.username || trimmed);
+      toast({
+        message: `Synced ${summary.itemsProcessed} recent RSS entries! ${summary.matchedInCollection} collection movie(s) matched.`,
+        type: 'success',
+      });
+    } catch (error: any) {
+      console.error('Failed to sync Letterboxd RSS:', error);
+      const errMsg =
+        error?.response?.data?.error ||
+        error?.message ||
+        'Failed to sync Letterboxd RSS feed.';
+      toast({ message: errMsg, type: 'error' });
+    } finally {
+      setIsSyncingLetterboxd(false);
+    }
+  };
+
+  const handleToggleLetterboxdAutoSync = async () => {
+    const currentAuto = letterboxdStatus ? letterboxdStatus.autoSync : true;
+    const nextAuto = !currentAuto;
+    setIsSavingSettings(true);
+    try {
+      await apiService.updateSetting('letterboxd_auto_sync', String(nextAuto));
+      setLetterboxdStatus((prev) => (prev ? { ...prev, autoSync: nextAuto } : prev));
+      toast({
+        message: nextAuto
+          ? 'Automatic Letterboxd RSS sync enabled.'
+          : 'Automatic Letterboxd RSS sync paused.',
+        type: 'success',
+      });
+    } catch (error) {
+      console.error('Failed to update Letterboxd auto-sync:', error);
+      toast({ message: 'Failed to update Letterboxd sync schedule.', type: 'error' });
+    } finally {
+      setIsSavingSettings(false);
+    }
+  };
+
+  const handleLetterboxdIntervalChange = async (hours: number) => {
+    setIsSavingSettings(true);
+    try {
+      await apiService.updateSetting('letterboxd_sync_interval_hours', String(hours));
+      setLetterboxdStatus((prev) => (prev ? { ...prev, syncIntervalHours: hours } : prev));
+      toast({ message: `Letterboxd sync interval set to every ${hours} hour(s).`, type: 'success' });
+    } catch (error) {
+      console.error('Failed to update Letterboxd interval:', error);
+      toast({ message: 'Failed to update sync interval.', type: 'error' });
+    } finally {
+      setIsSavingSettings(false);
+    }
+  };
+
+  const processLetterboxdExportFile = async (file: File) => {
+    setIsImportingLetterboxd(true);
+    try {
+      const { summary, status } = await apiService.importLetterboxdExport(file);
+      setLetterboxdStatus(status);
+      toast({
+        message: `Imported ${summary.itemsProcessed} Letterboxd film(s)! ${summary.matchedInCollection} collection movie(s) matched${
+          status.fuzzySuggestions.length > 0
+            ? ` (${status.fuzzySuggestions.length} close match(es) to confirm below)`
+            : ''
+        }.`,
+        type: 'success',
+      });
+    } catch (error: any) {
+      console.error('Failed to import Letterboxd export:', error);
+      const errMsg =
+        error?.response?.data?.error ||
+        error?.message ||
+        'Failed to import Letterboxd export file.';
+      toast({ message: errMsg, type: 'error' });
+    } finally {
+      setIsImportingLetterboxd(false);
+      if (letterboxdFileInputRef.current) {
+        letterboxdFileInputRef.current.value = '';
+      }
+    }
+  };
+
+  const handleLetterboxdFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    await processLetterboxdExportFile(file);
+  };
+
+  const handleDropLetterboxdFile = async (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDraggingLetterboxdFile(false);
+    const file = e.dataTransfer.files?.[0];
+    if (!file) return;
+    await processLetterboxdExportFile(file);
+  };
+
+  const handleLinkFuzzySuggestion = async (suggestion: LetterboxdFuzzySuggestion) => {
+    const key = `${suggestion.mediaId}:${suggestion.cacheId}`;
+    setResolvingSuggestionKey(key);
+    try {
+      const { status } = await apiService.linkLetterboxdMedia(
+        suggestion.mediaId,
+        suggestion.cacheId,
+      );
+      setLetterboxdStatus(status);
+      toast({
+        message: `Linked "${suggestion.mediaTitle}" to "${suggestion.letterboxdTitle}".`,
+        type: 'success',
+      });
+    } catch (error) {
+      console.error('Failed to link suggestion:', error);
+      toast({ message: 'Failed to link Letterboxd match.', type: 'error' });
+    } finally {
+      setResolvingSuggestionKey(null);
+    }
+  };
+
+  const handleDismissFuzzySuggestion = async (suggestion: LetterboxdFuzzySuggestion) => {
+    const key = `${suggestion.mediaId}:${suggestion.cacheId}`;
+    setResolvingSuggestionKey(key);
+    try {
+      const { status } = await apiService.dismissLetterboxdSuggestion(
+        suggestion.mediaId,
+        suggestion.cacheId,
+      );
+      setLetterboxdStatus(status);
+    } catch (error) {
+      console.error('Failed to dismiss suggestion:', error);
+      toast({ message: 'Failed to dismiss suggestion.', type: 'error' });
+    } finally {
+      setResolvingSuggestionKey(null);
     }
   };
 
@@ -706,6 +884,298 @@ const AdminPage: React.FC = () => {
                 . Saving a key here overrides the <code className="font-mono">TMDB_API_KEY</code> environment variable.
               </p>
             </form>
+          </section>
+
+          {/* Letterboxd Integration */}
+          <section className="card space-y-5" aria-labelledby="letterboxd-integration-heading">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <LetterboxdDotsIcon className="h-3.5 w-auto" />
+                  <h2 id="letterboxd-integration-heading" className="text-lg font-semibold text-content">
+                    Letterboxd Integration
+                  </h2>
+                  <span
+                    className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${
+                      letterboxdStatus?.configured
+                        ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300'
+                        : 'bg-surface-sunken border border-subtle text-content-muted'
+                    }`}
+                  >
+                    {letterboxdStatus?.username
+                      ? `Connected: @${letterboxdStatus.username}`
+                      : letterboxdStatus?.configured
+                        ? 'History Loaded'
+                        : 'Not Connected'}
+                  </span>
+                </div>
+                <p className="text-sm text-content-muted mt-0.5">
+                  Display your personal Letterboxd star ratings, liked hearts, and last watched dates on movies and box sets across your collection.
+                </p>
+              </div>
+            </div>
+
+            {/* Sync Status Banner */}
+            {letterboxdStatus?.configured && (
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-[--radius-control] bg-surface-sunken border border-subtle px-3.5 py-2.5 text-xs">
+                <div className="space-y-0.5">
+                  <div className="font-medium text-content">
+                    Matched{' '}
+                    <span className="font-bold text-emerald-600 dark:text-emerald-400">
+                      {letterboxdStatus.matchedMoviesCount}
+                    </span>{' '}
+                    of {letterboxdStatus.totalCollectionMovies} collection movie(s) &middot;{' '}
+                    {letterboxdStatus.totalCachedFilms} Letterboxd film(s) cached
+                  </div>
+                  <div className="text-content-muted">
+                    {letterboxdStatus.lastSyncAt
+                      ? `Last synced: ${new Date(letterboxdStatus.lastSyncAt).toLocaleString()}`
+                      : 'No sync recorded yet'}
+                    {letterboxdStatus.lastSyncStatus?.error && (
+                      <span className="ml-2 text-red-600 dark:text-red-400">
+                        ({letterboxdStatus.lastSyncStatus.error})
+                      </span>
+                    )}
+                  </div>
+                </div>
+                {letterboxdStatus.username && (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => handleSaveAndSyncLetterboxd()}
+                    isLoading={isSyncingLetterboxd}
+                  >
+                    Sync RSS Now
+                  </Button>
+                )}
+              </div>
+            )}
+
+            {/* Letterboxd Username & RSS Sync */}
+            <form onSubmit={handleSaveAndSyncLetterboxd} className="space-y-2">
+              <label
+                htmlFor="letterboxd-username-input"
+                className="block text-sm font-medium text-content"
+              >
+                Letterboxd Username
+              </label>
+              <div className="flex flex-col sm:flex-row gap-2.5">
+                <input
+                  id="letterboxd-username-input"
+                  type="text"
+                  value={letterboxdUsernameInput}
+                  onChange={(e) => setLetterboxdUsernameInput(e.target.value)}
+                  disabled={isSyncingLetterboxd}
+                  placeholder="e.g. dave or https://letterboxd.com/dave/"
+                  className="flex-1 px-3.5 py-2 border border-subtle rounded-[--radius-control] text-sm bg-surface text-content focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+                />
+                <Button
+                  type="submit"
+                  disabled={!letterboxdUsernameInput.trim() || isSyncingLetterboxd}
+                  isLoading={isSyncingLetterboxd}
+                >
+                  Save &amp; Sync RSS
+                </Button>
+              </div>
+              <p className="text-xs text-content-muted">
+                Syncs your public RSS feed (<code className="font-mono">letterboxd.com/&lt;username&gt;/rss/</code>) and automatically links entries by TMDb ID.
+              </p>
+            </form>
+
+            {/* Automatic Background / Desktop Launch Sync Schedule */}
+            <div className="border-t border-subtle pt-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="space-y-0.5">
+                <span className="text-sm font-medium text-content">
+                  Automatic RSS Feed Sync
+                </span>
+                <p className="text-xs text-content-muted">
+                  {isDesktop
+                    ? 'Automatically syncs your Letterboxd RSS feed every time the Desktop app launches (and periodically while open).'
+                    : 'Runs on a background schedule inside the server container so new diary entries are captured before rolling off the 50-item RSS feed.'}
+                </p>
+              </div>
+              <div className="flex items-center gap-3 self-start sm:self-auto">
+                {!isDesktop && (
+                  <select
+                    aria-label="Letterboxd sync interval"
+                    value={letterboxdStatus?.syncIntervalHours ?? 4}
+                    onChange={(e) => handleLetterboxdIntervalChange(Number(e.target.value))}
+                    disabled={isSavingSettings || letterboxdStatus?.autoSync === false}
+                    className="px-2.5 py-1.5 border border-subtle rounded-[--radius-control] text-xs bg-surface text-content"
+                  >
+                    <option value={1}>Every 1 hour</option>
+                    <option value={4}>Every 4 hours</option>
+                    <option value={6}>Every 6 hours</option>
+                    <option value={12}>Every 12 hours</option>
+                    <option value={24}>Every 24 hours</option>
+                  </select>
+                )}
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={letterboxdStatus ? letterboxdStatus.autoSync : true}
+                  aria-label="Automatic RSS Feed Sync"
+                  onClick={handleToggleLetterboxdAutoSync}
+                  disabled={isSavingSettings}
+                  className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface ${
+                    (letterboxdStatus ? letterboxdStatus.autoSync : true)
+                      ? 'bg-primary-600'
+                      : 'bg-gray-300 dark:bg-gray-600'
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                      (letterboxdStatus ? letterboxdStatus.autoSync : true)
+                        ? 'translate-x-6'
+                        : 'translate-x-1'
+                    }`}
+                  />
+                </button>
+              </div>
+            </div>
+
+            {/* Historical Backfill via Letterboxd Account Export (.zip or .csv) */}
+            <div className="border-t border-subtle pt-4 space-y-3">
+              <div>
+                <h3 className="text-sm font-medium text-content">
+                  Backfill Full History (Letterboxd Export .ZIP or .CSV)
+                </h3>
+                <p className="text-xs text-content-muted mt-0.5">
+                  Because Letterboxd&rsquo;s RSS feed only includes your 50 most recent diary entries, upload your account export ZIP from{' '}
+                  <a
+                    href="https://letterboxd.com/settings/data/"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-primary-600 dark:text-primary-400 hover:underline"
+                  >
+                    letterboxd.com/settings/data
+                  </a>{' '}
+                  (or individual <code className="font-mono">ratings.csv</code> / <code className="font-mono">diary.csv</code> files) to import all historical ratings, likes, and watch dates.
+                </p>
+              </div>
+
+              <div
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  setIsDraggingLetterboxdFile(true);
+                }}
+                onDragLeave={() => setIsDraggingLetterboxdFile(false)}
+                onDrop={handleDropLetterboxdFile}
+                className={`border-2 border-dashed rounded-[--radius-card] p-4 text-center transition-colors ${
+                  isDraggingLetterboxdFile
+                    ? 'border-emerald-500 bg-emerald-50/50 dark:bg-emerald-900/20'
+                    : 'border-subtle bg-surface-sunken/50 hover:border-emerald-500/60'
+                }`}
+              >
+                <input
+                  ref={letterboxdFileInputRef}
+                  id="letterboxd-export-file-input"
+                  type="file"
+                  accept=".zip,.csv,application/zip,text/csv"
+                  onChange={handleLetterboxdFileChange}
+                  disabled={isImportingLetterboxd}
+                  className="sr-only"
+                />
+                <p className="text-xs sm:text-sm font-medium text-content">
+                  {isImportingLetterboxd
+                    ? 'Importing Letterboxd history…'
+                    : 'Drag and drop your letterboxd-*.zip export (or .csv) here'}
+                </p>
+                <div className="mt-2.5">
+                  <label
+                    htmlFor="letterboxd-export-file-input"
+                    className="inline-flex cursor-pointer items-center justify-center rounded-[--radius-control] bg-surface border border-subtle px-3.5 py-1.5 text-xs font-semibold text-content hover:bg-surface-sunken transition-colors"
+                  >
+                    {isImportingLetterboxd ? 'Processing…' : 'Upload Letterboxd Export (.zip / .csv)'}
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            {/* Fuzzy Match Review Queue */}
+            {letterboxdStatus && letterboxdStatus.fuzzySuggestions.length > 0 && (
+              <div
+                data-testid="letterboxd-fuzzy-review"
+                className="rounded-[--radius-card] border border-amber-300/80 bg-amber-50/50 p-4 space-y-3 dark:border-amber-700/50 dark:bg-amber-950/20"
+              >
+                <div>
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-amber-900 dark:text-amber-200">
+                    Confirm Close Title Matches ({letterboxdStatus.fuzzySuggestions.length})
+                  </h3>
+                  <p className="text-xs text-amber-800/90 dark:text-amber-300/80 mt-0.5">
+                    These movies in your collection have slightly different titles or release years from entries in your Letterboxd history. Confirm to link them:
+                  </p>
+                </div>
+
+                <div className="divide-y divide-amber-200/70 dark:divide-amber-800/50 rounded-lg border border-amber-200/80 dark:border-amber-800/60 bg-surface">
+                  {letterboxdStatus.fuzzySuggestions.map((suggestion) => {
+                    const key = `${suggestion.mediaId}:${suggestion.cacheId}`;
+                    const isBusy = resolvingSuggestionKey === key;
+                    const stars = formatStarString(suggestion.rating);
+                    const watchedDate = formatWatchedDate(suggestion.lastWatchedDate);
+                    return (
+                      <div
+                        key={key}
+                        className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 text-xs"
+                      >
+                        <div className="space-y-1 min-w-0">
+                          <div className="text-content">
+                            <span className="text-content-muted font-medium">In Cinefile: </span>
+                            <strong className="font-semibold">{suggestion.mediaTitle}</strong>
+                            {suggestion.mediaYear && (
+                              <span className="text-content-muted"> ({suggestion.mediaYear})</span>
+                            )}
+                          </div>
+                          <div className="flex flex-wrap items-center gap-1.5 text-content">
+                            <span className="text-content-muted font-medium">In Letterboxd: </span>
+                            <strong className="font-semibold">{suggestion.letterboxdTitle}</strong>
+                            {suggestion.letterboxdYear && (
+                              <span className="text-content-muted"> ({suggestion.letterboxdYear})</span>
+                            )}
+                            {stars && (
+                              <span className="font-semibold text-emerald-600 dark:text-emerald-400">
+                                {stars}
+                              </span>
+                            )}
+                            {suggestion.liked && (
+                              <span className="text-orange-500" title="Liked">
+                                ♥
+                              </span>
+                            )}
+                            {watchedDate && (
+                              <span className="text-content-muted">&middot; Watched {watchedDate}</span>
+                            )}
+                          </div>
+                          <div className="text-[11px] text-content-muted">{suggestion.reason}</div>
+                        </div>
+
+                        <div className="flex shrink-0 items-center gap-2">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="primary"
+                            disabled={isBusy}
+                            onClick={() => handleLinkFuzzySuggestion(suggestion)}
+                          >
+                            Link Match
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="secondary"
+                            disabled={isBusy}
+                            onClick={() => handleDismissFuzzySuggestion(suggestion)}
+                          >
+                            Dismiss
+                          </Button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </section>
 
           {/* Appearance & Display Defaults */}
