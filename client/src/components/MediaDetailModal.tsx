@@ -534,7 +534,7 @@ const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
                   onClick={() => setShowCustomArt((v) => !v)}
                   className="text-xs font-medium text-primary-600 hover:underline dark:text-primary-400"
                 >
-                  {showCustomArt ? 'Show Movie Poster' : 'Show Custom Package Photo'}
+                  {showCustomArt ? 'Show movie poster' : 'Show package photo'}
                 </button>
               </div>
             )}

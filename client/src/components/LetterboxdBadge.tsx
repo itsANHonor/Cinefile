@@ -197,39 +197,36 @@ export const LetterboxdActivityBanner: React.FC<LetterboxdActivityBannerProps> =
           <span>
             {formattedWatchDate ? (
               <>
-                Last watched <strong className="font-medium text-content">{formattedWatchDate}</strong>
+                Last watched{' '}
+                {hasValidUri ? (
+                  <a
+                    href={movie.letterboxd_uri!}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    aria-label={`View ${movie.title} diary entry on Letterboxd`}
+                    className="font-medium text-emerald-700 hover:underline dark:text-emerald-400"
+                  >
+                    <strong className="font-medium">{formattedWatchDate}</strong>
+                  </a>
+                ) : (
+                  <strong className="font-medium text-content">{formattedWatchDate}</strong>
+                )}
               </>
+            ) : hasValidUri ? (
+              <a
+                href={movie.letterboxd_uri!}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label={`View ${movie.title} on Letterboxd`}
+                className="font-medium text-emerald-700 hover:underline dark:text-emerald-400"
+              >
+                <strong className="font-medium">Watched</strong>
+              </a>
             ) : (
               <strong className="font-medium text-content">Watched</strong>
             )}
           </span>
         </span>
-      )}
-
-      {hasValidUri && (
-        <a
-          href={movie.letterboxd_uri!}
-          target="_blank"
-          rel="noopener noreferrer"
-          aria-label={`View ${movie.title} on Letterboxd`}
-          className="ml-auto inline-flex items-center gap-1 text-xs font-medium text-emerald-700 hover:underline dark:text-emerald-400"
-        >
-          <span>View</span>
-          <svg
-            className="h-3 w-3"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-            aria-hidden="true"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
-            />
-          </svg>
-        </a>
       )}
     </div>
   );

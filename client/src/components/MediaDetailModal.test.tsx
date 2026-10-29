@@ -168,7 +168,7 @@ describe('MediaDetailModal', () => {
     expect(banner).toHaveTextContent(/Last watched/i);
     expect(banner).not.toHaveTextContent(/Rewatch/i);
     expect(
-      within(banner).getByRole('link', { name: /View The Big Lebowski on Letterboxd/i })
+      within(banner).getByRole('link', { name: /diary entry on Letterboxd/i })
     ).toHaveAttribute('href', 'https://letterboxd.com/alex/film/the-big-lebowski/');
 
     // Test multi-movie box set with partial Letterboxd watch progress
