@@ -51,6 +51,11 @@ jobs:
           else
             echo "should_tag_dev=false" >> $GITHUB_OUTPUT
           fi
+          if [[ "${{ github.ref_name }}" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]; then
+            echo "is_semver_tag=true" >> $GITHUB_OUTPUT
+          else
+            echo "is_semver_tag=false" >> $GITHUB_OUTPUT
+          fi
 
       - name: Extract metadata (tags, labels)
         id: meta
@@ -61,7 +66,7 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
-            type=ref,event=tag
+            type=ref,event=tag,enable=${{ steps.tags.outputs.is_semver_tag == 'false' }}
             type=raw,value=latest,enable=${{ steps.tags.outputs.should_tag_latest == 'true' }}
             type=raw,value=dev,enable=${{ steps.tags.outputs.should_tag_dev == 'true' }}
 
