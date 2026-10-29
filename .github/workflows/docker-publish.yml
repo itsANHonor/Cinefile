@@ -41,7 +41,7 @@ jobs:
       - name: Determine tags
         id: tags
         run: |
-          if [ "${{ github.ref }}" == "refs/heads/main" ] || [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+          if [ "${{ github.ref }}" == "refs/heads/main" ] || { [[ "${{ github.ref }}" == refs/tags/v* ]] && [[ "${{ github.ref }}" != *-* ]]; }; then
             echo "should_tag_latest=true" >> $GITHUB_OUTPUT
           else
             echo "should_tag_latest=false" >> $GITHUB_OUTPUT
@@ -61,6 +61,7 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
+            type=ref,event=tag
             type=raw,value=latest,enable=${{ steps.tags.outputs.should_tag_latest == 'true' }}
             type=raw,value=dev,enable=${{ steps.tags.outputs.should_tag_dev == 'true' }}
 
