@@ -81,11 +81,6 @@ const MediaCard: React.FC<MediaCardProps> = ({
   if (primaryMedia?.release_date) {
     metadataParts.push(String(new Date(primaryMedia.release_date).getFullYear()));
   }
-  if (primaryMedia?.media_type === 'tv_season' && primaryMedia.tv_show_name) {
-    metadataParts.push(
-      `${primaryMedia.tv_show_name}${primaryMedia.season_number != null ? ` - Season ${primaryMedia.season_number}` : ''}`
-    );
-  }
   if (physicalItem.edition_notes) {
     metadataParts.push(physicalItem.edition_notes);
   }

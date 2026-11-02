@@ -4,7 +4,7 @@ import { apiService } from '../services/api.service';
 import { useToast } from '../context/ToastContext';
 import { useConfirm } from '../context/ConfirmContext';
 import { useFacets, resetFacetsCache } from '../hooks/useFacets';
-import UnifiedSearchModal from './UnifiedSearchModal';
+import MediaSearchPanel from './MediaSearchPanel';
 import StoreLinkManager from './StoreLinkManager';
 import MediaEditModal from './MediaEditModal';
 import FormatSelector from './FormatSelector';
@@ -41,7 +41,7 @@ interface MovieWithFormats {
 const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editItem, onDelete }) => {
   console.log('🎬 MediaForm rendered:', { isOpen, editItemId: editItem?.id, editItemName: editItem?.name });
   
-  const [showUnifiedSearch, setShowUnifiedSearch] = useState(false);
+  const [showSearch, setShowSearch] = useState(false);
   const [showMediaEditModal, setShowMediaEditModal] = useState(false);
   const [editingMedia, setEditingMedia] = useState<Media | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -83,7 +83,6 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
   });
   const [showDimensions, setShowDimensions] = useState(false);
   const [availableSeries, setAvailableSeries] = useState<Series[]>([]);
-  const autoOpenedSearchRef = useRef(false);
   const hasSavedMediaChangesRef = useRef(false);
 
   const handleFormClose = () => {
@@ -95,19 +94,12 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
     onClose();
   };
 
-  // Auto-open the search dialog once per open in create mode, so the
-  // first (and required) step is front and center. Closing the search
-  // without selecting lands on the guided empty state instead.
   useEffect(() => {
-    if (isOpen && !editItem && !autoOpenedSearchRef.current) {
-      autoOpenedSearchRef.current = true;
-      setShowUnifiedSearch(true);
-    }
     if (!isOpen) {
-      autoOpenedSearchRef.current = false;
+      setShowSearch(false);
       hasSavedMediaChangesRef.current = false;
     }
-  }, [isOpen, editItem]);
+  }, [isOpen]);
 
   useEffect(() => {
     // Load available series
@@ -366,6 +358,8 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
       }
     } catch (error) {
       console.error('Failed to add movie:', error);
+    } finally {
+      setShowSearch(false);
     }
   };
 
@@ -412,6 +406,7 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
         name: newAutoName,
       });
     }
+    setShowSearch(false);
   };
 
   const handleRemoveMovie = (index: number) => {
@@ -854,9 +849,6 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
           return mediaEntry;
         });
 
-        // #region agent log
-        fetch('http://localhost:7242/ingest/8b2e7252-624c-479a-86a6-74b0ba1b2bf3',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'0162e4'},body:JSON.stringify({sessionId:'0162e4',location:'MediaForm.tsx:680',message:'createPhysicalItem payload',data:{name:finalName,mediaCount:mediaArray.length,firstMedia:mediaArray[0],allMediaTypes:mediaArray.map((m:any)=>({title:m.title,media_type:m.media_type,tmdb_id:m.tmdb_id,tv_show_tmdb_id:m.tv_show_tmdb_id,genres_type:typeof m.genres,genres_is_array:Array.isArray(m.genres),director:m.director,cast_type:typeof m.cast,cast_is_array:Array.isArray(m.cast),disc_number:m.disc_number}))},timestamp:Date.now()})}).catch(()=>{});
-        // #endregion
         await apiService.createPhysicalItem({
           name: finalName,
           sort_name: formData.sort_name || undefined,
@@ -881,9 +873,6 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
       onClose();
     } catch (error: any) {
       console.error('Failed to save physical item:', error);
-      // #region agent log
-      fetch('http://localhost:7242/ingest/8b2e7252-624c-479a-86a6-74b0ba1b2bf3',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'0162e4'},body:JSON.stringify({sessionId:'0162e4',location:'MediaForm.tsx:700',message:'handleSubmit catch error',data:{errorMessage:error?.message,errorResponse:error?.response?.data,errorStatus:error?.response?.status},timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
       toast({ message: 'Failed to save physical item. Please try again.', type: 'error' });
     } finally {
       setIsSubmitting(false);
@@ -896,9 +885,12 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
   const imageUrl = formData.custom_image_url || 
     (selectedMovies.length > 0 ? selectedMovies[0].details?.poster_url : null);
 
-  // Guided empty state: in create mode with nothing selected, selecting
-  // media is the required first step, so it becomes the entire UI.
-  const showEmptyState = !editItem && selectedMovies.length === 0;
+  // The modal body is a two-step flow: searching for media is the
+  // required first step in create mode, then the item details form.
+  // Rendering the search inline keeps it inside this dialog instead of
+  // stacking a second modal on top.
+  const hasItemContent = Boolean(editItem) || selectedMovies.length > 0;
+  const showSearchStep = showSearch || !hasItemContent;
 
   return (
     <>
@@ -923,44 +915,29 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
               </div>
             </div>
 
-            {/* Form */}
-            <form onSubmit={handleSubmit} className="p-6">
-              {showEmptyState ? (
-                <div className="flex flex-col items-center justify-center text-center py-16 px-6">
-                  <div className="w-16 h-16 rounded-full bg-primary-50 dark:bg-primary-900/30 flex items-center justify-center mb-5">
-                    <svg className="w-8 h-8 text-primary-600 dark:text-primary-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-4.35-4.35m1.6-4.65a7 7 0 11-14 0 7 7 0 0114 0z" />
-                    </svg>
+            {/* Body: media search step, or the item details form */}
+            {showSearchStep ? (
+              <div className="p-6">
+                <MediaSearchPanel
+                  onSelect={handleUnifiedSearchSelect}
+                  onSelectTVSeasons={handleTVSeasonsSelect}
+                  currentPhysicalItem={editItem}
+                  onBack={hasItemContent ? () => setShowSearch(false) : undefined}
+                />
+                {!hasItemContent && (
+                  <div className="mt-6 text-center">
+                    <button
+                      type="button"
+                      onClick={handleFormClose}
+                      className="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 transition-colors"
+                    >
+                      Cancel
+                    </button>
                   </div>
-                  <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-2">
-                    What are you adding?
-                  </h3>
-                  <p className="text-sm text-gray-500 dark:text-gray-400 max-w-sm mb-6">
-                    Search TMDb and your library to find a movie or TV season — we'll autofill the details, poster, and formats for you.
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => setShowUnifiedSearch(true)}
-                    className="btn-primary flex items-center gap-2"
-                  >
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-4.35-4.35m1.6-4.65a7 7 0 11-14 0 7 7 0 0114 0z" />
-                    </svg>
-                    Search for media
-                  </button>
-                  <p className="mt-4 text-xs text-gray-400 dark:text-gray-500">
-                    Can't find it? You can create it manually from the search dialog.
-                  </p>
-                  <button
-                    type="button"
-                    onClick={handleFormClose}
-                    className="mt-6 text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 transition-colors"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              ) : (
-              <>
+                )}
+              </div>
+            ) : (
+            <form onSubmit={handleSubmit} className="p-6">
               <div className="grid md:grid-cols-2 gap-6">
                 {/* Left Column - Image */}
                 <div>
@@ -979,7 +956,7 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
                   <div className="mb-4">
                     <button
                       type="button"
-                      onClick={() => setShowUnifiedSearch(true)}
+                      onClick={() => setShowSearch(true)}
                       className="btn-secondary text-sm w-full"
                     >
                       + Add another title
@@ -1495,21 +1472,11 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
                   </button>
                 </div>
               )}
-              </>
-              )}
             </form>
+            )}
           </div>
         </div>
       </div>
-
-      {/* Unified Search Modal */}
-      <UnifiedSearchModal
-        isOpen={showUnifiedSearch}
-        onClose={() => setShowUnifiedSearch(false)}
-        onSelect={handleUnifiedSearchSelect}
-        onSelectTVSeasons={handleTVSeasonsSelect}
-        currentPhysicalItem={editItem}
-      />
 
       {/* Media Edit Modal */}
       <MediaEditModal
