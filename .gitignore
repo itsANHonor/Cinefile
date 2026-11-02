@@ -66,4 +66,5 @@ temp/
 # AI agent config - local only
 .devin/
 .windsurf/
+CINEFILE_SKILL_README.txt
 
