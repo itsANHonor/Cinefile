@@ -99,7 +99,7 @@ app.get('/api/health', (req, res) => {
     mode: 'full',
     desktop: isDesktopMode(),
     timestamp: new Date().toISOString(),
-    version: '2.0.0',
+    version: '2.0.1',
   });
 });
 

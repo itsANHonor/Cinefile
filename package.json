@@ -1,6 +1,6 @@
 {
   "name": "cinefile",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "A self-hosted web application for cataloging and displaying physical video media collections",
   "main": "electron/dist/main.js",
   "scripts": {
