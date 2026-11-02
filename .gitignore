@@ -63,8 +63,7 @@ temp/
 !SETUP.md
 !DOCKER.md
 
-# AI Skills - allow workflow files
-!.windsurf/workflows/*.md
-!.devin/skills/**/*.md
-.devin/*.local.json
+# AI agent config - local only
+.devin/
+.windsurf/
 
