@@ -5,6 +5,7 @@ exports.up = function(knex) {
     table.increments('id').primary();
     table.string('name').notNullable();
     table.string('sort_name').nullable(); // For custom sorting
+    table.integer('tmdb_collection_id').nullable();
     table.text('description').nullable();
     table.string('cover_art_url').nullable();
     table.timestamps(true, true); // created_at and updated_at
@@ -12,6 +13,7 @@ exports.up = function(knex) {
     // Indexes
     table.index('name');
     table.index('sort_name');
+    table.index('tmdb_collection_id');
   });
 };
 
