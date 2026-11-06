@@ -8,6 +8,26 @@ export interface Series {
   movie_count?: number;
   created_at?: string;
   updated_at?: string;
+  auto_populated?: {
+    tmdb_collection_id: number;
+    collection_name: string;
+    collection_parts_count: number;
+    matched_count: number;
+    added_count: number;
+    already_linked_count: number;
+    added_titles: string[];
+  } | null;
+}
+
+export interface PopulateSeriesResponse {
+  series: Series;
+  tmdb_collection_id: number;
+  collection_name: string;
+  collection_parts_count: number;
+  matched_count: number;
+  added_count: number;
+  already_linked_count: number;
+  added_titles: string[];
 }
 
 export interface MovieSeries {

@@ -385,6 +385,14 @@ class ApiService {
     return response.data;
   }
 
+  async populateSeriesFromTMDB(seriesId: number, tmdbCollectionId?: number): Promise<any> {
+    const response = await this.api.post(
+      `/series/${seriesId}/populate-from-tmdb`,
+      tmdbCollectionId !== undefined ? { tmdb_collection_id: tmdbCollectionId } : {}
+    );
+    return response.data;
+  }
+
   // Settings methods
   async getSettings(): Promise<Settings> {
     const response = await this.api.get<Settings>('/settings');

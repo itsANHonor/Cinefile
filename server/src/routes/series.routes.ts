@@ -1,8 +1,141 @@
 import { Router, Request, Response } from 'express';
 import { db } from '../database';
 import { authMiddleware } from '../middleware/auth.middleware';
+import { tmdbService } from '../services/tmdb.service';
 
 const router = Router();
+
+export interface PopulateSeriesResult {
+  tmdb_collection_id: number;
+  collection_name: string;
+  collection_parts_count: number;
+  matched_count: number;
+  added_count: number;
+  already_linked_count: number;
+  added_titles: string[];
+}
+
+/**
+ * Fetch TMDB Collection parts for `tmdbCollectionId` and link any matching local
+ * movies (`media.tmdb_id` in collection parts) into `movie_series` for `seriesId`.
+ */
+async function populateSeriesFromTmdbCollection(
+  seriesId: number,
+  tmdbCollectionId: number
+): Promise<PopulateSeriesResult> {
+  const collectionDetails = await tmdbService.getCollectionDetails(tmdbCollectionId);
+  const parts: any[] = Array.isArray(collectionDetails?.parts)
+    ? [...collectionDetails.parts]
+    : [];
+
+  // Sort parts chronologically so sort_order defaults follow release order
+  parts.sort((a, b) =>
+    String(a.release_date || '9999-12-31').localeCompare(
+      String(b.release_date || '9999-12-31')
+    )
+  );
+
+  const partTmdbIds = parts
+    .map((p) => Number(p.id))
+    .filter((id) => !Number.isNaN(id) && id > 0);
+
+  if (partTmdbIds.length === 0) {
+    return {
+      tmdb_collection_id: tmdbCollectionId,
+      collection_name: collectionDetails?.name || '',
+      collection_parts_count: 0,
+      matched_count: 0,
+      added_count: 0,
+      already_linked_count: 0,
+      added_titles: [],
+    };
+  }
+
+  // Find all local media rows matching any TMDB movie ID in this collection
+  const matchingMedia = await db('media')
+    .whereIn('tmdb_id', partTmdbIds)
+    .andWhere(function () {
+      this.where('media_type', 'movie').orWhereNull('media_type');
+    })
+    .select('id', 'title', 'tmdb_id', 'primary_series_id', 'release_date');
+
+  if (matchingMedia.length === 0) {
+    return {
+      tmdb_collection_id: tmdbCollectionId,
+      collection_name: collectionDetails?.name || '',
+      collection_parts_count: parts.length,
+      matched_count: 0,
+      added_count: 0,
+      already_linked_count: 0,
+      added_titles: [],
+    };
+  }
+
+  const existingLinks = await db('movie_series')
+    .where({ series_id: seriesId })
+    .select('media_id');
+  const existingMediaIds = new Set<number>(
+    existingLinks.map((row: any) => Number(row.media_id))
+  );
+
+  const partOrderByTmdbId = new Map<number, number>();
+  parts.forEach((p, idx) => {
+    partOrderByTmdbId.set(Number(p.id), idx + 1);
+  });
+
+  // Sort matched local media by collection chronological order
+  matchingMedia.sort((a: any, b: any) => {
+    const orderA = partOrderByTmdbId.get(Number(a.tmdb_id)) ?? 999;
+    const orderB = partOrderByTmdbId.get(Number(b.tmdb_id)) ?? 999;
+    return orderA - orderB;
+  });
+
+  const toInsert: Array<{
+    media_id: number;
+    series_id: number;
+    sort_order: number | null;
+    auto_sort: boolean;
+  }> = [];
+  const addedTitles: string[] = [];
+  const mediaIdsWithoutPrimary: number[] = [];
+
+  for (const mediaRow of matchingMedia) {
+    const mediaId = Number(mediaRow.id);
+    if (!existingMediaIds.has(mediaId)) {
+      toInsert.push({
+        media_id: mediaId,
+        series_id: seriesId,
+        sort_order: partOrderByTmdbId.get(Number(mediaRow.tmdb_id)) ?? null,
+        auto_sort: true,
+      });
+      addedTitles.push(mediaRow.title);
+    }
+    if (!mediaRow.primary_series_id) {
+      mediaIdsWithoutPrimary.push(mediaId);
+    }
+  }
+
+  if (toInsert.length > 0) {
+    await db('movie_series').insert(toInsert);
+  }
+
+  if (mediaIdsWithoutPrimary.length > 0) {
+    await db('media')
+      .whereIn('id', mediaIdsWithoutPrimary)
+      .whereNull('primary_series_id')
+      .update({ primary_series_id: seriesId });
+  }
+
+  return {
+    tmdb_collection_id: tmdbCollectionId,
+    collection_name: collectionDetails?.name || '',
+    collection_parts_count: parts.length,
+    matched_count: matchingMedia.length,
+    added_count: toInsert.length,
+    already_linked_count: matchingMedia.length - toInsert.length,
+    added_titles: addedTitles,
+  };
+}
 
 interface Series {
   id?: number;
@@ -149,9 +282,32 @@ router.post('/', authMiddleware, async (req: Request, res: Response) => {
     };
 
     const [id] = await db('series').insert(insertData);
-    const newSeries = await db('series').where({ id }).first();
+    let autoPopulateResult: PopulateSeriesResult | null = null;
+    if (insertData.tmdb_collection_id) {
+      try {
+        autoPopulateResult = await populateSeriesFromTmdbCollection(
+          Number(id),
+          Number(insertData.tmdb_collection_id)
+        );
+      } catch (populateError) {
+        console.warn(
+          `[Series] Could not auto-populate series ${id} from TMDB collection ${insertData.tmdb_collection_id}:`,
+          populateError
+        );
+      }
+    }
 
-    res.status(201).json(newSeries);
+    const newSeries = await db('series').where({ id }).first();
+    const movieCountRow = await db('movie_series')
+      .where({ series_id: id })
+      .count('media_id as count')
+      .first();
+
+    res.status(201).json({
+      ...newSeries,
+      movie_count: Number(movieCountRow?.count ?? 0),
+      auto_populated: autoPopulateResult,
+    });
   } catch (error) {
     console.error('Error creating series:', error);
     res.status(500).json({ error: 'Failed to create series' });
@@ -185,9 +341,36 @@ router.put('/:id', authMiddleware, async (req: Request, res: Response) => {
 
     await db('series').where({ id }).update(updateData);
 
-    const updatedSeries = await db('series').where({ id }).first();
+    let autoPopulateResult: PopulateSeriesResult | null = null;
+    const nextCollectionId =
+      tmdb_collection_id !== undefined
+        ? tmdb_collection_id
+        : existingSeries.tmdb_collection_id;
+    if (nextCollectionId) {
+      try {
+        autoPopulateResult = await populateSeriesFromTmdbCollection(
+          Number(id),
+          Number(nextCollectionId)
+        );
+      } catch (populateError) {
+        console.warn(
+          `[Series] Could not auto-populate series ${id} from TMDB collection ${nextCollectionId}:`,
+          populateError
+        );
+      }
+    }
 
-    res.json(updatedSeries);
+    const updatedSeries = await db('series').where({ id }).first();
+    const movieCountRow = await db('movie_series')
+      .where({ series_id: id })
+      .count('media_id as count')
+      .first();
+
+    res.json({
+      ...updatedSeries,
+      movie_count: Number(movieCountRow?.count ?? 0),
+      auto_populated: autoPopulateResult,
+    });
   } catch (error) {
     console.error('Error updating series:', error);
     res.status(500).json({ error: 'Failed to update series' });
@@ -215,6 +398,87 @@ router.delete('/:id', authMiddleware, async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Error deleting series:', error);
     res.status(500).json({ error: 'Failed to delete series' });
+  }
+});
+
+/**
+ * POST /api/series/:id/populate-from-tmdb
+ * Populate a series with matching local movies from its TMDb Collection ID
+ * (or infer the TMDb Collection ID from one of its already-linked movies).
+ */
+router.post('/:id/populate-from-tmdb', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const seriesId = parseInt(req.params.id, 10);
+    if (Number.isNaN(seriesId)) {
+      return res.status(400).json({ error: 'Invalid series ID' });
+    }
+
+    const series = await db('series').where({ id: seriesId }).first();
+    if (!series) {
+      return res.status(404).json({ error: 'Series not found' });
+    }
+
+    let tmdbCollectionId: number | null =
+      req.body?.tmdb_collection_id !== undefined && req.body?.tmdb_collection_id !== null
+        ? Number(req.body.tmdb_collection_id)
+        : series.tmdb_collection_id
+        ? Number(series.tmdb_collection_id)
+        : null;
+
+    // If no tmdb_collection_id is stored yet, try inferring it from an already-linked movie
+    if (!tmdbCollectionId) {
+      const linkedMovies = await db('media')
+        .join('movie_series', 'media.id', 'movie_series.media_id')
+        .where('movie_series.series_id', seriesId)
+        .whereNotNull('media.tmdb_id')
+        .select('media.tmdb_id');
+
+      for (const m of linkedMovies) {
+        try {
+          const belongsTo = await tmdbService.getMovieCollections(Number(m.tmdb_id));
+          if (belongsTo?.id) {
+            tmdbCollectionId = Number(belongsTo.id);
+            await db('series')
+              .where({ id: seriesId })
+              .update({ tmdb_collection_id: tmdbCollectionId, updated_at: db.fn.now() });
+            break;
+          }
+        } catch {
+          // Try next movie
+        }
+      }
+    } else if (tmdbCollectionId !== series.tmdb_collection_id) {
+      await db('series')
+        .where({ id: seriesId })
+        .update({ tmdb_collection_id: tmdbCollectionId, updated_at: db.fn.now() });
+    }
+
+    if (!tmdbCollectionId || Number.isNaN(tmdbCollectionId)) {
+      return res.status(400).json({
+        error:
+          'This series does not have a TMDb Collection ID yet. Enter a TMDb Collection ID on the series first.',
+      });
+    }
+
+    const result = await populateSeriesFromTmdbCollection(seriesId, tmdbCollectionId);
+    const updatedSeries = await db('series').where({ id: seriesId }).first();
+    const movieCountRow = await db('movie_series')
+      .where({ series_id: seriesId })
+      .count('media_id as count')
+      .first();
+
+    res.json({
+      series: {
+        ...updatedSeries,
+        movie_count: Number(movieCountRow?.count ?? 0),
+      },
+      ...result,
+    });
+  } catch (error: any) {
+    console.error('Error populating series from TMDb collection:', error);
+    res.status(500).json({
+      error: error.message || 'Failed to populate series from TMDb collection',
+    });
   }
 });
 

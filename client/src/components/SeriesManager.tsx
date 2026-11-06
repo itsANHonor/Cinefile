@@ -46,26 +46,32 @@ const SeriesForm: React.FC<{
   const [sortOrders, setSortOrders] = useState<Record<number, number | null>>({});
   const [hasSortOrderChanges, setHasSortOrderChanges] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [isPopulating, setIsPopulating] = useState(false);
   const { toast } = useToast();
   const formRef = useRef<HTMLDivElement>(null);
+
+  const loadSeriesMoviesList = async (seriesId: number) => {
+    setIsLoadingMovies(true);
+    try {
+      const movies = await apiService.getSeriesMovies(seriesId);
+      setSeriesMovies(movies);
+      const initialSortOrders: Record<number, number | null> = {};
+      movies.forEach((movie) => {
+        const movieSortOrder = (movie as any).sort_order;
+        initialSortOrders[movie.id] = movieSortOrder !== undefined ? movieSortOrder : null;
+      });
+      setSortOrders(initialSortOrders);
+    } catch (error) {
+      console.error('Failed to load series movies:', error);
+    } finally {
+      setIsLoadingMovies(false);
+    }
+  };
 
   // Load movies when editing an existing series
   useEffect(() => {
     if (editingSeries) {
-      setIsLoadingMovies(true);
-      apiService
-        .getSeriesMovies(editingSeries.id)
-        .then((movies) => {
-          setSeriesMovies(movies);
-          const initialSortOrders: Record<number, number | null> = {};
-          movies.forEach((movie) => {
-            const movieSortOrder = (movie as any).sort_order;
-            initialSortOrders[movie.id] = movieSortOrder !== undefined ? movieSortOrder : null;
-          });
-          setSortOrders(initialSortOrders);
-        })
-        .catch((error) => console.error('Failed to load series movies:', error))
-        .finally(() => setIsLoadingMovies(false));
+      loadSeriesMoviesList(editingSeries.id);
     }
   }, [editingSeries]);
 
@@ -114,6 +120,46 @@ const SeriesForm: React.FC<{
     }
   };
 
+  const handlePopulateInEditForm = async () => {
+    if (!editingSeries) return;
+    const parsedCollectionId = formData.tmdb_collection_id
+      ? parseInt(formData.tmdb_collection_id, 10)
+      : editingSeries.tmdb_collection_id;
+    setIsPopulating(true);
+    try {
+      const res = await apiService.populateSeriesFromTMDB(editingSeries.id, parsedCollectionId);
+      if (res.tmdb_collection_id && !formData.tmdb_collection_id) {
+        setFormData((prev) => ({ ...prev, tmdb_collection_id: String(res.tmdb_collection_id) }));
+      }
+      await loadSeriesMoviesList(editingSeries.id);
+      resetFacetsCache();
+      if (res.added_count > 0) {
+        toast({
+          message: `Added ${res.added_count} matching ${res.added_count === 1 ? 'movie' : 'movies'} from TMDb Collection #${res.tmdb_collection_id}: ${res.added_titles.join(', ')}.`,
+          type: 'success',
+        });
+      } else if (res.matched_count > 0) {
+        toast({
+          message: `All ${res.matched_count} owned ${res.matched_count === 1 ? 'movie' : 'movies'} from TMDb Collection #${res.tmdb_collection_id} are already in this series.`,
+          type: 'info',
+        });
+      } else {
+        toast({
+          message: `No movies from TMDb Collection #${res.tmdb_collection_id} were found in your database.`,
+          type: 'info',
+        });
+      }
+    } catch (error: any) {
+      console.error('Failed to populate series from TMDb:', error);
+      toast({
+        message: error.response?.data?.error || 'Failed to populate series from TMDb Collection.',
+        type: 'error',
+      });
+    } finally {
+      setIsPopulating(false);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSaving(true);
@@ -128,7 +174,7 @@ const SeriesForm: React.FC<{
       };
 
       if (editingSeries) {
-        await apiService.updateSeries(editingSeries.id, data);
+        const updated = await apiService.updateSeries(editingSeries.id, data);
         if (hasSortOrderChanges) {
           const sortOrdersArray = Object.entries(sortOrders).map(([mediaId, sortOrder]) => ({
             media_id: parseInt(mediaId, 10),
@@ -136,10 +182,24 @@ const SeriesForm: React.FC<{
           }));
           await apiService.bulkUpdateSeriesMovieSortOrders(editingSeries.id, sortOrdersArray);
         }
-        toast({ message: `Updated "${data.name}".`, type: 'success' });
+        const addedCount = updated?.auto_populated?.added_count ?? 0;
+        toast({
+          message:
+            addedCount > 0
+              ? `Updated "${data.name}" and auto-added ${addedCount} matching ${addedCount === 1 ? 'movie' : 'movies'} from TMDb Collection.`
+              : `Updated "${data.name}".`,
+          type: 'success',
+        });
       } else {
-        await apiService.createSeries(data);
-        toast({ message: `Created series "${data.name}".`, type: 'success' });
+        const created = await apiService.createSeries(data);
+        const addedCount = created?.auto_populated?.added_count ?? 0;
+        toast({
+          message:
+            addedCount > 0
+              ? `Created series "${data.name}" and auto-added ${addedCount} matching ${addedCount === 1 ? 'movie' : 'movies'} from TMDb Collection.`
+              : `Created series "${data.name}".`,
+          type: 'success',
+        });
       }
       onSave();
     } catch (error) {
@@ -266,7 +326,7 @@ const SeriesForm: React.FC<{
         {/* Movies in Series (edit mode only) */}
         {editingSeries && (
           <div className="border-t border-subtle pt-4 mt-4">
-            <div className="flex items-center justify-between mb-3">
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
               <div>
                 <h4 className="text-sm font-semibold text-content">
                   Titles in Series ({seriesMovies.length})
@@ -277,15 +337,28 @@ const SeriesForm: React.FC<{
                   </p>
                 )}
               </div>
-              {hasSortOrderChanges && formData.internal_sort_method === 'custom' && (
-                <Button
-                  type="button"
-                  size="sm"
-                  onClick={handleSaveSortOrders}
-                >
-                  Save Sort Order
-                </Button>
-              )}
+              <div className="flex items-center gap-2">
+                {(formData.tmdb_collection_id.trim() !== '' || editingSeries.tmdb_collection_id || seriesMovies.length > 0) && (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    isLoading={isPopulating}
+                    onClick={handlePopulateInEditForm}
+                  >
+                    Populate from TMDb
+                  </Button>
+                )}
+                {hasSortOrderChanges && formData.internal_sort_method === 'custom' && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={handleSaveSortOrders}
+                  >
+                    Save Sort Order
+                  </Button>
+                )}
+              </div>
             </div>
 
             {isLoadingMovies ? (
@@ -365,9 +438,11 @@ const SeriesForm: React.FC<{
 /** Read-only card for a series */
 const SeriesCard: React.FC<{
   series: Series;
+  isPopulating?: boolean;
+  onPopulate?: (s: Series) => void;
   onEdit: (s: Series) => void;
   onDelete: (s: Series) => void;
-}> = ({ series: s, onEdit, onDelete }) => {
+}> = ({ series: s, isPopulating = false, onPopulate, onEdit, onDelete }) => {
   const sortMethod = s.internal_sort_method || 'chronological';
   const movieCount = typeof s.movie_count === 'number' ? s.movie_count : undefined;
 
@@ -399,6 +474,18 @@ const SeriesCard: React.FC<{
         </div>
 
         <div className="flex items-center gap-2 flex-shrink-0">
+          {s.tmdb_collection_id && onPopulate && (
+            <Button
+              variant="secondary"
+              size="sm"
+              isLoading={isPopulating}
+              onClick={() => onPopulate(s)}
+              aria-label={`Populate ${s.name} from TMDb`}
+              title="Automatically add matching movies from your database using this TMDb Collection"
+            >
+              Populate from TMDb
+            </Button>
+          )}
           <Button
             variant="secondary"
             size="sm"
@@ -427,6 +514,7 @@ const SeriesManager: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [editingSeriesId, setEditingSeriesId] = useState<number | null>(null);
+  const [populatingSeriesId, setPopulatingSeriesId] = useState<number | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const { toast } = useToast();
   const confirm = useConfirm();
@@ -499,6 +587,39 @@ const SeriesManager: React.FC = () => {
   const handleStartCreate = () => {
     setEditingSeriesId(null);
     setIsCreating(true);
+  };
+
+  const handlePopulateSeries = async (target: Series) => {
+    setPopulatingSeriesId(target.id);
+    try {
+      const res = await apiService.populateSeriesFromTMDB(target.id, target.tmdb_collection_id);
+      resetFacetsCache();
+      await loadSeries();
+      if (res.added_count > 0) {
+        toast({
+          message: `Added ${res.added_count} matching ${res.added_count === 1 ? 'movie' : 'movies'} to "${target.name}": ${res.added_titles.join(', ')}.`,
+          type: 'success',
+        });
+      } else if (res.matched_count > 0) {
+        toast({
+          message: `All ${res.matched_count} owned ${res.matched_count === 1 ? 'movie' : 'movies'} from TMDb Collection #${res.tmdb_collection_id} are already in "${target.name}".`,
+          type: 'info',
+        });
+      } else {
+        toast({
+          message: `No movies from TMDb Collection #${res.tmdb_collection_id} were found in your database.`,
+          type: 'info',
+        });
+      }
+    } catch (error: any) {
+      console.error('Failed to populate series from TMDb:', error);
+      toast({
+        message: error.response?.data?.error || 'Failed to populate series from TMDb Collection.',
+        type: 'error',
+      });
+    } finally {
+      setPopulatingSeriesId(null);
+    }
   };
 
   if (isLoading) {
@@ -612,6 +733,8 @@ const SeriesManager: React.FC = () => {
               <SeriesCard
                 key={s.id}
                 series={s}
+                isPopulating={populatingSeriesId === s.id}
+                onPopulate={handlePopulateSeries}
                 onEdit={handleEdit}
                 onDelete={handleDelete}
               />

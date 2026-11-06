@@ -123,6 +123,39 @@ describe('AdminPage (Settings Hub)', () => {
     expect(sortNameInput).toHaveValue('Matrix Trilogy');
   });
 
+  it('allows populating a series from its TMDb Collection ID via the Populate from TMDb button', async () => {
+    vi.spyOn(apiService, 'verifyAuth').mockResolvedValue(true);
+    const populateSpy = vi.spyOn(apiService, 'populateSeriesFromTMDB').mockResolvedValue({
+      series: {
+        id: 1,
+        name: 'The Lord of the Rings Collection',
+        sort_name: 'Lord of the Rings Collection',
+        tmdb_collection_id: 119,
+        internal_sort_method: 'chronological',
+        movie_count: 3,
+      },
+      tmdb_collection_id: 119,
+      collection_name: 'The Lord of the Rings Collection',
+      collection_parts_count: 3,
+      matched_count: 3,
+      added_count: 2,
+      already_linked_count: 1,
+      added_titles: ['The Lord of the Rings: The Two Towers', 'The Lord of the Rings: The Return of the King'],
+    });
+    const user = userEvent.setup();
+
+    renderWithProviders(<AdminPage />, { initialRoute: '/admin?tab=series' });
+
+    const populateBtn = await screen.findByRole('button', {
+      name: /Populate The Lord of the Rings Collection from TMDb/i,
+    });
+    await user.click(populateBtn);
+
+    await waitFor(() => {
+      expect(populateSpy).toHaveBeenCalledWith(1, 119);
+    });
+  });
+
   it('displays Data & Import tab with Export, dynamic CSV Schema viewer, and Bulk Add Movies', async () => {
     vi.spyOn(apiService, 'verifyAuth').mockResolvedValue(true);
     vi.spyOn(apiService, 'getImportExportSchema').mockResolvedValue({
