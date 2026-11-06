@@ -586,8 +586,12 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
       m.mediaDbId === updatedMedia.id
         ? {
             ...m,
+            isManual: !updatedMedia.tmdb_id,
+            media_type: updatedMedia.media_type ?? m.media_type,
+            tv_show_tmdb_id: updatedMedia.tv_show_tmdb_id ?? m.tv_show_tmdb_id,
             movie: {
               ...m.movie,
+              id: updatedMedia.tmdb_id || m.movie.id,
               title: updatedMedia.title,
               overview: updatedMedia.synopsis || '',
               release_date: updatedMedia.release_date || '',
@@ -599,7 +603,7 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
             details: {
               ...m.details,
               ...updatedMedia,
-              id: m.movie.id,
+              id: updatedMedia.tmdb_id || m.movie.id,
               overview: updatedMedia.synopsis,
               poster_url: updatedMedia.cover_art_url,
               cover_art_url: updatedMedia.cover_art_url,

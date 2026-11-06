@@ -1,5 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { Media, Series, LetterboxdCacheItem } from '../types';
+import {
+  Media,
+  Series,
+  LetterboxdCacheItem,
+  TMDbMovie,
+  TMDbTVShow,
+  TMDbTVShowDetails,
+  TMDbTVSeason,
+} from '../types';
 import { apiService } from '../services/api.service';
 import { useToast } from '../context/ToastContext';
 import PosterSelector from './PosterSelector';
@@ -68,6 +76,26 @@ const MediaEditModal: React.FC<MediaEditModalProps> = ({ media, isOpen, onClose,
   const [isSearchingLb, setIsSearchingLb] = useState(false);
   const [isLinkingLb, setIsLinkingLb] = useState(false);
 
+  // TMDB lookup / link state
+  const [linkedTmdbInfo, setLinkedTmdbInfo] = useState<{
+    tmdb_id?: number;
+    media_type?: 'movie' | 'tv_season';
+    tv_show_tmdb_id?: number;
+    tv_show_name?: string;
+    season_number?: number;
+    episode_count?: number;
+  }>({});
+  const [genres, setGenres] = useState<{ id: number; name: string }[]>([]);
+  const [showTmdbLookup, setShowTmdbLookup] = useState(false);
+  const [tmdbSearchMode, setTmdbSearchMode] = useState<'movie' | 'tv'>('movie');
+  const [tmdbSearchQuery, setTmdbSearchQuery] = useState('');
+  const [tmdbDirectId, setTmdbDirectId] = useState('');
+  const [tmdbMovieResults, setTmdbMovieResults] = useState<TMDbMovie[]>([]);
+  const [tmdbTVResults, setTmdbTVResults] = useState<TMDbTVShow[]>([]);
+  const [isSearchingTmdb, setIsSearchingTmdb] = useState(false);
+  const [isLinkingTmdb, setIsLinkingTmdb] = useState(false);
+  const [selectedTVShowForLink, setSelectedTVShowForLink] = useState<TMDbTVShowDetails | null>(null);
+
   useEffect(() => {
     if (media && isOpen) {
       setFormData({
@@ -78,8 +106,31 @@ const MediaEditModal: React.FC<MediaEditModalProps> = ({ media, isOpen, onClose,
         cover_art_url: media.cover_art_url || '',
       });
       setCast(media.cast || []);
+      setGenres(media.genres || []);
       setTmdbData(null);
       setSelectedFields([]);
+      setLinkedTmdbInfo({
+        tmdb_id: media.tmdb_id,
+        media_type: media.media_type,
+        tv_show_tmdb_id: media.tv_show_tmdb_id,
+        tv_show_name: media.tv_show_name,
+        season_number: media.season_number,
+        episode_count: media.episode_count,
+      });
+      const hasExistingTmdb = Boolean(
+        media.tmdb_id || (media.media_type === 'tv_season' && media.tv_show_tmdb_id)
+      );
+      setShowTmdbLookup(!hasExistingTmdb);
+      setTmdbSearchMode(media.media_type === 'tv_season' ? 'tv' : 'movie');
+      setTmdbSearchQuery(media.tv_show_name || media.title || '');
+      setTmdbDirectId(
+        media.media_type === 'tv_season'
+          ? String(media.tv_show_tmdb_id || media.tmdb_id || '')
+          : String(media.tmdb_id || '')
+      );
+      setTmdbMovieResults([]);
+      setTmdbTVResults([]);
+      setSelectedTVShowForLink(null);
       
       // Initialize series data
       if (media.series && Array.isArray(media.series)) {
@@ -138,18 +189,229 @@ const MediaEditModal: React.FC<MediaEditModalProps> = ({ media, isOpen, onClose,
     setCast(cast.filter((_, i) => i !== index));
   };
 
+  const hasTmdbLink = Boolean(
+    linkedTmdbInfo.tmdb_id ||
+      (linkedTmdbInfo.media_type === 'tv_season' && linkedTmdbInfo.tv_show_tmdb_id)
+  );
+
   const handleRefreshFromTMDB = async () => {
-    if (!media?.tmdb_id) return;
+    if (!media || !hasTmdbLink) return;
 
     setIsRefreshing(true);
     try {
       const data = await apiService.refreshMediaFromTMDB(media.id);
       setTmdbData(data);
+      setSelectedFields(Object.keys(data.tmdb || {}));
     } catch (error) {
       console.error('Failed to refresh TMDB data:', error);
       toast({ message: 'Failed to refresh TMDB data. Please try again.', type: 'error' });
     } finally {
       setIsRefreshing(false);
+    }
+  };
+
+  const parseTmdbNumericId = (raw: string): number | null => {
+    const trimmed = raw.trim();
+    if (!trimmed) return null;
+    if (/^\d+$/.test(trimmed)) {
+      const parsed = parseInt(trimmed, 10);
+      return parsed > 0 ? parsed : null;
+    }
+    const urlMatch = trimmed.match(/themoviedb\.org\/(?:movie|tv)\/(\d+)/i);
+    if (urlMatch) {
+      const parsed = parseInt(urlMatch[1], 10);
+      return parsed > 0 ? parsed : null;
+    }
+    return null;
+  };
+
+  const handleSearchTmdb = async (e?: React.FormEvent) => {
+    e?.preventDefault();
+    const q = tmdbSearchQuery.trim();
+    if (!q) return;
+
+    setIsSearchingTmdb(true);
+    setSelectedTVShowForLink(null);
+    try {
+      if (tmdbSearchMode === 'movie') {
+        const res = await apiService.searchMovies(q, 1);
+        setTmdbMovieResults(res.results.slice(0, 8));
+        setTmdbTVResults([]);
+      } else {
+        const res = await apiService.searchTV(q, 1);
+        setTmdbTVResults(res.results.slice(0, 8));
+        setTmdbMovieResults([]);
+      }
+    } catch (error) {
+      console.error('Failed to search TMDB:', error);
+      toast({ message: 'Failed to search TMDB. Please try again.', type: 'error' });
+    } finally {
+      setIsSearchingTmdb(false);
+    }
+  };
+
+  const applyTmdbMovieLink = async (tmdbId: number) => {
+    if (!media) return;
+    setIsLinkingTmdb(true);
+    try {
+      const details = await apiService.getMovieDetails(tmdbId);
+      const posterUrl =
+        details.poster_url ||
+        (details.poster_path ? `https://image.tmdb.org/t/p/w500${details.poster_path}` : '');
+
+      // Persist tmdb_id immediately so Refresh from TMDB / PosterSelector work right away
+      await apiService.updateMedia(media.id, {
+        tmdb_id: details.id,
+        media_type: 'movie',
+      });
+
+      setLinkedTmdbInfo({
+        tmdb_id: details.id,
+        media_type: 'movie',
+        tv_show_tmdb_id: undefined,
+        tv_show_name: undefined,
+        season_number: undefined,
+        episode_count: undefined,
+      });
+      setTmdbDirectId(String(details.id));
+      setFormData((prev) => ({
+        title: details.title || prev.title,
+        synopsis: details.overview || prev.synopsis,
+        director: details.director || prev.director,
+        release_date: details.release_date || prev.release_date,
+        cover_art_url: posterUrl || prev.cover_art_url,
+      }));
+      if (details.cast && details.cast.length > 0) {
+        setCast(details.cast);
+      }
+      if (details.genres && details.genres.length > 0) {
+        setGenres(details.genres);
+      }
+      setTmdbMovieResults([]);
+      setShowTmdbLookup(false);
+      toast({
+        message: `Linked to TMDB movie "${details.title}" (#${details.id}) and populated metadata. Click Save Changes to finalize.`,
+        type: 'success',
+      });
+    } catch (error) {
+      console.error('Failed to link TMDB movie:', error);
+      toast({
+        message: 'Could not find a TMDB movie with that ID. Check the ID or try searching by title.',
+        type: 'error',
+      });
+    } finally {
+      setIsLinkingTmdb(false);
+    }
+  };
+
+  const handleSelectTVShowForLink = async (tvId: number) => {
+    setIsLinkingTmdb(true);
+    try {
+      const tvDetails = await apiService.getTVDetails(tvId);
+      setSelectedTVShowForLink(tvDetails);
+      setTmdbTVResults([]);
+    } catch (error) {
+      console.error('Failed to fetch TMDB TV show details:', error);
+      toast({
+        message: 'Could not find a TMDB TV show with that ID. Check the ID or try searching by title.',
+        type: 'error',
+      });
+    } finally {
+      setIsLinkingTmdb(false);
+    }
+  };
+
+  const applyTmdbTVSeasonLink = async (tvDetails: TMDbTVShowDetails, season: TMDbTVSeason) => {
+    if (!media) return;
+    setIsLinkingTmdb(true);
+    try {
+      let episodeCount = season.episode_count;
+      let overview = season.overview || tvDetails.overview;
+      let airDate = season.air_date || tvDetails.first_air_date;
+      let posterUrl = season.poster_path
+        ? `https://image.tmdb.org/t/p/w500${season.poster_path}`
+        : tvDetails.poster_url ||
+          (tvDetails.poster_path ? `https://image.tmdb.org/t/p/w500${tvDetails.poster_path}` : '');
+
+      try {
+        const seasonDetails = await apiService.getTVSeasonDetails(tvDetails.id, season.season_number);
+        if (seasonDetails) {
+          episodeCount = seasonDetails.episodes?.length || seasonDetails.episode_count || episodeCount;
+          overview = seasonDetails.overview || overview;
+          airDate = seasonDetails.air_date || airDate;
+          if (seasonDetails.poster_path) {
+            posterUrl = `https://image.tmdb.org/t/p/w500${seasonDetails.poster_path}`;
+          }
+        }
+      } catch {
+        // Use summary season info if detailed season call fails
+      }
+
+      const seasonTitle =
+        tvDetails.seasons.length === 1 && season.season_number === 1
+          ? `${tvDetails.name} - Season 1`
+          : season.season_number === 0
+          ? `${tvDetails.name} - Specials`
+          : `${tvDetails.name} - Season ${season.season_number}`;
+
+      await apiService.updateMedia(media.id, {
+        tmdb_id: season.id || tvDetails.id,
+        media_type: 'tv_season',
+        tv_show_tmdb_id: tvDetails.id,
+        tv_show_name: tvDetails.name,
+        season_number: season.season_number,
+        episode_count: episodeCount,
+      });
+
+      setLinkedTmdbInfo({
+        tmdb_id: season.id || tvDetails.id,
+        media_type: 'tv_season',
+        tv_show_tmdb_id: tvDetails.id,
+        tv_show_name: tvDetails.name,
+        season_number: season.season_number,
+        episode_count: episodeCount,
+      });
+      setTmdbDirectId(String(tvDetails.id));
+      setFormData((prev) => ({
+        title: seasonTitle || prev.title,
+        synopsis: overview || prev.synopsis,
+        director: tvDetails.creators || prev.director,
+        release_date: airDate || prev.release_date,
+        cover_art_url: posterUrl || prev.cover_art_url,
+      }));
+      if (tvDetails.cast && tvDetails.cast.length > 0) {
+        setCast(tvDetails.cast);
+      }
+      if (tvDetails.genres && tvDetails.genres.length > 0) {
+        setGenres(tvDetails.genres);
+      }
+      setSelectedTVShowForLink(null);
+      setShowTmdbLookup(false);
+      toast({
+        message: `Linked to TMDB TV show "${tvDetails.name}" (Season ${season.season_number}) and populated metadata. Click Save Changes to finalize.`,
+        type: 'success',
+      });
+    } catch (error) {
+      console.error('Failed to link TMDB TV season:', error);
+      toast({ message: 'Failed to link TMDB TV season. Please try again.', type: 'error' });
+    } finally {
+      setIsLinkingTmdb(false);
+    }
+  };
+
+  const handleLinkByDirectId = async () => {
+    const parsedId = parseTmdbNumericId(tmdbDirectId);
+    if (!parsedId) {
+      toast({
+        message: 'Please enter a valid numeric TMDB ID or TMDB URL.',
+        type: 'warning',
+      });
+      return;
+    }
+    if (tmdbSearchMode === 'movie') {
+      await applyTmdbMovieLink(parsedId);
+    } else {
+      await handleSelectTVShowForLink(parsedId);
     }
   };
 
@@ -192,6 +454,13 @@ const MediaEditModal: React.FC<MediaEditModalProps> = ({ media, isOpen, onClose,
 
       const updatedMedia = await apiService.updateMedia(media.id, {
         ...formData,
+        tmdb_id: linkedTmdbInfo.tmdb_id,
+        media_type: linkedTmdbInfo.media_type,
+        tv_show_tmdb_id: linkedTmdbInfo.tv_show_tmdb_id,
+        tv_show_name: linkedTmdbInfo.tv_show_name,
+        season_number: linkedTmdbInfo.season_number,
+        episode_count: linkedTmdbInfo.episode_count,
+        genres,
         cast: cast.filter(c => c.trim() !== ''),
         series_associations,
         primary_series_id: primarySeriesId || null,
@@ -348,89 +617,381 @@ const MediaEditModal: React.FC<MediaEditModalProps> = ({ media, isOpen, onClose,
           </div>
 
           <div className="p-6">
-            {/* TMDB Refresh Section */}
-            {(media.tmdb_id || (media.media_type === 'tv_season' && media.tv_show_tmdb_id)) && (
-              <div className="mb-6 p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
-                <div className="flex items-center justify-between mb-4">
+            {/* TMDB Link & Refresh Section */}
+            <div className="mb-6 p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-100 dark:border-blue-800/40">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex flex-wrap items-center gap-2.5">
                   <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
-                    Refresh from TMDB
+                    TMDB Metadata
                   </h3>
-                  <button
-                    onClick={handleRefreshFromTMDB}
-                    disabled={isRefreshing}
-                    className="btn-primary"
-                  >
-                    {isRefreshing ? 'Refreshing...' : 'Refresh from TMDB'}
-                  </button>
+                  {hasTmdbLink ? (
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900/60 dark:text-blue-200">
+                      {linkedTmdbInfo.media_type === 'tv_season' ? (
+                        <>
+                          TV ID #{linkedTmdbInfo.tv_show_tmdb_id || linkedTmdbInfo.tmdb_id}
+                          {linkedTmdbInfo.season_number != null && ` • Season ${linkedTmdbInfo.season_number}`}
+                        </>
+                      ) : (
+                        <>Movie ID #{linkedTmdbInfo.tmdb_id}</>
+                      )}
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300">
+                      Not linked to TMDB
+                    </span>
+                  )}
                 </div>
 
-                {tmdbData && (
-                  <div className="space-y-4">
-                    <p className="text-sm text-gray-600 dark:text-gray-300">
-                      Compare current data with latest TMDB data and select which fields to update:
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowTmdbLookup((v) => !v)}
+                    className="btn-secondary text-sm"
+                  >
+                    {showTmdbLookup
+                      ? 'Hide TMDB Lookup'
+                      : hasTmdbLink
+                      ? 'Change TMDB Match'
+                      : 'Lookup / Add TMDB ID'}
+                  </button>
+                  {hasTmdbLink && (
+                    <button
+                      type="button"
+                      onClick={handleRefreshFromTMDB}
+                      disabled={isRefreshing}
+                      className="btn-primary text-sm"
+                    >
+                      {isRefreshing ? 'Refreshing...' : 'Refresh from TMDB'}
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* TMDB Lookup / Direct ID Panel */}
+              {showTmdbLookup && (
+                <div className="mt-4 pt-4 border-t border-blue-200/70 dark:border-blue-800/50 space-y-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-xs text-gray-600 dark:text-gray-300">
+                      Search TMDB by title or enter a TMDB ID / URL directly. (Documentaries like <em>Planet Earth</em> or <em>Blue Planet</em> are listed under TV Shows on TMDB.)
                     </p>
-                    
-                    <div className="grid md:grid-cols-2 gap-6">
-                      {/* Current Data */}
-                      <div>
-                        <h4 className="font-medium text-gray-900 dark:text-gray-100 mb-3">Current Data</h4>
-                        <div className="space-y-3">
-                          {Object.entries(tmdbData.current).map(([key, _value]) => (
-                            <div key={key} className="flex items-center space-x-2">
-                              <input
-                                type="checkbox"
-                                id={`current-${key}`}
-                                checked={selectedFields.includes(key)}
-                                onChange={() => handleFieldToggle(key)}
-                                className="rounded"
-                              />
-                              <label htmlFor={`current-${key}`} className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                                {key.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}
-                              </label>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-
-                      {/* TMDB Data */}
-                      <div>
-                        <h4 className="font-medium text-gray-900 dark:text-gray-100 mb-3">TMDB Data</h4>
-                        <div className="space-y-3">
-                          {Object.entries(tmdbData.tmdb).map(([key, _value]) => (
-                            <div key={key} className="text-sm">
-                              <span className="font-medium text-gray-700 dark:text-gray-300">
-                                {key.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}:
-                              </span>
-                              <div className="mt-1 text-gray-600 dark:text-gray-400">
-                                {key === 'cast' ? (_value as string[]).join(', ') : 
-                                 key === 'genres' ? (_value as Array<{id: number; name: string}>).map(g => g.name).join(', ') :
-                                 String(_value || 'N/A')}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="flex justify-end space-x-3">
+                    <div
+                      role="group"
+                      aria-label="TMDB media type"
+                      className="inline-flex rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 p-0.5 text-xs font-medium"
+                    >
                       <button
-                        onClick={() => setTmdbData(null)}
-                        className="btn-secondary"
+                        type="button"
+                        onClick={() => {
+                          setTmdbSearchMode('movie');
+                          setSelectedTVShowForLink(null);
+                        }}
+                        className={`px-3 py-1 rounded-md transition-colors ${
+                          tmdbSearchMode === 'movie'
+                            ? 'bg-primary-600 text-white'
+                            : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
+                        }`}
                       >
-                        Cancel
+                        Movie
                       </button>
                       <button
-                        onClick={handleApplyTMDBFields}
-                        disabled={selectedFields.length === 0 || isSaving}
-                        className="btn-primary"
+                        type="button"
+                        onClick={() => {
+                          setTmdbSearchMode('tv');
+                          setSelectedTVShowForLink(null);
+                        }}
+                        className={`px-3 py-1 rounded-md transition-colors ${
+                          tmdbSearchMode === 'tv'
+                            ? 'bg-primary-600 text-white'
+                            : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
+                        }`}
                       >
-                        {isSaving ? 'Applying...' : `Apply ${selectedFields.length} Fields`}
+                        TV / Miniseries
                       </button>
                     </div>
                   </div>
-                )}
-              </div>
-            )}
+
+                  <div className="grid md:grid-cols-2 gap-3">
+                    {/* Search by Title */}
+                    <form onSubmit={handleSearchTmdb} className="flex gap-2">
+                      <input
+                        type="text"
+                        value={tmdbSearchQuery}
+                        onChange={(e) => setTmdbSearchQuery(e.target.value)}
+                        placeholder={
+                          tmdbSearchMode === 'tv'
+                            ? 'Search TMDB TV shows (e.g., Planet Earth)...'
+                            : 'Search TMDB movies (e.g., Disneynature Earth)...'
+                        }
+                        aria-label="Search TMDB by title"
+                        className="flex-1 px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+                      />
+                      <button
+                        type="submit"
+                        disabled={isSearchingTmdb || isLinkingTmdb || !tmdbSearchQuery.trim()}
+                        className="btn-primary text-sm whitespace-nowrap"
+                      >
+                        {isSearchingTmdb ? 'Searching...' : 'Search TMDB'}
+                      </button>
+                    </form>
+
+                    {/* Direct TMDB ID or URL */}
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={tmdbDirectId}
+                        onChange={(e) => setTmdbDirectId(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            handleLinkByDirectId();
+                          }
+                        }}
+                        placeholder={
+                          tmdbSearchMode === 'tv'
+                            ? 'TMDB TV ID or URL (e.g., 1044)...'
+                            : 'TMDB Movie ID or URL (e.g., 152532)...'
+                        }
+                        aria-label="TMDB ID or URL"
+                        className="flex-1 px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleLinkByDirectId}
+                        disabled={isLinkingTmdb || !tmdbDirectId.trim()}
+                        className="btn-secondary text-sm whitespace-nowrap"
+                      >
+                        {isLinkingTmdb ? 'Linking...' : 'Link by ID'}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Movie Search Results */}
+                  {tmdbSearchMode === 'movie' && tmdbMovieResults.length > 0 && (
+                    <div className="max-h-64 overflow-y-auto rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 divide-y divide-gray-100 dark:divide-gray-700 shadow-sm">
+                      {tmdbMovieResults.map((item) => {
+                        const year = item.release_date ? new Date(item.release_date).getFullYear() : null;
+                        const poster = item.poster_path
+                          ? `https://image.tmdb.org/t/p/w92${item.poster_path}`
+                          : null;
+                        return (
+                          <div
+                            key={item.id}
+                            className="flex items-center justify-between gap-3 p-2.5 hover:bg-gray-50 dark:hover:bg-gray-750"
+                          >
+                            <div className="flex items-center gap-3 min-w-0">
+                              <div className="w-10 h-14 bg-gray-200 dark:bg-gray-700 rounded overflow-hidden flex-shrink-0">
+                                {poster && (
+                                  <img
+                                    src={poster}
+                                    alt={item.title}
+                                    className="w-full h-full object-cover"
+                                  />
+                                )}
+                              </div>
+                              <div className="min-w-0">
+                                <div className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
+                                  {item.title}{' '}
+                                  {year && (
+                                    <span className="text-gray-500 dark:text-gray-400 font-normal">
+                                      ({year})
+                                    </span>
+                                  )}
+                                  <span className="ml-2 text-xs text-gray-400 dark:text-gray-500">
+                                    #{item.id}
+                                  </span>
+                                </div>
+                                {item.overview && (
+                                  <p className="text-xs text-gray-500 dark:text-gray-400 line-clamp-1">
+                                    {item.overview}
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              disabled={isLinkingTmdb}
+                              onClick={() => applyTmdbMovieLink(item.id)}
+                              className="btn-primary text-xs px-3 py-1.5 flex-shrink-0"
+                            >
+                              Use This Match
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* TV Search Results */}
+                  {tmdbSearchMode === 'tv' && tmdbTVResults.length > 0 && !selectedTVShowForLink && (
+                    <div className="max-h-64 overflow-y-auto rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 divide-y divide-gray-100 dark:divide-gray-700 shadow-sm">
+                      {tmdbTVResults.map((show) => {
+                        const year = show.first_air_date ? new Date(show.first_air_date).getFullYear() : null;
+                        const poster = show.poster_path
+                          ? `https://image.tmdb.org/t/p/w92${show.poster_path}`
+                          : null;
+                        return (
+                          <div
+                            key={show.id}
+                            className="flex items-center justify-between gap-3 p-2.5 hover:bg-gray-50 dark:hover:bg-gray-750"
+                          >
+                            <div className="flex items-center gap-3 min-w-0">
+                              <div className="w-10 h-14 bg-gray-200 dark:bg-gray-700 rounded overflow-hidden flex-shrink-0">
+                                {poster && (
+                                  <img
+                                    src={poster}
+                                    alt={show.name}
+                                    className="w-full h-full object-cover"
+                                  />
+                                )}
+                              </div>
+                              <div className="min-w-0">
+                                <div className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
+                                  {show.name}{' '}
+                                  {year && (
+                                    <span className="text-gray-500 dark:text-gray-400 font-normal">
+                                      ({year})
+                                    </span>
+                                  )}
+                                  <span className="ml-2 text-xs text-gray-400 dark:text-gray-500">
+                                    #{show.id}
+                                  </span>
+                                </div>
+                                {show.overview && (
+                                  <p className="text-xs text-gray-500 dark:text-gray-400 line-clamp-1">
+                                    {show.overview}
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              disabled={isLinkingTmdb}
+                              onClick={() => handleSelectTVShowForLink(show.id)}
+                              className="btn-primary text-xs px-3 py-1.5 flex-shrink-0"
+                            >
+                              Select Show
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* Season Picker when linking a TV Show */}
+                  {selectedTVShowForLink && (
+                    <div className="rounded-lg border border-purple-200 dark:border-purple-800/60 bg-white dark:bg-gray-800 p-3 space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                          Select Season for {selectedTVShowForLink.name} (#{selectedTVShowForLink.id})
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedTVShowForLink(null)}
+                          className="text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                        >
+                          Back
+                        </button>
+                      </div>
+                      <div className="max-h-56 overflow-y-auto divide-y divide-gray-100 dark:divide-gray-700">
+                        {selectedTVShowForLink.seasons.map((season) => (
+                          <div
+                            key={season.id}
+                            className="flex items-center justify-between gap-3 py-2 px-1"
+                          >
+                            <div>
+                              <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                                {season.name}{' '}
+                                <span className="text-xs text-gray-500 dark:text-gray-400 font-normal">
+                                  ({season.episode_count} episodes
+                                  {season.air_date
+                                    ? ` • ${new Date(season.air_date).getFullYear()}`
+                                    : ''}
+                                  )
+                                </span>
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              disabled={isLinkingTmdb}
+                              onClick={() => applyTmdbTVSeasonLink(selectedTVShowForLink, season)}
+                              className="btn-primary text-xs px-3 py-1"
+                            >
+                              Link Season
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {tmdbData && (
+                <div className="mt-4 pt-4 border-t border-blue-200/70 dark:border-blue-800/50 space-y-4">
+                  <p className="text-sm text-gray-600 dark:text-gray-300">
+                    Compare current data with latest TMDB data and select which fields to update:
+                  </p>
+                  
+                  <div className="grid md:grid-cols-2 gap-6">
+                    {/* Current Data */}
+                    <div>
+                      <h4 className="font-medium text-gray-900 dark:text-gray-100 mb-3">Current Data</h4>
+                      <div className="space-y-3">
+                        {Object.entries(tmdbData.current).map(([key, _value]) => (
+                          <div key={key} className="flex items-center space-x-2">
+                            <input
+                              type="checkbox"
+                              id={`current-${key}`}
+                              checked={selectedFields.includes(key)}
+                              onChange={() => handleFieldToggle(key)}
+                              className="rounded"
+                            />
+                            <label htmlFor={`current-${key}`} className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                              {key.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                            </label>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* TMDB Data */}
+                    <div>
+                      <h4 className="font-medium text-gray-900 dark:text-gray-100 mb-3">TMDB Data</h4>
+                      <div className="space-y-3">
+                        {Object.entries(tmdbData.tmdb).map(([key, _value]) => (
+                          <div key={key} className="text-sm">
+                            <span className="font-medium text-gray-700 dark:text-gray-300">
+                              {key.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}:
+                            </span>
+                            <div className="mt-1 text-gray-600 dark:text-gray-400">
+                              {key === 'cast' ? (_value as string[]).join(', ') : 
+                               key === 'genres' ? (_value as Array<{id: number; name: string}>).map(g => g.name).join(', ') :
+                               String(_value || 'N/A')}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex justify-end space-x-3">
+                    <button
+                      onClick={() => setTmdbData(null)}
+                      className="btn-secondary"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={handleApplyTMDBFields}
+                      disabled={selectedFields.length === 0 || isSaving}
+                      className="btn-primary"
+                    >
+                      {isSaving ? 'Applying...' : `Apply ${selectedFields.length} Fields`}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
 
             {/* Manual Edit Form */}
             <div className="space-y-6">
@@ -454,22 +1015,22 @@ const MediaEditModal: React.FC<MediaEditModalProps> = ({ media, isOpen, onClose,
                   </div>
 
                   {/* TV Show Info (read-only) */}
-                  {media.media_type === 'tv_season' && (
+                  {linkedTmdbInfo.media_type === 'tv_season' && (
                     <div className="p-3 bg-purple-50 dark:bg-purple-900/20 rounded-lg">
                       <div className="text-xs font-medium text-purple-700 dark:text-purple-300 mb-1">TV Season</div>
-                      {media.tv_show_name && (
-                        <div className="text-sm text-gray-900 dark:text-gray-100">{media.tv_show_name}</div>
+                      {linkedTmdbInfo.tv_show_name && (
+                        <div className="text-sm text-gray-900 dark:text-gray-100">{linkedTmdbInfo.tv_show_name}</div>
                       )}
                       <div className="flex gap-4 text-xs text-gray-500 dark:text-gray-400 mt-1">
-                        {media.season_number != null && <span>Season {media.season_number}</span>}
-                        {media.episode_count != null && <span>{media.episode_count} episodes</span>}
+                        {linkedTmdbInfo.season_number != null && <span>Season {linkedTmdbInfo.season_number}</span>}
+                        {linkedTmdbInfo.episode_count != null && <span>{linkedTmdbInfo.episode_count} episodes</span>}
                       </div>
                     </div>
                   )}
 
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                      {media.media_type === 'tv_season' ? 'Creator' : 'Director'}
+                      {linkedTmdbInfo.media_type === 'tv_season' ? 'Creator' : 'Director'}
                     </label>
                     <input
                       type="text"
@@ -571,13 +1132,13 @@ const MediaEditModal: React.FC<MediaEditModalProps> = ({ media, isOpen, onClose,
                     </div>
                   </div>
 
-                  {media.genres && media.genres.length > 0 && (
+                  {genres && genres.length > 0 && (
                     <div>
                       <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                         Genres
                       </label>
                       <div className="flex flex-wrap gap-2">
-                        {media.genres.map((genre) => (
+                        {genres.map((genre) => (
                           <span
                             key={genre.id}
                             className="px-3 py-1 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-full text-sm"
@@ -830,16 +1391,16 @@ const MediaEditModal: React.FC<MediaEditModalProps> = ({ media, isOpen, onClose,
       {showPosterSelector && media && (
         <PosterSelector
           tmdbId={
-            media.media_type === 'tv_season'
-              ? media.tv_show_tmdb_id || media.tmdb_id || null
-              : media.tmdb_id || null
+            linkedTmdbInfo.media_type === 'tv_season'
+              ? linkedTmdbInfo.tv_show_tmdb_id || linkedTmdbInfo.tmdb_id || null
+              : linkedTmdbInfo.tmdb_id || null
           }
           movieTitle={formData.title || media.title}
           onSelect={handlePosterSelected}
           onClose={() => setShowPosterSelector(false)}
           currentPosterUrl={formData.cover_art_url}
-          mediaType={media.media_type}
-          seasonNumber={media.season_number}
+          mediaType={linkedTmdbInfo.media_type}
+          seasonNumber={linkedTmdbInfo.season_number}
         />
       )}
     </div>

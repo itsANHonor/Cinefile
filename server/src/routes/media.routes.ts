@@ -832,6 +832,14 @@ router.put('/:id/update-from-tmdb', authMiddleware, async (req: Request, res: Re
       updatedMedia.physical_format = JSON.parse(updatedMedia.physical_format);
     }
 
+    // Fetch series data
+    const seriesData = await db('movie_series')
+      .join('series', 'movie_series.series_id', 'series.id')
+      .where('movie_series.media_id', mediaId)
+      .select('series.*', 'movie_series.sort_order', 'movie_series.auto_sort');
+
+    updatedMedia.series = seriesData;
+
     res.json(updatedMedia);
   } catch (error) {
     console.error('Error updating media from TMDB:', error);
