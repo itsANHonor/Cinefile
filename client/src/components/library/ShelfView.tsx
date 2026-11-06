@@ -82,7 +82,7 @@ const SortableShelfItem: React.FC<{
 
   const thickness = (item as any).thickness_units || 1;
   const spineWidth = Math.max(32, thickness * 40);
-  const coverUrl = (item as any).cover_art_url || (item as any).custom_image_url;
+  const coverUrl = (item as any).custom_image_url || (item as any).cover_art_url;
   const customSpineColor = (item as any).spine_color as string | undefined;
   const spineColor = customSpineColor || DEFAULT_SPINE_SOLID;
   const spineAccent = (item as any).spine_color_accent || (customSpineColor ? getContrastColor(customSpineColor) : '#f0f0f0');

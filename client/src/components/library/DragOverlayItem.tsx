@@ -15,7 +15,7 @@ function getContrastColor(hex: string): string {
 // ─── Item Overlay (poster card while dragging a physical item) ───
 
 export const ItemDragOverlay: React.FC<{ item: PhysicalItem }> = ({ item }) => {
-  const coverUrl = (item as any).cover_art_url || item.custom_image_url;
+  const coverUrl = item.custom_image_url || (item as any).cover_art_url;
   const spineColor = (item as any).spine_color || DEFAULT_SPINE_SOLID;
   const spineAccent = (item as any).spine_color_accent || getContrastColor(spineColor);
 

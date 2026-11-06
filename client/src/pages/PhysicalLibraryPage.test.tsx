@@ -350,4 +350,84 @@ describe('PhysicalLibraryPage Add Shelf / Bulk Add', () => {
     expect(collisions.length).toBeGreaterThan(0);
     expect(collisions[0].id).toBe('unassigned-droppable');
   });
+
+  it('prefers custom_image_url (package photo) over cover_art_url (TMDB poster) on shelf spines, hover overlays, and unassigned items', async () => {
+    const user = userEvent.setup();
+
+    const placedPackageItem = {
+      id: 701,
+      name: 'Lawrence of Arabia Steelbook',
+      physical_format: ['4K UHD'],
+      thickness_units: 1,
+      custom_image_url: '/uploads/lawrence-package.jpg',
+      cover_art_url: 'https://image.tmdb.org/t/p/w500/lawrence-tmdb.jpg',
+      media: [],
+      created_at: '2026-01-01',
+      updated_at: '2026-01-01',
+    } as PhysicalItem;
+
+    const unassignedPackageItem = {
+      id: 702,
+      name: 'Seven Samurai Criterion Box',
+      physical_format: ['4K UHD'],
+      thickness_units: 2,
+      custom_image_url: '/uploads/seven-samurai-package.jpg',
+      cover_art_url: 'https://image.tmdb.org/t/p/w500/seven-samurai-tmdb.jpg',
+      media: [],
+      created_at: '2026-01-01',
+      updated_at: '2026-01-01',
+    } as PhysicalItem;
+
+    vi.spyOn(apiService, 'getLibrary').mockResolvedValue({
+      ...sampleLibrary,
+      groups: [
+        {
+          ...sampleLibrary.groups[0],
+          shelves: [
+            {
+              ...sampleLibrary.groups[0].shelves[0],
+              placements: [
+                {
+                  id: 920,
+                  shelf_id: 100,
+                  physical_item_id: 701,
+                  position: 0,
+                  physical_item: placedPackageItem,
+                },
+              ],
+              used_units: 1,
+            },
+          ],
+        },
+      ],
+    });
+    vi.spyOn(apiService, 'getUnassignedItems').mockResolvedValue([unassignedPackageItem]);
+
+    renderWithProviders(<PhysicalLibraryPage />, { initialRoute: '/library' });
+
+    const placedSpine = await screen.findByRole('button', {
+      name: /Open details for Lawrence of Arabia Steelbook/i,
+    });
+    await user.hover(placedSpine);
+
+    // Both the spine background image and the expanded hover image should use the package photo
+    const placedImgs = screen.getAllByAltText('Lawrence of Arabia Steelbook') as HTMLImageElement[];
+    expect(placedImgs.length).toBeGreaterThanOrEqual(2);
+    for (const img of placedImgs) {
+      expect(img.getAttribute('src')).toBe('/uploads/lawrence-package.jpg');
+    }
+
+    // Open Unassigned Items and verify its spine and hover overlay also use custom_image_url
+    await user.click(screen.getByRole('button', { name: /Unassigned Items/i }));
+    const unassignedSpine = await screen.findByRole('button', {
+      name: /Open details for Seven Samurai Criterion Box/i,
+    });
+    await user.hover(unassignedSpine);
+
+    const unassignedImgs = screen.getAllByAltText('Seven Samurai Criterion Box') as HTMLImageElement[];
+    expect(unassignedImgs.length).toBeGreaterThanOrEqual(2);
+    for (const img of unassignedImgs) {
+      expect(img.getAttribute('src')).toBe('/uploads/seven-samurai-package.jpg');
+    }
+  });
 });
