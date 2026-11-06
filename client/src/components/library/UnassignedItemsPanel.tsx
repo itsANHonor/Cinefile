@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useDraggable, useDroppable } from '@dnd-kit/core';
+import { useDraggable, useDroppable, useDndContext } from '@dnd-kit/core';
 import { PhysicalItem } from '../../types';
 import { apiService } from '../../services/api.service';
 
@@ -77,10 +77,21 @@ const DraggableUnassignedItem: React.FC<{
     >
       {/* Spine — layered: poster art, frosted overlay, vertical text */}
       <div
-        className={`h-full w-full overflow-hidden border-r border-black/10 dark:border-white/10 rounded-sm relative ${
+        role="button"
+        tabIndex={0}
+        aria-label={`Open details for ${item.name}`}
+        className={`h-full w-full overflow-hidden border-r border-black/10 dark:border-white/10 rounded-sm cursor-pointer relative focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset ${
           isHighlighted ? 'ring-2 ring-primary-400 dark:ring-primary-300 ring-inset shadow-md' : ''
         }`}
         style={{ backgroundColor: !coverUrl ? spineColor : undefined }}
+        onClick={() => onItemClick?.(item.id)}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            onItemClick?.(item.id);
+          }
+        }}
+        title={item.name}
       >
         {/* Bottom layer: poster art (if available) */}
         {coverUrl && (
@@ -124,9 +135,8 @@ const DraggableUnassignedItem: React.FC<{
           style={{ width: '160px', height: '240px', zIndex: 30, bottom: '-4px' }}
         >
           <div
-            className="w-full h-full rounded-md shadow-2xl overflow-hidden border-2 border-white/80 dark:border-gray-600 pointer-events-auto"
+            className="w-full h-full rounded-md shadow-2xl overflow-hidden border-2 border-white/80 dark:border-gray-600"
             style={{ backgroundColor: !coverUrl ? spineColor : undefined }}
-            onClick={() => onItemClick?.(item.id)}
           >
             {coverUrl ? (
               <img src={coverUrl} alt={item.name} className="w-full h-full object-cover" draggable={false} />
@@ -166,6 +176,14 @@ const UnassignedItemsPanel: React.FC<UnassignedItemsPanelProps> = ({
     data: { type: 'unassigned-container' },
   });
 
+  const { active, over } = useDndContext();
+  const isDraggingPlacedItem = active?.data.current?.type === 'placement';
+  const isOverUnassigned =
+    isOver ||
+    (over !== null &&
+      (over.data.current?.type === 'unassigned-container' ||
+        String(over.id).startsWith('unassigned-')));
+
   // Debounce search
   useEffect(() => {
     const timeout = setTimeout(() => setDebouncedSearch(searchQuery), 300);
@@ -191,12 +209,21 @@ const UnassignedItemsPanel: React.FC<UnassignedItemsPanelProps> = ({
   }, [isOpen, loadItems, refreshKey]);
 
   return (
-    <div ref={setDropRef} className={`mt-6 rounded-lg transition-all ${isOver ? 'ring-2 ring-primary-400 ring-offset-2 dark:ring-offset-gray-900' : ''}`}>
+    <div
+      ref={setDropRef}
+      className={`mt-6 rounded-lg transition-all ${
+        isOverUnassigned
+          ? 'ring-2 ring-primary-400 ring-offset-2 dark:ring-offset-gray-900'
+          : isDraggingPlacedItem
+          ? 'ring-2 ring-dashed ring-primary-300 dark:ring-primary-700 ring-offset-2 dark:ring-offset-gray-900'
+          : ''
+      }`}
+    >
       {/* Collapsible header */}
       <button
         onClick={onToggle}
         className={`w-full flex items-center justify-between px-4 py-3 rounded-lg border transition-colors ${
-          isOver
+          isOverUnassigned
             ? 'bg-primary-50 dark:bg-primary-900/30 border-primary-300 dark:border-primary-600'
             : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-750'
         }`}
@@ -217,11 +244,15 @@ const UnassignedItemsPanel: React.FC<UnassignedItemsPanelProps> = ({
             {items.length}
           </span>
         </div>
-        {isOpen && (
+        {isDraggingPlacedItem ? (
+          <span className="text-xs font-medium text-primary-600 dark:text-primary-400">
+            Drop here to unassign
+          </span>
+        ) : isOpen ? (
           <span className="text-xs text-gray-400 dark:text-gray-500">
             Drag items to a shelf above
           </span>
-        )}
+        ) : null}
       </button>
 
       {/* Expanded content */}

@@ -10,6 +10,9 @@ import {
   useSensor,
   useSensors,
   closestCenter,
+  pointerWithin,
+  rectIntersection,
+  CollisionDetection,
 } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy, sortableKeyboardCoordinates } from '@dnd-kit/sortable';
 import { PhysicalLibrary, ShelfGroup, Shelf, PhysicalItem, STANDARD_UNIT_MM } from '../types';
@@ -39,6 +42,80 @@ function arrayMove<T>(arr: T[], from: number, to: number): T[] {
   result.splice(to, 0, removed);
   return result;
 }
+
+/**
+ * Custom collision detection for the library:
+ * - For item drags (placement or unassigned-item), only consider item-compatible droppables
+ *   (placements, shelves, and the unassigned container), preferring pointerWithin so large
+ *   containers like the Unassigned Items panel can be reliably targeted.
+ * - For shelf or group drags, filter to matching container types and use closestCenter.
+ */
+const libraryCollisionDetection: CollisionDetection = (args) => {
+  const activeType = args.active.data.current?.type as string | undefined;
+
+  if (activeType === 'placement' || activeType === 'unassigned-item') {
+    const itemDroppables = args.droppableContainers.filter((container) => {
+      const type = container.data.current?.type;
+      const id = String(container.id);
+      if (type === 'shelf' && id.startsWith('sortable-shelf-')) {
+        return false;
+      }
+      return (
+        type === 'placement' ||
+        type === 'shelf' ||
+        type === 'unassigned-container' ||
+        id.startsWith('unassigned-')
+      );
+    });
+
+    const pointerCollisions = pointerWithin({
+      ...args,
+      droppableContainers: itemDroppables,
+    });
+    if (pointerCollisions.length > 0) {
+      // Prefer specific placement targets over their parent shelf container when both contain the pointer
+      const placementCollision = pointerCollisions.find(
+        (c) => String(c.id).startsWith('placement-')
+      );
+      return placementCollision ? [placementCollision, ...pointerCollisions.filter((c) => c !== placementCollision)] : pointerCollisions;
+    }
+
+    const rectCollisions = rectIntersection({
+      ...args,
+      droppableContainers: itemDroppables,
+    });
+    if (rectCollisions.length > 0) {
+      return rectCollisions;
+    }
+
+    return closestCenter({
+      ...args,
+      droppableContainers: itemDroppables,
+    });
+  }
+
+  if (activeType === 'shelf') {
+    const shelfDroppables = args.droppableContainers.filter(
+      (container) => container.data.current?.type === 'shelf' && String(container.id).startsWith('sortable-shelf-')
+    );
+    return closestCenter({
+      ...args,
+      droppableContainers: shelfDroppables,
+    });
+  }
+
+  if (activeType === 'shelf-group') {
+    const groupDroppables = args.droppableContainers.filter(
+      (container) => container.data.current?.type === 'shelf-group'
+    );
+    return closestCenter({
+      ...args,
+      droppableContainers: groupDroppables,
+    });
+  }
+
+  return closestCenter(args);
+};
 
 export interface PhysicalLibraryPageProps {
   embedded?: boolean;
@@ -628,7 +705,7 @@ const PhysicalLibraryPage: React.FC<PhysicalLibraryPageProps> = ({
   return (
     <DndContext
       sensors={sensors}
-      collisionDetection={closestCenter}
+      collisionDetection={libraryCollisionDetection}
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
       onDragCancel={handleDragCancel}
@@ -1172,4 +1249,5 @@ const PhysicalLibraryPage: React.FC<PhysicalLibraryPageProps> = ({
   );
 };
 
+export { libraryCollisionDetection };
 export default PhysicalLibraryPage;

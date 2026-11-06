@@ -170,10 +170,7 @@ const SortableShelfItem: React.FC<{
             bottom: '-4px',
           }}
         >
-          <div
-            className="w-full h-full rounded-md shadow-2xl overflow-hidden border-2 border-white/80 dark:border-gray-600 pointer-events-auto cursor-pointer"
-            onClick={() => onClick?.(item.id)}
-          >
+          <div className="w-full h-full rounded-md shadow-2xl overflow-hidden border-2 border-white/80 dark:border-gray-600">
             <img
               src={coverUrl}
               alt={item.name}
@@ -202,9 +199,8 @@ const SortableShelfItem: React.FC<{
           }}
         >
           <div
-            className="w-full h-full rounded-md shadow-2xl overflow-hidden border-2 border-white/80 dark:border-gray-600 pointer-events-auto cursor-pointer flex flex-col items-center justify-center"
+            className="w-full h-full rounded-md shadow-2xl overflow-hidden border-2 border-white/80 dark:border-gray-600 flex flex-col items-center justify-center"
             style={{ backgroundColor: spineColor }}
-            onClick={() => onClick?.(item.id)}
           >
             <span
               className="text-xs font-semibold text-center px-2 leading-tight"

@@ -2,7 +2,7 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '../test/utils';
-import PhysicalLibraryPage from './PhysicalLibraryPage';
+import PhysicalLibraryPage, { libraryCollisionDetection } from './PhysicalLibraryPage';
 import { apiService } from '../services/api.service';
 import type { PhysicalLibrary, PhysicalItem } from '../types';
 
@@ -231,5 +231,123 @@ describe('PhysicalLibraryPage Add Shelf / Bulk Add', () => {
     expect(screen.getByPlaceholderText('Search unassigned items...')).toHaveValue('avengers');
     // Collapsed group ("Bedroom") should remain collapsed
     expect(screen.queryByText('Bedroom - Shelf 1')).not.toBeInTheDocument();
+  });
+
+  it('keeps hover poster overlay non-interactive (pointer-events-none) so adjacent shelf items remain hoverable', async () => {
+    const user = userEvent.setup();
+
+    const itemWithCover: PhysicalItem = {
+      id: 601,
+      name: 'Blade Runner 2049',
+      physical_format: ['4K UHD'],
+      thickness_units: 1,
+      custom_image_url: '/uploads/br2049.jpg',
+      media: [],
+      created_at: '2026-01-01',
+      updated_at: '2026-01-01',
+    };
+    const itemWithoutCover: PhysicalItem = {
+      id: 602,
+      name: 'Dune',
+      physical_format: ['4K UHD'],
+      thickness_units: 1,
+      media: [],
+      created_at: '2026-01-01',
+      updated_at: '2026-01-01',
+    };
+
+    vi.spyOn(apiService, 'getLibrary').mockResolvedValue({
+      ...sampleLibrary,
+      groups: [
+        {
+          ...sampleLibrary.groups[0],
+          shelves: [
+            {
+              ...sampleLibrary.groups[0].shelves[0],
+              placements: [
+                {
+                  id: 910,
+                  shelf_id: 100,
+                  physical_item_id: 601,
+                  position: 0,
+                  physical_item: itemWithCover,
+                },
+                {
+                  id: 911,
+                  shelf_id: 100,
+                  physical_item_id: 602,
+                  position: 1,
+                  physical_item: itemWithoutCover,
+                },
+              ],
+              used_units: 2,
+            },
+          ],
+        },
+      ],
+    });
+
+    renderWithProviders(<PhysicalLibraryPage />, { initialRoute: '/library' });
+
+    const firstSpine = await screen.findByRole('button', {
+      name: /Open details for Blade Runner 2049/i,
+    });
+    await user.hover(firstSpine);
+
+    // The hover overlay container should exist and none of its elements should have pointer-events-auto
+    const overlayWrapper = firstSpine.parentElement?.querySelector('.pointer-events-none');
+    expect(overlayWrapper).toBeInTheDocument();
+    expect(overlayWrapper?.querySelector('.pointer-events-auto')).toBeNull();
+
+    // Hovering the second item (no cover) should also have no pointer-events-auto inside its hover overlay
+    const secondSpine = screen.getByRole('button', {
+      name: /Open details for Dune/i,
+    });
+    await user.hover(secondSpine);
+    const secondOverlayWrapper = secondSpine.parentElement?.querySelector('.pointer-events-none');
+    expect(secondOverlayWrapper).toBeInTheDocument();
+    expect(secondOverlayWrapper?.querySelector('.pointer-events-auto')).toBeNull();
+  });
+
+  it('resolves unassigned-droppable when dragging a shelf placement over the Unassigned Items panel even when shelf-group or shelf centers are closer', () => {
+    const makeContainer = (id: string, type: string, rect: { top: number; left: number; width: number; height: number }) => ({
+      id,
+      key: id,
+      disabled: false,
+      node: { current: null },
+      rect: {
+        current: {
+          ...rect,
+          bottom: rect.top + rect.height,
+          right: rect.left + rect.width,
+        },
+      },
+      data: { current: { type } },
+    });
+
+    const activeRect = { top: 610, left: 60, bottom: 870, right: 100, width: 40, height: 260 };
+    // Group container covers a huge vertical area whose center is closer to the pointer than the wide Unassigned panel center
+    const groupContainer = makeContainer('group-10', 'shelf-group', { top: 100, left: 0, width: 300, height: 500 });
+    const shelfSortableContainer = makeContainer('sortable-shelf-100', 'shelf', { top: 300, left: 0, width: 200, height: 280 });
+    const unassignedContainer = makeContainer('unassigned-droppable', 'unassigned-container', { top: 620, left: 0, width: 1600, height: 300 });
+
+    const collisions = libraryCollisionDetection({
+      active: {
+        id: 'placement-900',
+        data: { current: { type: 'placement', placement: { id: 900, shelf_id: 100 } } },
+        rect: { current: { initial: activeRect, translated: activeRect } },
+      } as any,
+      collisionRect: activeRect,
+      droppableContainers: [groupContainer, shelfSortableContainer, unassignedContainer] as any,
+      droppableRects: new Map([
+        ['group-10', groupContainer.rect.current],
+        ['sortable-shelf-100', shelfSortableContainer.rect.current],
+        ['unassigned-droppable', unassignedContainer.rect.current],
+      ]) as any,
+      pointerCoordinates: { x: 80, y: 650 },
+    });
+
+    expect(collisions.length).toBeGreaterThan(0);
+    expect(collisions[0].id).toBe('unassigned-droppable');
   });
 });
