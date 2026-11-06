@@ -201,4 +201,29 @@ describe('MediaDetailModal', () => {
     await user.click(within(watchLog).getByRole('button', { name: /Before Sunset/i }));
     expect(screen.getByRole('heading', { name: 'Before Sunset' })).toBeInTheDocument();
   });
+
+  it('defaults to showing the physical item package photo (custom_image_url) when available and toggles to movie poster', async () => {
+    const user = userEvent.setup();
+    const itemWithBothPhotos: PhysicalItem = {
+      ...singleMovieItem,
+      custom_image_url: '/uploads/lebowski-steelbook.jpg',
+      media: [
+        {
+          ...singleMovieItem.media[0],
+          cover_art_url: 'https://image.tmdb.org/t/p/w500/lebowski-poster.jpg',
+        },
+      ],
+    };
+
+    render(<MediaDetailModal physicalItem={itemWithBothPhotos} isOpen onClose={vi.fn()} />);
+
+    const mainPoster = screen.getByAltText('The Big Lebowski') as HTMLImageElement;
+    expect(mainPoster.getAttribute('src')).toBe('/uploads/lebowski-steelbook.jpg');
+
+    const toggleBtn = screen.getByRole('button', { name: 'Show movie poster' });
+    await user.click(toggleBtn);
+
+    expect(mainPoster.getAttribute('src')).toBe('https://image.tmdb.org/t/p/w500/lebowski-poster.jpg');
+    expect(screen.getByRole('button', { name: 'Show package photo' })).toBeInTheDocument();
+  });
 });

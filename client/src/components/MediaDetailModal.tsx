@@ -47,13 +47,13 @@ const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
   onEdit,
 }) => {
   const [activeMediaIndex, setActiveMediaIndex] = useState(0);
-  const [showCustomArt, setShowCustomArt] = useState(false);
+  const [showCustomArt, setShowCustomArt] = useState(true);
   const panelRef = useRef<HTMLDivElement>(null);
   const previouslyFocused = useRef<Element | null>(null);
 
   useEffect(() => {
     setActiveMediaIndex(0);
-    setShowCustomArt(false);
+    setShowCustomArt(true);
   }, [physicalItem?.id, isOpen]);
 
   useEffect(() => {
