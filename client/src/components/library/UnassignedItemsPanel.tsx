@@ -225,7 +225,7 @@ const UnassignedItemsPanel: React.FC<UnassignedItemsPanelProps> = ({
         className={`w-full flex items-center justify-between px-4 py-3 rounded-lg border transition-colors ${
           isOverUnassigned
             ? 'bg-primary-50 dark:bg-primary-900/30 border-primary-300 dark:border-primary-600'
-            : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-750'
+            : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/70'
         }`}
       >
         <div className="flex items-center gap-2">

@@ -618,14 +618,14 @@ const MediaEditModal: React.FC<MediaEditModalProps> = ({ media, isOpen, onClose,
 
           <div className="p-6">
             {/* TMDB Link & Refresh Section */}
-            <div className="mb-6 p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-100 dark:border-blue-800/40">
+            <div className="mb-6 p-4 bg-gray-50 dark:bg-gray-900/40 rounded-lg border border-gray-200 dark:border-gray-700">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="flex flex-wrap items-center gap-2.5">
                   <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
                     TMDB Metadata
                   </h3>
                   {hasTmdbLink ? (
-                    <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900/60 dark:text-blue-200">
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-primary-100 text-primary-800 dark:bg-primary-900/60 dark:text-primary-200 border border-primary-300/60 dark:border-primary-700/60">
                       {linkedTmdbInfo.media_type === 'tv_season' ? (
                         <>
                           TV ID #{linkedTmdbInfo.tv_show_tmdb_id || linkedTmdbInfo.tmdb_id}
@@ -669,7 +669,7 @@ const MediaEditModal: React.FC<MediaEditModalProps> = ({ media, isOpen, onClose,
 
               {/* TMDB Lookup / Direct ID Panel */}
               {showTmdbLookup && (
-                <div className="mt-4 pt-4 border-t border-blue-200/70 dark:border-blue-800/50 space-y-4">
+                <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 space-y-4">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <p className="text-xs text-gray-600 dark:text-gray-300">
                       Search TMDB by title or enter a TMDB ID / URL directly. (Documentaries like <em>Planet Earth</em> or <em>Blue Planet</em> are listed under TV Shows on TMDB.)
@@ -677,7 +677,7 @@ const MediaEditModal: React.FC<MediaEditModalProps> = ({ media, isOpen, onClose,
                     <div
                       role="group"
                       aria-label="TMDB media type"
-                      className="inline-flex rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 p-0.5 text-xs font-medium"
+                      className="inline-flex rounded-lg bg-gray-200/80 dark:bg-gray-700 p-1 text-xs font-medium"
                     >
                       <button
                         type="button"
@@ -687,8 +687,8 @@ const MediaEditModal: React.FC<MediaEditModalProps> = ({ media, isOpen, onClose,
                         }}
                         className={`px-3 py-1 rounded-md transition-colors ${
                           tmdbSearchMode === 'movie'
-                            ? 'bg-primary-600 text-white'
-                            : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
+                            ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-gray-100 shadow-sm'
+                            : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
                         }`}
                       >
                         Movie
@@ -701,8 +701,8 @@ const MediaEditModal: React.FC<MediaEditModalProps> = ({ media, isOpen, onClose,
                         }}
                         className={`px-3 py-1 rounded-md transition-colors ${
                           tmdbSearchMode === 'tv'
-                            ? 'bg-primary-600 text-white'
-                            : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
+                            ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-gray-100 shadow-sm'
+                            : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
                         }`}
                       >
                         TV / Miniseries
@@ -767,16 +767,23 @@ const MediaEditModal: React.FC<MediaEditModalProps> = ({ media, isOpen, onClose,
 
                   {/* Movie Search Results */}
                   {tmdbSearchMode === 'movie' && tmdbMovieResults.length > 0 && (
-                    <div className="max-h-64 overflow-y-auto rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 divide-y divide-gray-100 dark:divide-gray-700 shadow-sm">
+                    <div className="max-h-72 overflow-y-auto space-y-2 pr-1">
                       {tmdbMovieResults.map((item) => {
                         const year = item.release_date ? new Date(item.release_date).getFullYear() : null;
                         const poster = item.poster_path
                           ? `https://image.tmdb.org/t/p/w92${item.poster_path}`
                           : null;
+                        const isCurrentMatch =
+                          linkedTmdbInfo.media_type !== 'tv_season' &&
+                          linkedTmdbInfo.tmdb_id === item.id;
                         return (
                           <div
                             key={item.id}
-                            className="flex items-center justify-between gap-3 p-2.5 hover:bg-gray-50 dark:hover:bg-gray-750"
+                            className={`flex items-center justify-between gap-3 p-3 rounded-lg border transition-colors ${
+                              isCurrentMatch
+                                ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20'
+                                : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700/70'
+                            }`}
                           >
                             <div className="flex items-center gap-3 min-w-0">
                               <div className="w-10 h-14 bg-gray-200 dark:bg-gray-700 rounded overflow-hidden flex-shrink-0">
@@ -789,19 +796,26 @@ const MediaEditModal: React.FC<MediaEditModalProps> = ({ media, isOpen, onClose,
                                 )}
                               </div>
                               <div className="min-w-0">
-                                <div className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
-                                  {item.title}{' '}
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
+                                    {item.title}
+                                  </span>
                                   {year && (
-                                    <span className="text-gray-500 dark:text-gray-400 font-normal">
+                                    <span className="text-sm text-gray-500 dark:text-gray-400">
                                       ({year})
                                     </span>
                                   )}
-                                  <span className="ml-2 text-xs text-gray-400 dark:text-gray-500">
+                                  <span className="text-xs text-gray-400 dark:text-gray-500">
                                     #{item.id}
                                   </span>
+                                  {isCurrentMatch && (
+                                    <span className="px-2 py-0.5 text-[11px] font-medium rounded-full bg-primary-100 dark:bg-primary-900/60 text-primary-800 dark:text-primary-200 border border-primary-300/60 dark:border-primary-700/60">
+                                      Current Match
+                                    </span>
+                                  )}
                                 </div>
                                 {item.overview && (
-                                  <p className="text-xs text-gray-500 dark:text-gray-400 line-clamp-1">
+                                  <p className="text-xs text-gray-600 dark:text-gray-300 mt-0.5 line-clamp-1">
                                     {item.overview}
                                   </p>
                                 )}
@@ -823,16 +837,23 @@ const MediaEditModal: React.FC<MediaEditModalProps> = ({ media, isOpen, onClose,
 
                   {/* TV Search Results */}
                   {tmdbSearchMode === 'tv' && tmdbTVResults.length > 0 && !selectedTVShowForLink && (
-                    <div className="max-h-64 overflow-y-auto rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 divide-y divide-gray-100 dark:divide-gray-700 shadow-sm">
+                    <div className="max-h-72 overflow-y-auto space-y-2 pr-1">
                       {tmdbTVResults.map((show) => {
                         const year = show.first_air_date ? new Date(show.first_air_date).getFullYear() : null;
                         const poster = show.poster_path
                           ? `https://image.tmdb.org/t/p/w92${show.poster_path}`
                           : null;
+                        const isCurrentShow =
+                          linkedTmdbInfo.media_type === 'tv_season' &&
+                          linkedTmdbInfo.tv_show_tmdb_id === show.id;
                         return (
                           <div
                             key={show.id}
-                            className="flex items-center justify-between gap-3 p-2.5 hover:bg-gray-50 dark:hover:bg-gray-750"
+                            className={`flex items-center justify-between gap-3 p-3 rounded-lg border transition-colors ${
+                              isCurrentShow
+                                ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20'
+                                : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700/70'
+                            }`}
                           >
                             <div className="flex items-center gap-3 min-w-0">
                               <div className="w-10 h-14 bg-gray-200 dark:bg-gray-700 rounded overflow-hidden flex-shrink-0">
@@ -845,19 +866,26 @@ const MediaEditModal: React.FC<MediaEditModalProps> = ({ media, isOpen, onClose,
                                 )}
                               </div>
                               <div className="min-w-0">
-                                <div className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
-                                  {show.name}{' '}
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
+                                    {show.name}
+                                  </span>
                                   {year && (
-                                    <span className="text-gray-500 dark:text-gray-400 font-normal">
+                                    <span className="text-sm text-gray-500 dark:text-gray-400">
                                       ({year})
                                     </span>
                                   )}
-                                  <span className="ml-2 text-xs text-gray-400 dark:text-gray-500">
+                                  <span className="text-xs text-gray-400 dark:text-gray-500">
                                     #{show.id}
                                   </span>
+                                  {isCurrentShow && (
+                                    <span className="px-2 py-0.5 text-[11px] font-medium rounded-full bg-primary-100 dark:bg-primary-900/60 text-primary-800 dark:text-primary-200 border border-primary-300/60 dark:border-primary-700/60">
+                                      Current Show
+                                    </span>
+                                  )}
                                 </div>
                                 {show.overview && (
-                                  <p className="text-xs text-gray-500 dark:text-gray-400 line-clamp-1">
+                                  <p className="text-xs text-gray-600 dark:text-gray-300 mt-0.5 line-clamp-1">
                                     {show.overview}
                                   </p>
                                 )}
@@ -879,7 +907,7 @@ const MediaEditModal: React.FC<MediaEditModalProps> = ({ media, isOpen, onClose,
 
                   {/* Season Picker when linking a TV Show */}
                   {selectedTVShowForLink && (
-                    <div className="rounded-lg border border-purple-200 dark:border-purple-800/60 bg-white dark:bg-gray-800 p-3 space-y-2.5">
+                    <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-3 space-y-2.5">
                       <div className="flex items-center justify-between">
                         <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">
                           Select Season for {selectedTVShowForLink.name} (#{selectedTVShowForLink.id})
@@ -892,34 +920,44 @@ const MediaEditModal: React.FC<MediaEditModalProps> = ({ media, isOpen, onClose,
                           Back
                         </button>
                       </div>
-                      <div className="max-h-56 overflow-y-auto divide-y divide-gray-100 dark:divide-gray-700">
-                        {selectedTVShowForLink.seasons.map((season) => (
-                          <div
-                            key={season.id}
-                            className="flex items-center justify-between gap-3 py-2 px-1"
-                          >
-                            <div>
-                              <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
-                                {season.name}{' '}
-                                <span className="text-xs text-gray-500 dark:text-gray-400 font-normal">
-                                  ({season.episode_count} episodes
-                                  {season.air_date
-                                    ? ` • ${new Date(season.air_date).getFullYear()}`
-                                    : ''}
-                                  )
-                                </span>
-                              </div>
-                            </div>
-                            <button
-                              type="button"
-                              disabled={isLinkingTmdb}
-                              onClick={() => applyTmdbTVSeasonLink(selectedTVShowForLink, season)}
-                              className="btn-primary text-xs px-3 py-1"
+                      <div className="max-h-56 overflow-y-auto space-y-1.5">
+                        {selectedTVShowForLink.seasons.map((season) => {
+                          const isCurrentSeason =
+                            linkedTmdbInfo.media_type === 'tv_season' &&
+                            linkedTmdbInfo.tv_show_tmdb_id === selectedTVShowForLink.id &&
+                            linkedTmdbInfo.season_number === season.season_number;
+                          return (
+                            <div
+                              key={season.id}
+                              className={`flex items-center justify-between gap-3 p-2.5 rounded-lg border transition-colors ${
+                                isCurrentSeason
+                                  ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20'
+                                  : 'border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/70'
+                              }`}
                             >
-                              Link Season
-                            </button>
-                          </div>
-                        ))}
+                              <div>
+                                <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                                  {season.name}{' '}
+                                  <span className="text-xs text-gray-500 dark:text-gray-400 font-normal">
+                                    ({season.episode_count} episodes
+                                    {season.air_date
+                                      ? ` • ${new Date(season.air_date).getFullYear()}`
+                                      : ''}
+                                    )
+                                  </span>
+                                </div>
+                              </div>
+                              <button
+                                type="button"
+                                disabled={isLinkingTmdb}
+                                onClick={() => applyTmdbTVSeasonLink(selectedTVShowForLink, season)}
+                                className="btn-primary text-xs px-3 py-1"
+                              >
+                                Link Season
+                              </button>
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
                   )}
@@ -927,7 +965,7 @@ const MediaEditModal: React.FC<MediaEditModalProps> = ({ media, isOpen, onClose,
               )}
 
               {tmdbData && (
-                <div className="mt-4 pt-4 border-t border-blue-200/70 dark:border-blue-800/50 space-y-4">
+                <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 space-y-4">
                   <p className="text-sm text-gray-600 dark:text-gray-300">
                     Compare current data with latest TMDB data and select which fields to update:
                   </p>
