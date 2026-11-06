@@ -42,6 +42,7 @@ function arrayMove<T>(arr: T[], from: number, to: number): T[] {
 
 export interface PhysicalLibraryPageProps {
   embedded?: boolean;
+  refreshKey?: number;
   matchingItemIds?: Set<number> | null;
   showApplySortModal?: boolean;
   onCloseApplySortModal?: () => void;
@@ -52,6 +53,7 @@ export interface PhysicalLibraryPageProps {
 
 const PhysicalLibraryPage: React.FC<PhysicalLibraryPageProps> = ({
   embedded = false,
+  refreshKey,
   matchingItemIds = null,
   showApplySortModal,
   onCloseApplySortModal,
@@ -154,7 +156,10 @@ const PhysicalLibraryPage: React.FC<PhysicalLibraryPageProps> = ({
 
   useEffect(() => {
     loadLibrary();
-  }, [loadLibrary]);
+    if (refreshKey !== undefined && refreshKey > 0) {
+      setUnassignedRefreshKey((k) => k + 1);
+    }
+  }, [loadLibrary, refreshKey]);
 
   // =============================================
   // Drag handlers
@@ -592,7 +597,7 @@ const PhysicalLibraryPage: React.FC<PhysicalLibraryPageProps> = ({
   // =============================================
   const containerClass = embedded ? '' : 'w-full px-4 py-6 sm:px-6 sm:py-8 lg:px-8';
 
-  if (isLoading) {
+  if (isLoading && !library) {
     const Wrapper = embedded ? 'div' : 'main';
     return (
       <Wrapper className={containerClass}>
@@ -607,7 +612,7 @@ const PhysicalLibraryPage: React.FC<PhysicalLibraryPageProps> = ({
     );
   }
 
-  if (error || !library) {
+  if (!library) {
     const Wrapper = embedded ? 'div' : 'main';
     return (
       <Wrapper className={containerClass}>

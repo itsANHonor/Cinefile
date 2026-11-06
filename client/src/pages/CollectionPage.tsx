@@ -654,8 +654,8 @@ const CollectionPage: React.FC = () => {
       {params.view === 'shelf' ? (
         <section aria-label="Shelf view" className="relative min-h-[12rem]">
           <PhysicalLibraryPage
-            key={shelfRefreshKey}
             embedded
+            refreshKey={shelfRefreshKey}
             matchingItemIds={matchingItemIds}
             showApplySortModal={showShelfApplySort}
             onCloseApplySortModal={() => setShowShelfApplySort(false)}
