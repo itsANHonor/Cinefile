@@ -173,11 +173,11 @@ const BulkMetadataOperation: React.FC<BulkMetadataOperationProps> = ({ onComplet
   const isComplete = jobState?.status === 'completed' || jobState?.status === 'failed' || jobState?.status === 'cancelled';
 
   return (
-    <div className="card">
+    <section className="card" aria-labelledby="bulk-metadata-heading">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+        <h2 id="bulk-metadata-heading" className="text-lg font-semibold text-content">
           Bulk Metadata Update
-        </h3>
+        </h2>
         {isRunning && !isComplete && (
           <button
             onClick={cancelOperation}
@@ -188,7 +188,7 @@ const BulkMetadataOperation: React.FC<BulkMetadataOperationProps> = ({ onComplet
         )}
       </div>
 
-      <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+      <p className="text-sm text-content-muted mb-4">
         Update metadata for all movies with missing information. This will fetch data from TMDB for movies that have a TMDB ID but are missing synopsis, director, cast, cover art, release date, or genres.
       </p>
 
@@ -303,7 +303,7 @@ const BulkMetadataOperation: React.FC<BulkMetadataOperationProps> = ({ onComplet
           )}
         </div>
       )}
-    </div>
+    </section>
   );
 };
 

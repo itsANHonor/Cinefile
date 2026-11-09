@@ -6,7 +6,6 @@ import { useConfirm } from '../context/ConfirmContext';
 import { useToast } from '../context/ToastContext';
 import { useInfiniteScroll } from '../hooks/useInfiniteScroll';
 import MediaEditModal from '../components/MediaEditModal';
-import BulkMetadataOperation from '../components/BulkMetadataOperation';
 import { Button } from '../components/ui/Button';
 import { IconButton } from '../components/ui/IconButton';
 import { EmptyState } from '../components/ui/EmptyState';
@@ -25,7 +24,6 @@ const MoviesPage: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
-  const [showBulkMetadata, setShowBulkMetadata] = useState(false);
   const [mediaType, setMediaType] = useState<'all' | 'movie' | 'tv_season'>('all');
 
   const confirm = useConfirm();
@@ -225,22 +223,8 @@ const MoviesPage: React.FC = () => {
               {isLoading ? 'Loading…' : totalCount > 0 ? `${getCountLabel()} in your collection` : 'No media found'}
             </p>
           </div>
-          <Button onClick={() => setShowBulkMetadata(!showBulkMetadata)}>
-            {showBulkMetadata ? 'Hide' : 'Bulk Update Metadata'}
-          </Button>
         </div>
       </div>
-
-      {/* Bulk Metadata Operation */}
-      {showBulkMetadata && (
-        <div className="mb-6">
-          <BulkMetadataOperation
-          onComplete={() => {
-            loadInitialData();
-          }}
-          />
-        </div>
-      )}
 
       {/* Controls */}
       <div className="card mb-6">

@@ -156,7 +156,7 @@ describe('AdminPage (Settings Hub)', () => {
     });
   });
 
-  it('displays Data & Import tab with Export, dynamic CSV Schema viewer, and Bulk Add Movies', async () => {
+  it('displays Data & Import tab with Export, dynamic CSV Schema viewer, Bulk Add Movies, and Bulk Metadata Update', async () => {
     vi.spyOn(apiService, 'verifyAuth').mockResolvedValue(true);
     vi.spyOn(apiService, 'getImportExportSchema').mockResolvedValue({
       description: 'CSV Import/Export Schema for Cinefile Media Collection',
@@ -175,6 +175,8 @@ describe('AdminPage (Settings Hub)', () => {
     expect(await screen.findByRole('heading', { name: 'Export Collection Backup' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Import Collection from CSV' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Bulk Add Movies by Title' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Bulk Metadata Update' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Start Bulk Metadata Update' })).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'View CSV Schema' }));
     expect(await screen.findByText('CSV Import Schema Reference')).toBeInTheDocument();

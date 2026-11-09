@@ -17,6 +17,7 @@ import { apiService } from '../services/api.service';
 import MediaForm from '../components/MediaForm';
 import SeriesManager from '../components/SeriesManager';
 import BulkAddForm from '../components/BulkAddForm';
+import BulkMetadataOperation from '../components/BulkMetadataOperation';
 import {
   LetterboxdDotsIcon,
   formatStarString,
@@ -668,7 +669,7 @@ const AdminPage: React.FC = () => {
         <div>
           <h1 className="text-2xl sm:text-3xl font-bold text-content">Settings</h1>
           <p className="text-sm text-content-muted mt-1">
-            Configure your collection preferences, manage series, and import or export data
+            Configure your collection preferences, manage series, import or export data, and refresh metadata
           </p>
         </div>
         <div className="flex items-center gap-2 self-start sm:self-auto">
@@ -1667,6 +1668,9 @@ const AdminPage: React.FC = () => {
 
           {/* Bulk Add Movies by Title */}
           <BulkAddForm onSuccess={loadData} />
+
+          {/* Bulk Metadata Update */}
+          <BulkMetadataOperation />
         </div>
       )}
 
