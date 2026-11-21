@@ -22,6 +22,7 @@ const ManualMovieModal: React.FC<ManualMovieModalProps> = ({
   const isTV = mediaType === 'tv_season';
   const [formData, setFormData] = useState<ManualMovieData>({
     title: '',
+    original_title: '',
     synopsis: '',
     director: '',
     release_date: '',
@@ -39,6 +40,7 @@ const ManualMovieModal: React.FC<ManualMovieModalProps> = ({
     if (isOpen) {
       setFormData({
         title: initialTitle,
+        original_title: '',
         synopsis: '',
         director: '',
         release_date: '',
@@ -51,7 +53,7 @@ const ManualMovieModal: React.FC<ManualMovieModalProps> = ({
     }
   }, [initialTitle, isOpen, mediaType]);
 
-  const updateField = (field: 'title' | 'synopsis' | 'director' | 'release_date' | 'cover_art_url', value: string) => {
+  const updateField = (field: 'title' | 'original_title' | 'synopsis' | 'director' | 'release_date' | 'cover_art_url', value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }));
   };
 
@@ -108,6 +110,7 @@ const ManualMovieModal: React.FC<ManualMovieModalProps> = ({
       onConfirm({
         ...formData,
         title: fullTitle,
+        original_title: formData.original_title?.trim() || undefined,
         tv_show_name: trimmedTitle,
         season_number: parsedSeason,
         episode_count: parsedEpisodes,
@@ -123,6 +126,7 @@ const ManualMovieModal: React.FC<ManualMovieModalProps> = ({
       ...formData,
       media_type: 'movie',
       title: trimmedTitle,
+      original_title: formData.original_title?.trim() || undefined,
       synopsis: formData.synopsis.trim(),
       director: formData.director.trim(),
       cast: formData.cast.filter(member => member.trim()),
@@ -170,6 +174,19 @@ const ManualMovieModal: React.FC<ManualMovieModalProps> = ({
                 onChange={event => updateField('title', event.target.value)}
                 required
                 autoFocus
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-gray-100"
+              />
+            </div>
+
+            <div>
+              <label htmlFor="manual-movie-original-title" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Original title <span className="text-xs font-normal text-gray-500 dark:text-gray-400">(optional)</span>
+              </label>
+              <input
+                id="manual-movie-original-title"
+                value={formData.original_title || ''}
+                onChange={event => updateField('original_title', event.target.value)}
+                placeholder="Native non-English title if different"
                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-gray-100"
               />
             </div>

@@ -18,6 +18,7 @@ import CollectionShowcaseModal from '../components/CollectionShowcaseModal';
 import PhysicalLibraryPage from './PhysicalLibraryPage';
 import { Button } from '../components/ui/Button';
 import { EmptyState } from '../components/ui/EmptyState';
+import { SEGMENTED_TRACK_CLASSES, segmentedItemClasses } from '../components/ui/SegmentedControl';
 
 const SESSION_SORT_BY_KEY = 'collection_sort_by';
 const SESSION_SORT_ORDER_KEY = 'collection_sort_order';
@@ -156,6 +157,8 @@ const CollectionPage: React.FC = () => {
     params.editions,
     params.versions,
     params.series,
+    params.director,
+    params.actor,
     params.type,
     effectiveArchived,
     params.sortBy,
@@ -190,6 +193,8 @@ const CollectionPage: React.FC = () => {
           editions: params.editions.length > 0 ? params.editions : undefined,
           versions: params.versions.length > 0 ? params.versions : undefined,
           series: params.series.length > 0 ? params.series : undefined,
+          director: params.director || undefined,
+          actor: params.actor || undefined,
           media_type: params.type !== 'all' ? params.type : undefined,
           search: params.q || undefined,
           archived: effectiveArchived ? true : undefined,
@@ -216,7 +221,7 @@ const CollectionPage: React.FC = () => {
     return () => {
       abortController.abort();
     };
-  }, [params.formats, params.genres, params.decades, params.editions, params.versions, params.series, params.type, params.q, effectiveArchived, isInitialized]);
+  }, [params.formats, params.genres, params.decades, params.editions, params.versions, params.series, params.director, params.actor, params.type, params.q, effectiveArchived, isInitialized]);
 
   const loadInitialData = async () => {
     setIsLoading(true);
@@ -233,6 +238,8 @@ const CollectionPage: React.FC = () => {
         editions: params.editions.length > 0 ? params.editions : undefined,
         versions: params.versions.length > 0 ? params.versions : undefined,
         series: params.series.length > 0 ? params.series : undefined,
+        director: params.director || undefined,
+        actor: params.actor || undefined,
         media_type: params.type !== 'all' ? params.type : undefined,
         archived: canEdit && params.archived ? true : undefined,
         sort_by: params.sortBy,
@@ -281,6 +288,8 @@ const CollectionPage: React.FC = () => {
         editions: params.editions.length > 0 ? params.editions : undefined,
         versions: params.versions.length > 0 ? params.versions : undefined,
         series: params.series.length > 0 ? params.series : undefined,
+        director: params.director || undefined,
+        actor: params.actor || undefined,
         media_type: params.type !== 'all' ? params.type : undefined,
         archived: canEdit && params.archived ? true : undefined,
         sort_by: params.sortBy,
@@ -310,6 +319,8 @@ const CollectionPage: React.FC = () => {
     params.editions,
     params.versions,
     params.series,
+    params.director,
+    params.actor,
     params.type,
     params.archived,
     canEdit,
@@ -350,6 +361,8 @@ const CollectionPage: React.FC = () => {
           editions: params.editions.length > 0 ? params.editions : undefined,
           versions: params.versions.length > 0 ? params.versions : undefined,
           series: params.series.length > 0 ? params.series : undefined,
+          director: params.director || undefined,
+          actor: params.actor || undefined,
           media_type: params.type !== 'all' ? params.type : undefined,
           archived: canEdit && params.archived ? true : undefined,
           sort_by: params.sortBy,
@@ -372,6 +385,8 @@ const CollectionPage: React.FC = () => {
     params.editions,
     params.versions,
     params.series,
+    params.director,
+    params.actor,
     params.type,
     canEdit,
     params.archived,
@@ -457,6 +472,8 @@ const CollectionPage: React.FC = () => {
         editions: params.editions.length > 0 ? params.editions : undefined,
         versions: params.versions.length > 0 ? params.versions : undefined,
         series: params.series.length > 0 ? params.series : undefined,
+        director: params.director || undefined,
+        actor: params.actor || undefined,
         media_type: params.type !== 'all' ? params.type : undefined,
         search: params.q || undefined,
         archived: canEdit && params.archived ? true : undefined,
@@ -497,6 +514,8 @@ const CollectionPage: React.FC = () => {
     params.editions.length > 0 ||
     params.versions.length > 0 ||
     params.series.length > 0 ||
+    Boolean(params.director) ||
+    Boolean(params.actor) ||
     params.type !== 'all' ||
     (canEdit && params.archived);
 
@@ -516,6 +535,8 @@ const CollectionPage: React.FC = () => {
     params.editions.length === 0 &&
     params.versions.length === 0 &&
     params.series.length === 0 &&
+    !params.director &&
+    !params.actor &&
     params.type === 'all' &&
     !params.archived &&
     !isLoading;
@@ -593,36 +614,51 @@ const CollectionPage: React.FC = () => {
       {/* Header */}
       <header className="mb-4 mt-4 flex flex-wrap items-center justify-between gap-3 sm:mb-6">
         <h1 className="text-2xl font-bold text-content sm:text-3xl">{collectionTitle}</h1>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <FormatBadgeToggle />
           <div
             role="group"
             aria-label="Collection view mode"
-            className="flex items-center rounded-[--radius-control] bg-surface-sunken p-0.5"
+            className={SEGMENTED_TRACK_CLASSES}
           >
             <button
               type="button"
               aria-pressed={params.view === 'grid'}
               onClick={() => setParams({ view: 'grid' })}
-              className={`px-3 py-1.5 text-sm font-medium rounded-[calc(var(--radius-control)-0.25rem)] transition-colors ${
-                params.view === 'grid'
-                  ? 'bg-surface-raised text-content shadow-sm'
-                  : 'text-content-muted hover:text-content'
-              }`}
+              className={segmentedItemClasses(params.view === 'grid')}
             >
-              Grid
+              <svg
+                className="h-4 w-4 shrink-0"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2}
+                viewBox="0 0 24 24"
+                aria-hidden="true"
+              >
+                <rect x="3" y="3" width="7" height="7" rx="1.5" />
+                <rect x="14" y="3" width="7" height="7" rx="1.5" />
+                <rect x="3" y="14" width="7" height="7" rx="1.5" />
+                <rect x="14" y="14" width="7" height="7" rx="1.5" />
+              </svg>
+              <span>Grid</span>
             </button>
             <button
               type="button"
               aria-pressed={params.view === 'shelf'}
               onClick={() => setParams({ view: 'shelf' })}
-              className={`px-3 py-1.5 text-sm font-medium rounded-[calc(var(--radius-control)-0.25rem)] transition-colors ${
-                params.view === 'shelf'
-                  ? 'bg-surface-raised text-content shadow-sm'
-                  : 'text-content-muted hover:text-content'
-              }`}
+              className={segmentedItemClasses(params.view === 'shelf')}
             >
-              Shelf
+              <svg
+                className="h-4 w-4 shrink-0"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2}
+                viewBox="0 0 24 24"
+                aria-hidden="true"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 19h16M6 5v11M10 5v11M14 7v9M18 5v11" />
+              </svg>
+              <span>Shelf</span>
             </button>
           </div>
           <button
@@ -631,10 +667,10 @@ const CollectionPage: React.FC = () => {
             disabled={isLoading || physicalItems.length === 0}
             aria-label="Open collection showcase"
             title="Launch full-screen collection showcase"
-            className="inline-flex h-9 items-center gap-1.5 rounded-[--radius-control] border border-subtle bg-surface-raised px-3 py-1.5 text-sm font-medium text-content shadow-sm transition-colors hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:cursor-not-allowed disabled:opacity-50"
+            className="group inline-flex h-10 items-center gap-1.5 rounded-[--radius-control] border border-subtle bg-surface-raised px-3 py-1.5 text-sm font-medium text-content shadow-sm transition-colors hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:cursor-not-allowed disabled:opacity-50"
           >
             <svg
-              className="h-4 w-4 text-primary-600 dark:text-primary-400"
+              className="h-4 w-4 text-content-muted transition-colors group-hover:text-content"
               fill="currentColor"
               viewBox="0 0 24 24"
               aria-hidden="true"
@@ -643,6 +679,29 @@ const CollectionPage: React.FC = () => {
             </svg>
             <span>Showcase</span>
           </button>
+          {canEdit && (
+            <button
+              type="button"
+              onClick={handleAddItem}
+              className="hidden sm:inline-flex h-10 items-center gap-1.5 rounded-[--radius-control] bg-primary-600 px-3.5 py-1.5 text-sm font-semibold text-white shadow-sm transition-colors duration-200 hover:bg-primary-700 active:bg-primary-800 dark:ring-1 dark:ring-inset dark:ring-primary-400/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+            >
+              <svg
+                className="h-4 w-4 shrink-0"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+                aria-hidden="true"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2.2}
+                  d="M12 5v14m-7-7h14"
+                />
+              </svg>
+              <span>Add item</span>
+            </button>
+          )}
         </div>
       </header>
 
@@ -795,7 +854,7 @@ const CollectionPage: React.FC = () => {
         <button
           type="button"
           onClick={handleAddItem}
-          className="fixed bottom-[calc(var(--tabbar-h)+var(--safe-b)+1rem)] lg:bottom-6 right-4 sm:right-6 z-30 inline-flex min-h-touch items-center gap-2 rounded-full bg-primary-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg transition-all duration-200 hover:bg-primary-700 hover:shadow-xl active:bg-primary-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+          className="sm:hidden fixed bottom-[calc(var(--tabbar-h)+var(--safe-b)+1rem)] right-4 z-30 inline-flex min-h-touch items-center gap-2 rounded-full bg-primary-600 px-4 py-2.5 text-sm font-semibold text-white shadow-xl ring-2 ring-surface transition-all duration-200 hover:bg-primary-700 active:bg-primary-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
         >
           <svg
             className="h-5 w-5"

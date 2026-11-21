@@ -121,7 +121,7 @@ describe('PosterSelector (unified cover picker)', () => {
 
     await waitFor(() => {
       expect(mockDownloadRemoteCover).toHaveBeenCalledWith(blurayCandidate.url);
-      expect(onSelect).toHaveBeenCalledWith('/uploads/abc-123.jpg');
+      expect(onSelect).toHaveBeenCalledWith('/uploads/abc-123.jpg', blurayCandidate);
     });
   });
 

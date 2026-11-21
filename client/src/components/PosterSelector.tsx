@@ -12,7 +12,7 @@ export interface PosterMovieOption {
 export interface PosterSelectorProps {
   tmdbId?: number | null;
   movieTitle: string;
-  onSelect: (url: string) => void;
+  onSelect: (url: string, candidate?: CoverCandidate) => void;
   onClose: () => void;
   currentPosterUrl?: string;
   mediaType?: 'movie' | 'tv_season';
@@ -224,7 +224,7 @@ const PosterSelector: React.FC<PosterSelectorProps> = ({
 
     try {
       const saved = await apiService.downloadRemoteCover(candidate.url);
-      onSelect(saved.url);
+      onSelect(saved.url, candidate);
     } catch (err: any) {
       console.error('Failed to download selected cover:', err);
       const msg =

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { apiService } from '../services/api.service';
 import { useToast } from '../context/ToastContext';
+import { Button } from './ui/Button';
 
 interface JobState {
   jobId: string;
@@ -55,9 +56,11 @@ const BulkMetadataOperation: React.FC<BulkMetadataOperationProps> = ({ onComplet
       console.log('[BulkMetadata] Job started:', jobId, 'Total:', total);
       
       // Use fetch with streaming instead of EventSource to support auth headers
+      // (In Desktop Mode, Electron injects X-Cinefile-Desktop-Token automatically without localStorage)
       const token = localStorage.getItem('auth_token');
-      if (!token) {
-        throw new Error('Not authenticated. Please log in again.');
+      const streamHeaders: Record<string, string> = {};
+      if (token) {
+        streamHeaders['Authorization'] = `Bearer ${token}`;
       }
 
       const abortController = new AbortController();
@@ -65,9 +68,7 @@ const BulkMetadataOperation: React.FC<BulkMetadataOperationProps> = ({ onComplet
 
       console.log('[BulkMetadata] Connecting to stream:', `/api/media/bulk-metadata/${jobId}/stream`);
       const response = await fetch(`/api/media/bulk-metadata/${jobId}/stream`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
+        headers: streamHeaders,
         signal: abortController.signal,
       });
 
@@ -179,31 +180,33 @@ const BulkMetadataOperation: React.FC<BulkMetadataOperationProps> = ({ onComplet
           Bulk Metadata Update
         </h2>
         {isRunning && !isComplete && (
-          <button
+          <Button
+            variant="danger"
+            size="sm"
             onClick={cancelOperation}
-            className="px-3 py-1 text-sm bg-red-600 text-white rounded hover:bg-red-700"
           >
             Cancel
-          </button>
+          </Button>
         )}
       </div>
 
       <p className="text-sm text-content-muted mb-4">
-        Update metadata for all movies with missing information. This will fetch data from TMDB for movies that have a TMDB ID but are missing synopsis, director, cast, cover art, release date, or genres.
+        Update metadata for all movies and TV seasons with missing information. This fetches data from TMDB for titles that have a TMDB ID but are missing synopsis, director, cast, cover art, release date, genres, or original title.
       </p>
 
       {!jobState && (
-        <button
+        <Button
           onClick={(e) => {
             e.preventDefault();
             console.log('[BulkMetadata] Button clicked');
             startOperation();
           }}
           disabled={isRunning}
-          className="btn-primary w-full"
+          isLoading={isRunning}
+          className="w-full"
         >
           {isRunning ? 'Starting...' : 'Start Bulk Metadata Update'}
-        </button>
+        </Button>
       )}
 
       {jobState && (
@@ -211,16 +214,16 @@ const BulkMetadataOperation: React.FC<BulkMetadataOperationProps> = ({ onComplet
           {/* Progress Bar */}
           <div>
             <div className="flex items-center justify-between mb-2">
-              <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+              <span className="text-sm font-medium text-content">
                 Progress
               </span>
-              <span className="text-sm text-gray-600 dark:text-gray-400">
+              <span className="text-sm text-content-muted">
                 {jobState.completed} / {jobState.total} ({Math.round(progress)}%)
               </span>
             </div>
-            <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-4">
+            <div className="w-full bg-surface-sunken border border-subtle rounded-full h-4 overflow-hidden">
               <div
-                className="bg-primary-600 h-4 rounded-full transition-all duration-300"
+                className="bg-primary-600 h-full rounded-full transition-all duration-300"
                 style={{ width: `${progress}%` }}
               />
             </div>
@@ -228,14 +231,14 @@ const BulkMetadataOperation: React.FC<BulkMetadataOperationProps> = ({ onComplet
 
           {/* Status */}
           <div className="grid grid-cols-2 gap-4">
-            <div className="p-3 bg-green-50 dark:bg-green-900/20 rounded-lg">
-              <div className="text-sm text-gray-600 dark:text-gray-400">Successful</div>
+            <div className="p-3 bg-green-50 dark:bg-green-900/20 rounded-[--radius-control]">
+              <div className="text-sm text-content-muted">Successful</div>
               <div className="text-2xl font-bold text-green-600 dark:text-green-400">
                 {jobState.successful}
               </div>
             </div>
-            <div className="p-3 bg-red-50 dark:bg-red-900/20 rounded-lg">
-              <div className="text-sm text-gray-600 dark:text-gray-400">Failed</div>
+            <div className="p-3 bg-red-50 dark:bg-red-900/20 rounded-[--radius-control]">
+              <div className="text-sm text-content-muted">Failed</div>
               <div className="text-2xl font-bold text-red-600 dark:text-red-400">
                 {jobState.failed}
               </div>
@@ -244,18 +247,18 @@ const BulkMetadataOperation: React.FC<BulkMetadataOperationProps> = ({ onComplet
 
           {/* Current Status */}
           {jobState.current && (
-            <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
-              <div className="text-sm text-gray-600 dark:text-gray-400 mb-1">
+            <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-[--radius-control]">
+              <div className="text-sm text-content-muted mb-1">
                 {jobState.pass === 2 ? 'Retry Pass' : 'Current'} (Pass {jobState.pass}/2)
               </div>
-              <div className="font-medium text-gray-900 dark:text-gray-100">
+              <div className="font-medium text-content">
                 {jobState.current}
               </div>
             </div>
           )}
 
           {/* Status Message */}
-          <div className={`p-3 rounded-lg ${
+          <div className={`p-3 rounded-[--radius-control] ${
             jobState.status === 'completed' 
               ? 'bg-green-50 dark:bg-green-900/20 text-green-800 dark:text-green-300'
               : jobState.status === 'failed'
@@ -274,11 +277,11 @@ const BulkMetadataOperation: React.FC<BulkMetadataOperationProps> = ({ onComplet
           {/* Errors */}
           {jobState.errors.length > 0 && (
             <div className="mt-4">
-              <details className="border border-gray-300 dark:border-gray-600 rounded-lg">
-                <summary className="p-3 cursor-pointer font-medium text-gray-900 dark:text-gray-100">
+              <details className="border border-subtle rounded-[--radius-control]">
+                <summary className="p-3 cursor-pointer font-medium text-content">
                   Errors ({jobState.errors.length})
                 </summary>
-                <div className="p-3 border-t border-gray-300 dark:border-gray-600 max-h-48 overflow-y-auto">
+                <div className="p-3 border-t border-subtle max-h-48 overflow-y-auto">
                   {jobState.errors.map((error, index) => (
                     <div key={index} className="text-sm text-red-600 dark:text-red-400 mb-2">
                       <strong>{error.title}</strong>: {error.error}
@@ -291,15 +294,15 @@ const BulkMetadataOperation: React.FC<BulkMetadataOperationProps> = ({ onComplet
 
           {/* Restart Button */}
           {isComplete && (
-            <button
+            <Button
               onClick={() => {
                 setJobState(null);
                 startOperation();
               }}
-              className="btn-primary w-full"
+              className="w-full"
             >
               Start New Operation
-            </button>
+            </Button>
           )}
         </div>
       )}

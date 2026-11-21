@@ -50,7 +50,7 @@ describe('AdminPage (Settings Hub)', () => {
     expect(passwordInput.type).toBe('text');
   });
 
-  it('renders the 3-tab Settings Hub (General, Series, Data & Import) without the removed Console tab', async () => {
+  it('renders the 4-tab Settings Hub (General, Series, Media Management, Data & Import) without the removed Console tab', async () => {
     vi.spyOn(apiService, 'verifyAuth').mockResolvedValue(true);
 
     renderWithProviders(<AdminPage />, { initialRoute: '/admin' });
@@ -59,6 +59,7 @@ describe('AdminPage (Settings Hub)', () => {
 
     expect(screen.getByRole('radio', { name: 'General' })).toBeInTheDocument();
     expect(screen.getByRole('radio', { name: 'Series' })).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: 'Media Management' })).toBeInTheDocument();
     expect(screen.getByRole('radio', { name: 'Data & Import' })).toBeInTheDocument();
     expect(screen.queryByRole('radio', { name: /Console/i })).not.toBeInTheDocument();
   });
@@ -156,7 +157,41 @@ describe('AdminPage (Settings Hub)', () => {
     });
   });
 
-  it('displays Data & Import tab with Export, dynamic CSV Schema viewer, Bulk Add Movies, and Bulk Metadata Update', async () => {
+  it('displays Media Management tab with compact media grid (title + year) and Bulk Update Metadata toggle', async () => {
+    vi.spyOn(apiService, 'verifyAuth').mockResolvedValue(true);
+    vi.spyOn(apiService, 'getMedia').mockResolvedValue({
+      items: [
+        {
+          id: 1,
+          title: 'Dune: Part Two',
+          media_type: 'movie',
+          tmdb_id: 693134,
+          director: 'Denis Villeneuve',
+          release_date: '2024-03-01',
+          genres: [{ id: 878, name: 'Science Fiction' }],
+        },
+      ],
+      pagination: { page: 1, limit: 100, total: 1, totalPages: 1, hasNext: false, hasPrev: false },
+    });
+    const user = userEvent.setup();
+
+    renderWithProviders(<AdminPage />, { initialRoute: '/admin?tab=media' });
+
+    expect(await screen.findByRole('heading', { name: 'Media Management' })).toBeInTheDocument();
+    expect(await screen.findByText('Dune: Part Two')).toBeInTheDocument();
+    expect(screen.getByText('2024')).toBeInTheDocument();
+    // Compact grid omits director and genre pills on cards
+    expect(screen.queryByText('Denis Villeneuve')).not.toBeInTheDocument();
+    expect(screen.queryByText('Science Fiction')).not.toBeInTheDocument();
+    expect(screen.getByPlaceholderText('Search media...')).toBeInTheDocument();
+
+    const bulkBtn = screen.getByRole('button', { name: 'Bulk Update Metadata' });
+    await user.click(bulkBtn);
+    expect(await screen.findByRole('heading', { name: 'Bulk Metadata Update' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Start Bulk Metadata Update' })).toBeInTheDocument();
+  });
+
+  it('displays Data & Import tab with Export, dynamic CSV Schema viewer, and Bulk Add Movies', async () => {
     vi.spyOn(apiService, 'verifyAuth').mockResolvedValue(true);
     vi.spyOn(apiService, 'getImportExportSchema').mockResolvedValue({
       description: 'CSV Import/Export Schema for Cinefile Media Collection',
@@ -175,8 +210,6 @@ describe('AdminPage (Settings Hub)', () => {
     expect(await screen.findByRole('heading', { name: 'Export Collection Backup' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Import Collection from CSV' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Bulk Add Movies by Title' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Bulk Metadata Update' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Start Bulk Metadata Update' })).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'View CSV Schema' }));
     expect(await screen.findByText('CSV Import Schema Reference')).toBeInTheDocument();

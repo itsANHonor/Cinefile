@@ -17,7 +17,7 @@ import { apiService } from '../services/api.service';
 import MediaForm from '../components/MediaForm';
 import SeriesManager from '../components/SeriesManager';
 import BulkAddForm from '../components/BulkAddForm';
-import BulkMetadataOperation from '../components/BulkMetadataOperation';
+import MoviesPage from './MoviesPage';
 import {
   LetterboxdDotsIcon,
   formatStarString,
@@ -28,7 +28,7 @@ import { Button } from '../components/ui/Button';
 import { SegmentedControl } from '../components/ui/SegmentedControl';
 import { Skeleton } from '../components/ui/Skeleton';
 
-type SettingsTab = 'general' | 'series' | 'data';
+type SettingsTab = 'general' | 'series' | 'media' | 'data';
 
 interface CsvValidationResult {
   fileName: string;
@@ -43,6 +43,7 @@ interface CsvValidationResult {
 
 function resolveInitialTab(param: string | null): SettingsTab {
   if (param === 'series') return 'series';
+  if (param === 'media' || param === 'metadata' || param === 'movies') return 'media';
   if (param === 'data' || param === 'import') return 'data';
   return 'general';
 }
@@ -663,7 +664,11 @@ const AdminPage: React.FC = () => {
   const isTitleDirty = (collectionTitle.trim() || 'Media Collection') !== savedCollectionTitle;
 
   return (
-    <div className="container mx-auto px-4 py-6 sm:py-8 max-w-5xl space-y-6">
+    <div
+      className={`container mx-auto px-4 py-6 sm:py-8 space-y-6 ${
+        activeTab === 'media' ? 'max-w-7xl' : 'max-w-5xl'
+      }`}
+    >
       {/* Page Header */}
       <header className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
@@ -692,13 +697,14 @@ const AdminPage: React.FC = () => {
         </div>
       </header>
 
-      {/* 3-Tab Segmented Navigation */}
+      {/* 4-Tab Segmented Navigation */}
       <div className="overflow-x-auto">
         <SegmentedControl
           name="Settings sections"
           options={[
             { value: 'general', label: 'General' },
             { value: 'series', label: 'Series' },
+            { value: 'media', label: 'Media Management' },
             { value: 'data', label: 'Data & Import' },
           ]}
           value={activeTab}
@@ -1350,7 +1356,10 @@ const AdminPage: React.FC = () => {
       {/* TAB 2: SERIES */}
       {activeTab === 'series' && <SeriesManager />}
 
-      {/* TAB 3: DATA & IMPORT */}
+      {/* TAB 3: MEDIA MANAGEMENT */}
+      {activeTab === 'media' && <MoviesPage />}
+
+      {/* TAB 4: DATA & IMPORT */}
       {activeTab === 'data' && (
         <div className="space-y-6">
           {/* Backup & Export */}
@@ -1668,9 +1677,6 @@ const AdminPage: React.FC = () => {
 
           {/* Bulk Add Movies by Title */}
           <BulkAddForm onSuccess={loadData} />
-
-          {/* Bulk Metadata Update */}
-          <BulkMetadataOperation />
         </div>
       )}
 

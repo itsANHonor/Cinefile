@@ -226,4 +226,52 @@ describe('MediaDetailModal', () => {
     expect(mainPoster.getAttribute('src')).toBe('https://image.tmdb.org/t/p/w500/lebowski-poster.jpg');
     expect(screen.getByRole('button', { name: 'Show package photo' })).toBeInTheDocument();
   });
+
+  it('displays Original title subtitle only when original_title differs from title', () => {
+    const englishItem: PhysicalItem = {
+      ...singleMovieItem,
+      media: [{ ...singleMovieItem.media[0], original_title: 'The Big Lebowski' }],
+    };
+
+    const { rerender } = render(<MediaDetailModal physicalItem={englishItem} isOpen onClose={vi.fn()} />);
+    expect(screen.queryByText(/Original title:/i)).not.toBeInTheDocument();
+
+    const internationalItem: PhysicalItem = {
+      ...singleMovieItem,
+      name: 'Gigantic Blu-ray',
+      media: [
+        {
+          ...singleMovieItem.media[0],
+          title: 'Gigantic',
+          original_title: 'Absolute Giganten',
+        },
+      ],
+    };
+
+    rerender(<MediaDetailModal physicalItem={internationalItem} isOpen onClose={vi.fn()} />);
+    expect(screen.getByRole('heading', { name: 'Gigantic' })).toBeInTheDocument();
+    expect(screen.getByText('Original title: Absolute Giganten')).toBeInTheDocument();
+  });
+
+  it('auto-labels 13-digit barcodes as EAN and 12-digit barcodes as UPC alongside ASIN', () => {
+    const eanItem: PhysicalItem = {
+      ...singleMovieItem,
+      barcode: '4006381333931',
+      asin: 'B00DU61N52',
+    };
+
+    const { rerender } = render(<MediaDetailModal physicalItem={eanItem} isOpen onClose={vi.fn()} />);
+    expect(screen.getByRole('heading', { name: 'EAN' })).toBeInTheDocument();
+    expect(screen.getByText('4006381333931')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'ASIN' })).toBeInTheDocument();
+    expect(screen.getByText('B00DU61N52')).toBeInTheDocument();
+
+    const upcItem: PhysicalItem = {
+      ...singleMovieItem,
+      barcode: '036000291452',
+    };
+    rerender(<MediaDetailModal physicalItem={upcItem} isOpen onClose={vi.fn()} />);
+    expect(screen.getByRole('heading', { name: 'UPC' })).toBeInTheDocument();
+    expect(screen.getByText('036000291452')).toBeInTheDocument();
+  });
 });

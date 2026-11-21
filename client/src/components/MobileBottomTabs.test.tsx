@@ -8,6 +8,7 @@ describe('MobileBottomTabs', () => {
     renderWithProviders(<MobileBottomTabs />, { initialRoute: '/' });
     expect(screen.getByRole('link', { name: /Collection/i })).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: /Shelf View/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /Media/i })).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Stats/i })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /About/i })).toBeInTheDocument();
   });

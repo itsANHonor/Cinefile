@@ -9,12 +9,19 @@ import {
   normalizeVersionNotes,
 } from '../utils/edition-tags.util';
 import { letterboxdService } from '../services/letterboxd.service';
+import {
+  extractAsinFromStoreLinks,
+  normalizeAsin,
+  normalizeBarcode,
+} from '../utils/identifiers.util';
 
 const router = Router();
 
 interface MediaExportRow {
   id: number;
   title: string;
+  original_title: string | null;
+  original_language: string | null;
   tmdb_id: number | null;
   media_type: string | null;
   tv_show_tmdb_id: number | null;
@@ -38,6 +45,8 @@ interface MediaExportRow {
   archived: boolean | number | null;
   archive_reason: string | null;
   purchase_date: string | null;
+  barcode: string | null;
+  asin: string | null;
   store_links: string | null;
   custom_image_url: string | null;
   created_at: string;
@@ -46,6 +55,8 @@ interface MediaExportRow {
 
 interface MediaImportRow {
   title: string;
+  original_title?: string;
+  original_language?: string;
   physical_item_name: string;
   formats: string;
   tmdb_id?: string | number;
@@ -69,6 +80,8 @@ interface MediaImportRow {
   archived?: string | boolean;
   archive_reason?: string;
   purchase_date?: string;
+  barcode?: string;
+  asin?: string;
   store_links?: string;
   custom_image_url?: string;
 }
@@ -163,6 +176,20 @@ router.get('/schema', (req: Request, res: Response) => {
         required: true,
         description: 'The title of the media item',
         example: 'The Matrix',
+      },
+      {
+        name: 'original_title',
+        type: 'string',
+        required: false,
+        description: 'Original (native-language) title of the movie or TV show when different from the English title',
+        example: 'Absolute Giganten',
+      },
+      {
+        name: 'original_language',
+        type: 'string',
+        required: false,
+        description: 'ISO 639-1 original language code (e.g., "de", "ja", "fr")',
+        example: 'de',
       },
       {
         name: 'physical_item_name',
@@ -327,6 +354,20 @@ router.get('/schema', (req: Request, res: Response) => {
         example: '2023-12-01',
       },
       {
+        name: 'barcode',
+        type: 'string',
+        required: false,
+        description: 'UPC (12 digits) or EAN (13 digits) barcode on the physical package',
+        example: '4010232059819',
+      },
+      {
+        name: 'asin',
+        type: 'string',
+        required: false,
+        description: '10-character Amazon Standard Identification Number (ASIN)',
+        example: 'B00DU61N52',
+      },
+      {
         name: 'store_links',
         type: 'JSON array (string)',
         required: false,
@@ -386,6 +427,8 @@ router.get('/export', authMiddleware, async (req: Request, res: Response) => {
         'physical_items.archived',
         'physical_items.archive_reason',
         'physical_items.purchase_date',
+        'physical_items.barcode',
+        'physical_items.asin',
         'physical_items.store_links',
         'physical_items.custom_image_url',
         'physical_items.created_at',
@@ -395,6 +438,8 @@ router.get('/export', authMiddleware, async (req: Request, res: Response) => {
         'physical_item_media.version_notes',
         'media.id',
         'media.title',
+        'media.original_title',
+        'media.original_language',
         'media.tmdb_id',
         'media.media_type',
         'media.tv_show_tmdb_id',
@@ -420,6 +465,8 @@ router.get('/export', authMiddleware, async (req: Request, res: Response) => {
         'physical_items.archived',
         'physical_items.archive_reason',
         'physical_items.purchase_date',
+        'physical_items.barcode',
+        'physical_items.asin',
         'physical_items.store_links',
         'physical_items.custom_image_url',
         'physical_items.created_at',
@@ -428,6 +475,8 @@ router.get('/export', authMiddleware, async (req: Request, res: Response) => {
         'physical_item_media.formats',
         'physical_item_media.version_notes',
         'media.title',
+        'media.original_title',
+        'media.original_language',
         'media.tmdb_id',
         'media.media_type',
         'media.tv_show_tmdb_id',
@@ -448,6 +497,8 @@ router.get('/export', authMiddleware, async (req: Request, res: Response) => {
     const headers = [
       'id',
       'title',
+      'original_title',
+      'original_language',
       'tmdb_id',
       'media_type',
       'tv_show_tmdb_id',
@@ -471,6 +522,8 @@ router.get('/export', authMiddleware, async (req: Request, res: Response) => {
       'archived',
       'archive_reason',
       'purchase_date',
+      'barcode',
+      'asin',
       'store_links',
       'custom_image_url',
       'created_at',
@@ -492,6 +545,8 @@ router.get('/export', authMiddleware, async (req: Request, res: Response) => {
       const row = [
         escapeCSV(item.id),
         escapeCSV(item.title),
+        escapeCSV(item.original_title),
+        escapeCSV(item.original_language),
         escapeCSV(item.tmdb_id),
         escapeCSV(item.media_type || 'movie'),
         escapeCSV(item.tv_show_tmdb_id),
@@ -515,6 +570,8 @@ router.get('/export', authMiddleware, async (req: Request, res: Response) => {
         escapeCSV(item.archived ? 'true' : 'false'),
         escapeCSV(item.archive_reason),
         escapeCSV(item.purchase_date),
+        escapeCSV(item.barcode),
+        escapeCSV(item.asin),
         escapeCSV(item.store_links), // Already JSON string in DB
         escapeCSV(item.custom_image_url),
         escapeCSV(item.created_at),
@@ -815,6 +872,15 @@ router.post('/import', authMiddleware, async (req: Request, res: Response) => {
               .select('edition_notes');
             const canonicalTagMap = buildCanonicalEditionTagMap(existingEditionRows);
 
+            let parsedStoreLinksForAsin: any[] | null = null;
+            if (movies[0].store_links) {
+              try {
+                parsedStoreLinksForAsin = JSON.parse(movies[0].store_links);
+              } catch {
+                parsedStoreLinksForAsin = null;
+              }
+            }
+
             const physicalItemData = {
               name: itemName,
               sort_name: calculateSortName(itemName) || null,
@@ -825,6 +891,8 @@ router.post('/import', authMiddleware, async (req: Request, res: Response) => {
               archived: isArchived ? 1 : 0,
               archive_reason: isArchived ? (movies[0].archive_reason || 'Archived via import') : null,
               purchase_date: movies[0].purchase_date || null,
+              barcode: normalizeBarcode(movies[0].barcode),
+              asin: normalizeAsin(movies[0].asin) || extractAsinFromStoreLinks(parsedStoreLinksForAsin),
               store_links: movies[0].store_links || null,
               custom_image_url: movies[0].custom_image_url || null,
             };
@@ -869,6 +937,8 @@ router.post('/import', authMiddleware, async (req: Request, res: Response) => {
             // Prepare media data
             const mediaData: any = {
               title: movie.title,
+              ...(movie.original_title !== undefined ? { original_title: movie.original_title || null } : {}),
+              ...(movie.original_language !== undefined ? { original_language: movie.original_language || null } : {}),
               tmdb_id: movie.tmdb_id || null,
               media_type: mediaType,
               tv_show_tmdb_id: mediaType === 'tv_season' ? (isNaN(tvShowTmdbId as number) ? null : tvShowTmdbId) : null,

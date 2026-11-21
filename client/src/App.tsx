@@ -10,7 +10,7 @@ import { ToastProvider } from './context/ToastContext';
 import AboutPage from './pages/AboutPage';
 import AdminPage from './pages/AdminPage';
 import CollectionPage from './pages/CollectionPage';
-import MoviesPage from './pages/MoviesPage';
+import PeopleExplorerPage from './pages/PeopleExplorerPage';
 import StatisticsPage from './pages/StatisticsPage';
 import Navigation from './components/Navigation';
 import MobileBottomTabs from './components/MobileBottomTabs';
@@ -55,20 +55,22 @@ const AppContent: React.FC = () => {
             <Route path="/" element={<CollectionPage />} />
             <Route path="/library" element={<Navigate to="/?view=shelf" replace />} />
             <Route path="/statistics" element={<StatisticsPage />} />
+            <Route path="/statistics/directors" element={<PeopleExplorerPage role="directors" />} />
+            <Route path="/statistics/actors" element={<PeopleExplorerPage role="actors" />} />
             <Route path="/about" element={<AboutPage />} />
             {isReadOnly ? (
               // In read-only mode, redirect admin routes to home
               <>
                 <Route path="/admin" element={<Navigate to="/" replace />} />
                 <Route path="/media" element={<Navigate to="/" replace />} />
-                <Route path="/movies" element={<Navigate to="/media" replace />} />
+                <Route path="/movies" element={<Navigate to="/" replace />} />
               </>
             ) : (
               // In full mode, show all admin routes
               <>
                 <Route path="/admin" element={<AdminPage />} />
-                <Route path="/media" element={<MoviesPage />} />
-                <Route path="/movies" element={<Navigate to="/media" replace />} />
+                <Route path="/media" element={<Navigate to="/admin?tab=media" replace />} />
+                <Route path="/movies" element={<Navigate to="/admin?tab=media" replace />} />
               </>
             )}
           </Routes>

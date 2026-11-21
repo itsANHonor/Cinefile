@@ -25,6 +25,8 @@ export interface CollectionParams {
   editions: string[];
   versions: string[];
   series: number[];
+  director: string;
+  actor: string;
   type: 'all' | 'movie' | 'tv_season';
   archived: boolean;
   sortBy: SortField;
@@ -97,6 +99,8 @@ export function useCollectionParams(options: UseCollectionParamsOptions = {}) {
   const rawEdition = searchParams.get('edition');
   const rawVersion = searchParams.get('version');
   const rawSeries = searchParams.get('series');
+  const rawDirector = (searchParams.get('director') ?? '').trim();
+  const rawActor = (searchParams.get('actor') ?? '').trim();
   const rawType = searchParams.get('type');
   const rawArchived = searchParams.get('archived');
   const rawSort = searchParams.get('sort');
@@ -119,6 +123,8 @@ export function useCollectionParams(options: UseCollectionParamsOptions = {}) {
       editions,
       versions,
       series,
+      director: rawDirector,
+      actor: rawActor,
       type: parseType(rawType),
       archived: rawArchived === 'true',
       ...parseSort(rawSort, defaultSortBy, defaultSortOrder),
@@ -132,6 +138,8 @@ export function useCollectionParams(options: UseCollectionParamsOptions = {}) {
     editions,
     versions,
     series,
+    rawDirector,
+    rawActor,
     rawType,
     rawArchived,
     rawSort,
@@ -184,6 +192,18 @@ export function useCollectionParams(options: UseCollectionParamsOptions = {}) {
         const series = updates.series ?? [];
         if (series.length) next.set('series', series.join(','));
         else next.delete('series');
+      }
+
+      if ('director' in updates) {
+        const director = (updates.director ?? '').trim();
+        if (director) next.set('director', director);
+        else next.delete('director');
+      }
+
+      if ('actor' in updates) {
+        const actor = (updates.actor ?? '').trim();
+        if (actor) next.set('actor', actor);
+        else next.delete('actor');
       }
 
       if ('type' in updates) {

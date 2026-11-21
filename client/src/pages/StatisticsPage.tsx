@@ -73,6 +73,7 @@ interface TalentSpotlightCardProps {
   maxCount: number;
   unitSingular: string;
   unitPlural: string;
+  filterParam: 'director' | 'actor';
 }
 
 const TalentSpotlightCard: React.FC<TalentSpotlightCardProps> = ({
@@ -81,6 +82,7 @@ const TalentSpotlightCard: React.FC<TalentSpotlightCardProps> = ({
   maxCount,
   unitSingular,
   unitPlural,
+  filterParam,
 }) => {
   const [imgError, setImgError] = useState(false);
   const widthPct = Math.round((person.count / Math.max(1, maxCount)) * 100);
@@ -90,7 +92,7 @@ const TalentSpotlightCard: React.FC<TalentSpotlightCardProps> = ({
 
   return (
     <Link
-      to={`/?q=${encodeURIComponent(person.name)}`}
+      to={`/?${filterParam}=${encodeURIComponent(person.name)}`}
       className="group relative flex gap-3.5 rounded-[--radius-card] border border-subtle bg-surface-sunken/40 p-3.5 transition-all duration-200 hover:-translate-y-0.5 hover:border-primary-400 hover:bg-surface-sunken/80 hover:shadow-[--shadow-card]"
     >
       {/* Portrait Photo / Monogram Fallback */}
@@ -724,13 +726,24 @@ const StatisticsPage: React.FC = () => {
         <div className="space-y-6 animate-in" role="region" aria-label="Content Insights">
           {/* Most-Collected Directors (First-Class Spotlight Grid) */}
           <div className="card space-y-4">
-            <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <h2 className="text-lg font-semibold text-content">Most-Collected Directors</h2>
+                <Link
+                  to="/statistics/directors"
+                  className="group inline-flex items-center gap-2 text-lg font-semibold text-content hover:text-primary-600 dark:hover:text-primary-400 transition-colors"
+                >
+                  <span>Most-Collected Directors</span>
+                  <span className="text-xs font-medium text-primary-600 dark:text-primary-400 group-hover:translate-x-0.5 transition-transform">
+                    Explore all →
+                  </span>
+                </Link>
                 <p className="text-xs text-content-muted">
-                  Filmmakers with the most titles in your library — select any card to browse their films
+                  Filmmakers with the most titles in your library — select any card to browse their films, or open the full Directors Explorer
                 </p>
               </div>
+              <Button asChild variant="secondary" size="sm">
+                <Link to="/statistics/directors">Explore All Directors →</Link>
+              </Button>
             </div>
 
             {content.topDirectors.length === 0 ? (
@@ -745,6 +758,7 @@ const StatisticsPage: React.FC = () => {
                     maxCount={maxDirectorCount}
                     unitSingular="film"
                     unitPlural="films"
+                    filterParam="director"
                   />
                 ))}
               </div>
@@ -753,13 +767,24 @@ const StatisticsPage: React.FC = () => {
 
           {/* Most-Featured Cast (First-Class Spotlight Grid) */}
           <div className="card space-y-4">
-            <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <h2 className="text-lg font-semibold text-content">Most-Featured Cast</h2>
+                <Link
+                  to="/statistics/actors"
+                  className="group inline-flex items-center gap-2 text-lg font-semibold text-content hover:text-primary-600 dark:hover:text-primary-400 transition-colors"
+                >
+                  <span>Most-Featured Cast</span>
+                  <span className="text-xs font-medium text-primary-600 dark:text-primary-400 group-hover:translate-x-0.5 transition-transform">
+                    Explore all →
+                  </span>
+                </Link>
                 <p className="text-xs text-content-muted">
-                  Actors appearing in the most owned titles — select any card to browse their appearances
+                  Actors appearing in the most owned titles — select any card to browse their appearances, or open the full Actors Explorer
                 </p>
               </div>
+              <Button asChild variant="secondary" size="sm">
+                <Link to="/statistics/actors">Explore All Actors →</Link>
+              </Button>
             </div>
 
             {content.topCast.length === 0 ? (
@@ -774,6 +799,7 @@ const StatisticsPage: React.FC = () => {
                     maxCount={maxCastCount}
                     unitSingular="title"
                     unitPlural="titles"
+                    filterParam="actor"
                   />
                 ))}
               </div>

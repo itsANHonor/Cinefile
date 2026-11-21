@@ -113,6 +113,8 @@ const BulkAddForm: React.FC<BulkAddFormProps> = ({ onSuccess }) => {
           purchase_date: undefined,
           media: {
             title: selectedMovie.title,
+            original_title: selectedMovie.original_title || undefined,
+            original_language: selectedMovie.original_language || undefined,
             tmdb_id: selectedMovie.id,
             synopsis: selectedMovie.overview,
             cover_art_url: selectedMovie.poster_url || undefined,

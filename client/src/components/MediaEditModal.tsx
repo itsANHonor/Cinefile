@@ -11,6 +11,7 @@ import {
 import { apiService } from '../services/api.service';
 import { useToast } from '../context/ToastContext';
 import PosterSelector from './PosterSelector';
+import { getDistinctOriginalTitle } from '../lib/titles';
 import {
   LetterboxdDotsIcon,
   formatStarString,
@@ -34,6 +35,7 @@ interface TMDBComparison {
 const MediaEditModal: React.FC<MediaEditModalProps> = ({ media, isOpen, onClose, onSave }) => {
   const [formData, setFormData] = useState({
     title: '',
+    original_title: '',
     synopsis: '',
     director: '',
     release_date: '',
@@ -100,6 +102,7 @@ const MediaEditModal: React.FC<MediaEditModalProps> = ({ media, isOpen, onClose,
     if (media && isOpen) {
       setFormData({
         title: media.title || '',
+        original_title: media.original_title || '',
         synopsis: media.synopsis || '',
         director: media.director || '',
         release_date: media.release_date || '',
@@ -276,6 +279,7 @@ const MediaEditModal: React.FC<MediaEditModalProps> = ({ media, isOpen, onClose,
       setTmdbDirectId(String(details.id));
       setFormData((prev) => ({
         title: details.title || prev.title,
+        original_title: details.original_title || prev.original_title,
         synopsis: details.overview || prev.synopsis,
         director: details.director || prev.director,
         release_date: details.release_date || prev.release_date,
@@ -374,6 +378,7 @@ const MediaEditModal: React.FC<MediaEditModalProps> = ({ media, isOpen, onClose,
       setTmdbDirectId(String(tvDetails.id));
       setFormData((prev) => ({
         title: seasonTitle || prev.title,
+        original_title: tvDetails.original_name || prev.original_title,
         synopsis: overview || prev.synopsis,
         director: tvDetails.creators || prev.director,
         release_date: airDate || prev.release_date,
@@ -454,6 +459,7 @@ const MediaEditModal: React.FC<MediaEditModalProps> = ({ media, isOpen, onClose,
 
       const updatedMedia = await apiService.updateMedia(media.id, {
         ...formData,
+        original_title: formData.original_title.trim() || null,
         tmdb_id: linkedTmdbInfo.tmdb_id,
         media_type: linkedTmdbInfo.media_type,
         tv_show_tmdb_id: linkedTmdbInfo.tv_show_tmdb_id,
@@ -800,6 +806,11 @@ const MediaEditModal: React.FC<MediaEditModalProps> = ({ media, isOpen, onClose,
                                   <span className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
                                     {item.title}
                                   </span>
+                                  {getDistinctOriginalTitle({ title: item.title, original_title: item.original_title }) && (
+                                    <span className="text-xs italic text-gray-500 dark:text-gray-400 truncate">
+                                      ({item.original_title})
+                                    </span>
+                                  )}
                                   {year && (
                                     <span className="text-sm text-gray-500 dark:text-gray-400">
                                       ({year})
@@ -870,6 +881,11 @@ const MediaEditModal: React.FC<MediaEditModalProps> = ({ media, isOpen, onClose,
                                   <span className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
                                     {show.name}
                                   </span>
+                                  {getDistinctOriginalTitle({ title: show.name, original_title: show.original_name }) && (
+                                    <span className="text-xs italic text-gray-500 dark:text-gray-400 truncate">
+                                      ({show.original_name})
+                                    </span>
+                                  )}
                                   {year && (
                                     <span className="text-sm text-gray-500 dark:text-gray-400">
                                       ({year})
@@ -1041,13 +1057,28 @@ const MediaEditModal: React.FC<MediaEditModalProps> = ({ media, isOpen, onClose,
                 {/* Left Column */}
                 <div className="space-y-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    <label htmlFor="media-edit-title" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                       Title
                     </label>
                     <input
+                      id="media-edit-title"
                       type="text"
                       value={formData.title}
                       onChange={(e) => handleInputChange('title', e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface dark:bg-gray-700 dark:text-gray-100"
+                    />
+                  </div>
+
+                  <div>
+                    <label htmlFor="media-edit-original-title" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      Original Title <span className="text-xs font-normal text-gray-500 dark:text-gray-400">(optional, e.g. native non-English title)</span>
+                    </label>
+                    <input
+                      id="media-edit-original-title"
+                      type="text"
+                      value={formData.original_title}
+                      onChange={(e) => handleInputChange('original_title', e.target.value)}
+                      placeholder="e.g., Absolute Giganten"
                       className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface dark:bg-gray-700 dark:text-gray-100"
                     />
                   </div>

@@ -628,6 +628,14 @@ export function createCinefileMcpServer(): McpServer {
           .string()
           .optional()
           .describe('Purchase date in YYYY-MM-DD format'),
+        barcode: z
+          .string()
+          .optional()
+          .describe('UPC (12 digits) or EAN (13 digits) barcode on the physical item'),
+        asin: z
+          .string()
+          .optional()
+          .describe('10-character Amazon ASIN (auto-extracted if an Amazon URL is in store_links)'),
         store_links: z
           .array(
             z.object({
@@ -733,6 +741,16 @@ export function createCinefileMcpServer(): McpServer {
           .nullable()
           .optional()
           .describe('Updated purchase date YYYY-MM-DD (or null to clear)'),
+        barcode: z
+          .string()
+          .nullable()
+          .optional()
+          .describe('Updated UPC/EAN barcode (or null to clear)'),
+        asin: z
+          .string()
+          .nullable()
+          .optional()
+          .describe('Updated 10-character Amazon ASIN (or null to clear)'),
         store_links: z
           .array(
             z.object({

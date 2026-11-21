@@ -12,6 +12,12 @@ import {
   normalizeVersionNotes,
   parseEditionTags,
 } from '../utils/edition-tags.util';
+import { getCastWorkKey } from '../utils/person-filter.util';
+import {
+  extractAsinFromStoreLinks,
+  normalizeAsin,
+  normalizeBarcode,
+} from '../utils/identifiers.util';
 
 export const CANONICAL_FORMATS = [
   '4K UHD',
@@ -272,9 +278,12 @@ function applySearchFilters(queryBuilder: any, params: SearchCollectionParams) {
 
   if (params.query && params.query.trim()) {
     const searchTerm = `%${params.query.trim()}%`;
+    const compactBarcodeTerm = `%${params.query.trim().replace(/[\s-]+/g, '')}%`;
     q = q.where(function (this: any) {
       this.where('physical_items.name', 'like', searchTerm)
         .orWhere('physical_items.edition_notes', 'like', searchTerm)
+        .orWhere('physical_items.barcode', 'like', compactBarcodeTerm)
+        .orWhere('physical_items.asin', 'like', searchTerm)
         .orWhere('physical_items.notes', 'like', searchTerm)
         .orWhereRaw(
           `EXISTS (
@@ -283,6 +292,7 @@ function applySearchFilters(queryBuilder: any, params: SearchCollectionParams) {
           WHERE physical_item_media.physical_item_id = physical_items.id
           AND (
             media.title LIKE ? OR
+            media.original_title LIKE ? OR
             media.tv_show_name LIKE ? OR
             media.director LIKE ? OR
             media.synopsis LIKE ? OR
@@ -293,7 +303,7 @@ function applySearchFilters(queryBuilder: any, params: SearchCollectionParams) {
             ))
           )
         )`,
-          [searchTerm, searchTerm, searchTerm, searchTerm, searchTerm, searchTerm],
+          [searchTerm, searchTerm, searchTerm, searchTerm, searchTerm, searchTerm, searchTerm],
         );
     });
   }
@@ -392,6 +402,7 @@ async function hydratePhysicalItems(physicalItems: any[], minimal: boolean = fal
           id: m.id,
           link_id: m.link_id,
           title: m.title,
+          original_title: m.original_title || undefined,
           tmdb_id: m.tmdb_id,
           media_type: m.media_type || 'movie',
           release_date: m.release_date,
@@ -406,6 +417,8 @@ async function hydratePhysicalItems(physicalItems: any[], minimal: boolean = fal
         id: m.id,
         link_id: m.link_id,
         title: m.title,
+        original_title: m.original_title || undefined,
+        original_language: m.original_language || undefined,
         tmdb_id: m.tmdb_id,
         media_type: m.media_type || 'movie',
         tv_show_tmdb_id: m.tv_show_tmdb_id || undefined,
@@ -456,6 +469,8 @@ async function hydratePhysicalItems(physicalItems: any[], minimal: boolean = fal
       archive_reason: item.archive_reason || null,
       custom_image_url: item.custom_image_url || null,
       purchase_date: item.purchase_date || null,
+      barcode: item.barcode || null,
+      asin: item.asin || null,
       store_links: parseJsonArray(item.store_links),
       thickness_units: item.thickness_units || 1,
       width_mm: item.width_mm || null,
@@ -915,7 +930,7 @@ export async function getCollectionStats(
   let newestRelease: { title: string; year: number; releaseDate: string } | null = null;
   const genreMap = new Map<number, { id: number; name: string; itemIds: Set<number>; mediaIds: Set<number> }>();
   const directorMap = new Map<string, Set<number>>();
-  const castMap = new Map<string, Set<number>>();
+  const castMap = new Map<string, Set<string>>();
 
   for (const row of itemMediaRows) {
     if (row.release_date && typeof row.release_date === 'string') {
@@ -956,7 +971,12 @@ export async function getCollectionStats(
       }
     }
 
-    if (row.director && typeof row.director === 'string' && row.director.trim()) {
+    if (
+      row.media_type !== 'tv_season' &&
+      row.director &&
+      typeof row.director === 'string' &&
+      row.director.trim()
+    ) {
       const directors = row.director
         .split(',')
         .map((d: string) => d.trim())
@@ -970,13 +990,16 @@ export async function getCollectionStats(
     }
 
     const castList = parseJsonArray<string>(row.cast);
-    for (const actor of castList) {
-      if (typeof actor === 'string' && actor.trim()) {
-        const name = actor.trim();
-        if (!castMap.has(name)) {
-          castMap.set(name, new Set());
+    if (castList.length > 0) {
+      const workKey = getCastWorkKey(row);
+      for (const actor of castList) {
+        if (typeof actor === 'string' && actor.trim()) {
+          const name = actor.trim();
+          if (!castMap.has(name)) {
+            castMap.set(name, new Set());
+          }
+          castMap.get(name)!.add(workKey);
         }
-        castMap.get(name)!.add(row.media_id);
       }
     }
   }
@@ -1960,6 +1983,8 @@ export interface AddPhysicalItemInput {
   notes?: string;
   notes_public?: boolean;
   purchase_date?: string;
+  barcode?: string;
+  asin?: string;
   store_links?: Array<{ label: string; url: string }>;
   thickness_units?: number;
   sort_series_id?: number;
@@ -2028,6 +2053,8 @@ export async function addPhysicalItem(input: AddPhysicalItemInput) {
         return {
           ...m,
           title: `${tvDetails.name} - ${seasonDetails.name || `Season ${m.season_number}`}`,
+          original_title: (m as any).original_title ?? (tvDetails.original_name || undefined),
+          original_language: (m as any).original_language ?? (tvDetails.original_language || undefined),
           tmdb_id: seasonDetails.id || m.tmdb_id,
           tv_show_tmdb_id: m.tv_show_tmdb_id,
           tv_show_name: tvDetails.name,
@@ -2051,6 +2078,8 @@ export async function addPhysicalItem(input: AddPhysicalItemInput) {
         return {
           ...m,
           title: m.title || details.title,
+          original_title: (m as any).original_title ?? (details.original_title || undefined),
+          original_language: (m as any).original_language ?? (details.original_language || undefined),
           tmdb_id: details.id,
           synopsis: m.synopsis ?? details.overview,
           cover_art_url: m.cover_art_url ?? (tmdbService.getImageUrl(details.poster_path) || undefined),
@@ -2108,6 +2137,8 @@ export async function addPhysicalItem(input: AddPhysicalItemInput) {
       archived: 0,
       archive_reason: null,
       purchase_date: input.purchase_date || null,
+      barcode: normalizeBarcode(input.barcode),
+      asin: normalizeAsin(input.asin) || extractAsinFromStoreLinks(input.store_links),
       thickness_units: Math.max(1, input.thickness_units || 1),
       store_links: input.store_links ? JSON.stringify(input.store_links) : null,
       sort_series_id: input.sort_series_id || null,
@@ -2120,6 +2151,8 @@ export async function addPhysicalItem(input: AddPhysicalItemInput) {
       } else {
         const [newMediaId] = await trx('media').insert({
           title: mediaItem.title,
+          original_title: (mediaItem as any).original_title || null,
+          original_language: (mediaItem as any).original_language || null,
           tmdb_id: mediaItem.tmdb_id || null,
           synopsis: mediaItem.synopsis || null,
           cover_art_url: mediaItem.cover_art_url || null,
@@ -2221,6 +2254,8 @@ export interface UpdatePhysicalItemInput {
   notes?: string | null;
   notes_public?: boolean;
   purchase_date?: string | null;
+  barcode?: string | null;
+  asin?: string | null;
   store_links?: Array<{ label: string; url: string }> | null;
   thickness_units?: number;
   sort_series_id?: number | null;
@@ -2264,6 +2299,15 @@ export async function updatePhysicalItem(input: UpdatePhysicalItemInput) {
   }
   if (input.purchase_date !== undefined) {
     updateData.purchase_date = input.purchase_date || null;
+  }
+  if (input.barcode !== undefined) {
+    updateData.barcode = normalizeBarcode(input.barcode);
+  }
+  if (input.asin !== undefined) {
+    updateData.asin = normalizeAsin(input.asin);
+  } else if (!existing.asin && input.store_links) {
+    const extracted = extractAsinFromStoreLinks(input.store_links);
+    if (extracted) updateData.asin = extracted;
   }
   if (input.thickness_units !== undefined) {
     updateData.thickness_units = Math.max(1, input.thickness_units);

@@ -13,13 +13,15 @@ function wrapperForRoute(initialRoute: string) {
 
 it('parses and serializes a full filter URL', () => {
   const { result } = renderHook(() => useCollectionParams(), {
-    wrapper: wrapperForRoute('/?q=alien&format=DVD&genre=18&series=2,13&edition=Steelbook,Criterion&archived=true&sort=release_date.desc'),
+    wrapper: wrapperForRoute('/?q=alien&format=DVD&genre=18&series=2,13&director=Lars%20von%20Trier&actor=Kirsten%20Dunst&edition=Steelbook,Criterion&archived=true&sort=release_date.desc'),
   });
 
   expect(result.current.params.q).toBe('alien');
   expect(result.current.params.formats).toEqual(['DVD']);
   expect(result.current.params.genres).toEqual([18]);
   expect(result.current.params.series).toEqual([2, 13]);
+  expect(result.current.params.director).toBe('Lars von Trier');
+  expect(result.current.params.actor).toBe('Kirsten Dunst');
   expect(result.current.params.decades).toEqual([]);
   expect(result.current.params.editions).toEqual(['Steelbook', 'Criterion']);
   expect(result.current.params.type).toBe('all');
@@ -119,7 +121,7 @@ it('uses history replace for search text updates', async () => {
 
 it('clearAll removes every param', async () => {
   const { result } = renderHook(() => useCollectionParams(), {
-    wrapper: wrapperForRoute('/?q=alien&format=DVD&genre=18&sort=release_date.desc'),
+    wrapper: wrapperForRoute('/?q=alien&format=DVD&genre=18&director=Ridley%20Scott&actor=Sigourney%20Weaver&sort=release_date.desc'),
   });
 
   act(() => {
@@ -132,6 +134,8 @@ it('clearAll removes every param', async () => {
       formats: [],
       genres: [],
       decades: [],
+      director: '',
+      actor: '',
       type: 'all',
       sortBy: 'title',
       sortOrder: 'asc',

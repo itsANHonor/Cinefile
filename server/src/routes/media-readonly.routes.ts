@@ -28,6 +28,8 @@ router.get('/', async (req: Request, res: Response) => {
       const searchTerm = `%${search.trim()}%`;
       query = query.where(function() {
         this.where('media.title', 'like', searchTerm)
+          .orWhere('media.original_title', 'like', searchTerm)
+          .orWhere('media.tv_show_name', 'like', searchTerm)
           .orWhere('media.director', 'like', searchTerm)
           .orWhere('media.synopsis', 'like', searchTerm)
           .orWhereRaw(`EXISTS (
@@ -59,16 +61,15 @@ router.get('/', async (req: Request, res: Response) => {
     }
 
     // Get total count for pagination
-    let countQuery = db('media')
-      .leftJoin('movie_series', 'media.id', 'movie_series.media_id')
-      .leftJoin('series', 'movie_series.series_id', 'series.id')
-      .groupBy('media.id');
+    let countQuery = db('media');
 
     // Apply same search filters to count query
     if (search && typeof search === 'string' && search.trim() !== '') {
       const searchTerm = `%${search.trim()}%`;
       countQuery = countQuery.where(function() {
         this.where('media.title', 'like', searchTerm)
+          .orWhere('media.original_title', 'like', searchTerm)
+          .orWhere('media.tv_show_name', 'like', searchTerm)
           .orWhere('media.director', 'like', searchTerm)
           .orWhere('media.synopsis', 'like', searchTerm)
           .orWhereRaw(`EXISTS (

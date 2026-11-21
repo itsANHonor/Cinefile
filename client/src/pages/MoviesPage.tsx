@@ -6,6 +6,7 @@ import { useConfirm } from '../context/ConfirmContext';
 import { useToast } from '../context/ToastContext';
 import { useInfiniteScroll } from '../hooks/useInfiniteScroll';
 import MediaEditModal from '../components/MediaEditModal';
+import BulkMetadataOperation from '../components/BulkMetadataOperation';
 import { Button } from '../components/ui/Button';
 import { IconButton } from '../components/ui/IconButton';
 import { EmptyState } from '../components/ui/EmptyState';
@@ -24,6 +25,7 @@ const MoviesPage: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  const [showBulkMetadata, setShowBulkMetadata] = useState(false);
   const [mediaType, setMediaType] = useState<'all' | 'movie' | 'tv_season'>('all');
 
   const confirm = useConfirm();
@@ -211,23 +213,47 @@ const MoviesPage: React.FC = () => {
   }
 
   return (
-    <main className="container mx-auto px-4 py-8">
+    <div className="space-y-6">
       {/* Header */}
-      <div className="mb-8">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-2">
+      <div className="card p-5">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h1 className="text-3xl font-bold text-content mb-2">
-              Media Management
-            </h1>
-            <p className="text-content-muted">
-              {isLoading ? 'Loading…' : totalCount > 0 ? `${getCountLabel()} in your collection` : 'No media found'}
+            <div className="flex items-center gap-2.5">
+              <h2 className="text-lg font-semibold text-content">
+                Media Management
+              </h2>
+              {!isLoading && totalCount > 0 && (
+                <span className="inline-flex items-center rounded-full bg-surface-sunken border border-subtle px-2.5 py-0.5 text-xs font-semibold text-content-muted">
+                  {getCountLabel()}
+                </span>
+              )}
+            </div>
+            <p className="text-sm text-content-muted mt-0.5">
+              Edit movie and TV metadata, link TMDb records, or refresh missing metadata in bulk.
             </p>
           </div>
+          <Button
+            variant={showBulkMetadata ? 'secondary' : 'primary'}
+            size="sm"
+            onClick={() => setShowBulkMetadata(!showBulkMetadata)}
+            className="self-start sm:self-auto flex-shrink-0"
+          >
+            {showBulkMetadata ? 'Hide' : 'Bulk Update Metadata'}
+          </Button>
         </div>
       </div>
 
+      {/* Bulk Metadata Operation */}
+      {showBulkMetadata && (
+        <BulkMetadataOperation
+          onComplete={() => {
+            loadInitialData();
+          }}
+        />
+      )}
+
       {/* Controls */}
-      <div className="card mb-6">
+      <div className="card">
         <div className="flex flex-col lg:flex-row gap-4 items-start lg:items-center justify-between">
           {/* Search */}
           <div className="flex-1 max-w-md">
@@ -344,12 +370,18 @@ const MoviesPage: React.FC = () => {
 
       {/* Loading skeleton */}
       {isLoading && (
-        <div className={viewMode === 'grid' ? 'grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6' : 'space-y-4'}>
-          {Array.from({ length: 5 }).map((_, i) => (
-            <div key={i} className="card">
-              <Skeleton className="aspect-[2/3] w-full rounded-[--radius-control]" />
-              <Skeleton className="mt-3 h-4 w-3/4 rounded-[--radius-control]" />
-              <Skeleton className="mt-2 h-3 w-1/2 rounded-[--radius-control]" />
+        <div
+          className={
+            viewMode === 'grid'
+              ? 'grid grid-cols-2 xs:grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 xl:grid-cols-10 gap-2.5 sm:gap-3'
+              : 'space-y-4'
+          }
+        >
+          {Array.from({ length: viewMode === 'grid' ? 10 : 5 }).map((_, i) => (
+            <div key={i} className={`card ${viewMode === 'grid' ? 'p-2' : ''}`}>
+              <Skeleton className="aspect-[2/3] w-full rounded-[calc(var(--radius-card)-0.25rem)]" />
+              <Skeleton className="mt-2 h-3.5 w-3/4 rounded-[--radius-control]" />
+              <Skeleton className="mt-1 h-3 w-1/3 rounded-[--radius-control]" />
             </div>
           ))}
         </div>
@@ -380,7 +412,7 @@ const MoviesPage: React.FC = () => {
         <div
           role="list"
           className={viewMode === 'grid'
-            ? 'grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6'
+            ? 'grid grid-cols-2 xs:grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 xl:grid-cols-10 gap-2.5 sm:gap-3'
             : 'space-y-4'
           }
         >
@@ -394,26 +426,39 @@ const MoviesPage: React.FC = () => {
                 key={movie.id}
                 role="listitem"
                 style={{ '--stagger-index': staggerIndex } as React.CSSProperties}
-                className={`card group relative transition-shadow hover:shadow-lg media-card-batch-enter ${
-                  viewMode === 'list' ? 'flex items-center space-x-4' : ''
+                className={`card group relative transition-shadow hover:shadow-md media-card-batch-enter ${
+                  viewMode === 'grid' ? 'p-2' : 'flex items-center space-x-4'
                 }`}
               >
                 {/* Delete Button */}
-                <IconButton
-                  size="sm"
-                  variant="danger"
-                  aria-label={`Delete ${movie.title}`}
-                  onClick={() => handleDeleteMedia(movie)}
-                  className="absolute top-2 right-2 z-10 bg-red-600/90 text-white backdrop-blur-sm"
-                >
-                  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                  </svg>
-                </IconButton>
+                {viewMode === 'grid' ? (
+                  <button
+                    type="button"
+                    aria-label={`Delete ${movie.title}`}
+                    onClick={() => handleDeleteMedia(movie)}
+                    className="absolute top-3 right-3 z-10 flex h-5 w-5 items-center justify-center rounded-full bg-red-600/85 text-white shadow-sm backdrop-blur-sm transition-colors hover:bg-red-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                ) : (
+                  <IconButton
+                    size="sm"
+                    variant="danger"
+                    aria-label={`Delete ${movie.title}`}
+                    onClick={() => handleDeleteMedia(movie)}
+                    className="absolute top-2 right-2 z-10 bg-red-600/90 text-white backdrop-blur-sm"
+                  >
+                    <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                  </IconButton>
+                )}
 
                 {/* TV Badge (grid view only) */}
                 {isTV && viewMode === 'grid' && (
-                  <div className="absolute top-2 left-2 z-10 px-1.5 py-0.5 bg-purple-600 text-white text-[10px] font-bold rounded">
+                  <div className="absolute top-3 left-3 z-10 px-1.5 py-0.5 bg-purple-600 text-white text-[9px] font-bold rounded">
                     TV
                   </div>
                 )}
@@ -434,7 +479,7 @@ const MoviesPage: React.FC = () => {
                   {viewMode === 'grid' ? (
                     <>
                       <div
-                        className={`aspect-[2/3] mb-4 overflow-hidden rounded-lg bg-surface-sunken ${
+                        className={`aspect-[2/3] mb-1.5 overflow-hidden rounded-[calc(var(--radius-card)-0.25rem)] bg-surface-sunken ${
                           movie.cover_art_url && !isImgLoaded ? 'skeleton-shimmer' : ''
                         }`}
                       >
@@ -445,7 +490,7 @@ const MoviesPage: React.FC = () => {
                             loading="lazy"
                             decoding="async"
                             onLoad={() => markImageLoaded(movie.id)}
-                            className={`w-full h-full object-cover rounded-lg transition-[opacity,transform] duration-300 ease-out motion-reduce:transition-none ${
+                            className={`w-full h-full object-cover transition-[opacity,transform] duration-300 ease-out motion-reduce:transition-none ${
                               isImgLoaded ? 'scale-100 opacity-100' : 'scale-[1.02] opacity-0'
                             }`}
                             onError={(e) => {
@@ -454,42 +499,23 @@ const MoviesPage: React.FC = () => {
                             }}
                           />
                         ) : (
-                          <div className="w-full h-full bg-gray-200 dark:bg-gray-700 rounded-lg flex items-center justify-center">
-                            <svg className="w-12 h-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <div className="w-full h-full bg-surface-sunken flex items-center justify-center">
+                            <svg className="w-8 h-8 text-content-muted/50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 4V2a1 1 0 011-1h8a1 1 0 011 1v2m0 0V1a1 1 0 011-1h2a1 1 0 011 1v18a1 1 0 01-1 1H4a1 1 0 01-1-1V1a1 1 0 011-1h2a1 1 0 011 1v3m0 0h8M7 4v16a1 1 0 001 1h8a1 1 0 001-1V4M7 4H5a1 1 0 00-1 1v14a1 1 0 001 1h2V4z" />
                             </svg>
                           </div>
                         )}
                       </div>
-                      <h3 className="font-semibold text-gray-900 dark:text-gray-100 mb-1 line-clamp-2">
+                      <h3
+                        className="text-xs font-semibold text-content leading-snug line-clamp-2"
+                        title={movie.title}
+                      >
                         {movie.title}
                       </h3>
-                      {movie.director && (
-                        <p className="text-sm text-gray-600 dark:text-gray-300 mb-1">
-                          {movie.director}
-                        </p>
-                      )}
                       {movie.release_date && (
-                        <p className="text-sm text-gray-500 dark:text-gray-400 mb-1">
+                        <p className="text-[11px] text-content-muted mt-0.5">
                           {new Date(movie.release_date).getFullYear()}
                         </p>
-                      )}
-                      {movie.genres && movie.genres.length > 0 && (
-                        <div className="flex flex-wrap gap-1 mt-1">
-                          {movie.genres.slice(0, 3).map((genre) => (
-                            <span
-                              key={genre.id}
-                              className="text-xs px-2 py-0.5 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded"
-                            >
-                              {genre.name}
-                            </span>
-                          ))}
-                          {movie.genres.length > 3 && (
-                            <span className="text-xs text-gray-500 dark:text-gray-400">
-                              +{movie.genres.length - 3}
-                            </span>
-                          )}
-                        </div>
                       )}
                     </>
                   ) : (
@@ -571,19 +597,19 @@ const MoviesPage: React.FC = () => {
           })}
           {isLoadingMore &&
             !loadMoreError &&
-            Array.from({ length: viewMode === 'grid' ? 5 : 3 }).map((_, i) => (
+            Array.from({ length: viewMode === 'grid' ? 10 : 3 }).map((_, i) => (
               <div
                 key={`load-more-skeleton-${i}`}
                 role="listitem"
                 aria-hidden="true"
                 data-testid="movies-load-more-skeleton"
-                className={`card ${viewMode === 'list' ? 'flex items-center space-x-4' : ''}`}
+                className={`card ${viewMode === 'grid' ? 'p-2' : 'flex items-center space-x-4'}`}
               >
                 {viewMode === 'grid' ? (
                   <>
-                    <Skeleton className="aspect-[2/3] w-full rounded-[--radius-control]" />
-                    <Skeleton className="mt-3 h-4 w-3/4 rounded-[--radius-control]" />
-                    <Skeleton className="mt-2 h-3 w-1/2 rounded-[--radius-control]" />
+                    <Skeleton className="aspect-[2/3] w-full rounded-[calc(var(--radius-card)-0.25rem)]" />
+                    <Skeleton className="mt-2 h-3.5 w-3/4 rounded-[--radius-control]" />
+                    <Skeleton className="mt-1 h-3 w-1/3 rounded-[--radius-control]" />
                   </>
                 ) : (
                   <>
@@ -623,7 +649,7 @@ const MoviesPage: React.FC = () => {
         onClose={handleCloseEditModal}
         onSave={handleSaveMovie}
       />
-    </main>
+    </div>
   );
 };
 

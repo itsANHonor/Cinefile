@@ -21,6 +21,7 @@ describe('Navigation', () => {
     // labels are rendered rather than stripped by the collapse flag.
     expect(screen.getByRole('link', { name: 'Collection' })).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Shelf View' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Media' })).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Statistics' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'About' })).toBeInTheDocument();
   });

@@ -43,6 +43,8 @@ export interface MovieSeries {
 export interface Media {
   id: number;
   title: string;
+  original_title?: string | null;
+  original_language?: string | null;
   tmdb_id?: number;
   synopsis?: string;
   cover_art_url?: string;
@@ -133,6 +135,8 @@ export interface LetterboxdCacheItem {
 
 export interface CreateMediaDto {
   title: string;
+  original_title?: string | null;
+  original_language?: string | null;
   tmdb_id?: number;
   synopsis?: string;
   cover_art_url?: string;
@@ -158,6 +162,7 @@ export interface UpdateMediaDto extends Partial<CreateMediaDto> {
 
 export interface ManualMovieData {
   title: string;
+  original_title?: string;
   synopsis: string;
   director: string;
   release_date: string;
@@ -173,6 +178,7 @@ export interface ManualMovieData {
 export interface UnifiedSearchResult {
   id: number;
   title: string;
+  original_title?: string | null;
   release_date?: string;
   overview?: string;
   poster_path?: string | null;
@@ -197,6 +203,8 @@ export interface PhysicalItem {
   archive_reason?: string | null;
   custom_image_url?: string;
   purchase_date?: string;
+  barcode?: string | null;
+  asin?: string | null;
   store_links?: Array<{label: string; url: string}>;
   primary_series_id?: number; // Legacy - still present but being phased out
   sort_series_id?: number; // Used for sorting by series
@@ -225,12 +233,16 @@ export interface CreatePhysicalItemDto {
   archive_reason?: string | null;
   custom_image_url?: string;
   purchase_date?: string;
+  barcode?: string | null;
+  asin?: string | null;
   store_links?: Array<{label: string; url: string}>;
   sort_series_id?: number; // Used for sorting by series
   media_primary_series_id?: number; // When set, adds all media to this series
   media: {
     id?: number; // If linking to existing media
     title?: string; // If creating new media
+    original_title?: string | null;
+    original_language?: string | null;
     tmdb_id?: number;
     synopsis?: string;
     cover_art_url?: string;
@@ -249,6 +261,8 @@ export interface CreatePhysicalItemDto {
   }[] | {
     id?: number;
     title?: string;
+    original_title?: string | null;
+    original_language?: string | null;
     tmdb_id?: number;
     synopsis?: string;
     cover_art_url?: string;
@@ -273,6 +287,8 @@ export type UpdatePhysicalItemDto = Partial<Omit<CreatePhysicalItemDto, 'media'>
 export interface TMDbMovie {
   id: number;
   title: string;
+  original_title?: string;
+  original_language?: string;
   overview: string;
   poster_path: string | null;
   release_date: string;
@@ -300,6 +316,8 @@ export interface TMDbSearchResponse {
 export interface TMDbTVShow {
   id: number;
   name: string;
+  original_name?: string;
+  original_language?: string;
   overview: string;
   poster_path: string | null;
   first_air_date: string;
@@ -370,6 +388,8 @@ export interface FilterOptions {
   editions?: string[]; // Array of edition tag strings for multi-select
   versions?: string[]; // Array of movie version tag strings for multi-select
   series?: number[]; // Array of series IDs for multi-select
+  director?: string;
+  actor?: string;
   media_type?: 'all' | 'movie' | 'tv_season';
   archived?: boolean;
   sort_by?: SortField;
@@ -409,8 +429,12 @@ export interface BulkPhysicalItemDto {
   edition_notes?: string;
   custom_image_url?: string;
   purchase_date?: string;
+  barcode?: string | null;
+  asin?: string | null;
   media: {
     title: string;
+    original_title?: string | null;
+    original_language?: string | null;
     tmdb_id?: number;
     synopsis?: string;
     cover_art_url?: string;
@@ -488,6 +512,7 @@ export interface PersonTitlePreview {
   title: string;
   year?: number | null;
   coverArtUrl?: string | null;
+  mediaType?: 'movie' | 'tv_season';
 }
 
 export interface PersonStatItem {
@@ -495,6 +520,65 @@ export interface PersonStatItem {
   count: number;
   profileUrl?: string | null;
   titles?: PersonTitlePreview[];
+}
+
+export interface PersonCollaboratorPreview {
+  name: string;
+  role: 'director' | 'actor';
+  count: number;
+  titles: string[];
+}
+
+export interface PersonExplorerItem {
+  name: string;
+  role: 'director' | 'actor';
+  count: number;
+  itemCount: number;
+  profileUrl: string | null;
+  titles: PersonTitlePreview[];
+  formats: Array<{ format: string; count: number }>;
+  decades: string[];
+  genres: Array<{ id: number; name: string; count: number }>;
+  earliestYear: number | null;
+  latestYear: number | null;
+  alsoRoleCount: number;
+  topCollaborators: PersonCollaboratorPreview[];
+}
+
+export interface DualRolePersonItem {
+  name: string;
+  directedCount: number;
+  actedCount: number;
+  totalUniqueTitles: number;
+  profileUrl: string | null;
+  titles: PersonTitlePreview[];
+}
+
+export interface TalentCollaborationItem {
+  director: string;
+  directorProfileUrl: string | null;
+  actor: string;
+  actorProfileUrl: string | null;
+  count: number;
+  titles: PersonTitlePreview[];
+}
+
+export interface PeopleExplorerResponse {
+  summary: {
+    totalDirectors: number;
+    totalActors: number;
+    multiFilmDirectorsCount: number;
+    multiTitleActorsCount: number;
+    dualRoleCount: number;
+    collaborationsCount: number;
+  };
+  directors: PersonExplorerItem[];
+  actors: PersonExplorerItem[];
+  dualRolePeople: DualRolePersonItem[];
+  topCollaborations: TalentCollaborationItem[];
+  availableFormats: string[];
+  availableDecades: string[];
+  availableGenres: Array<{ id: number; name: string; count: number }>;
 }
 
 export interface SeriesStatItem {

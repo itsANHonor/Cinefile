@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { extractAmazonAsinFromUrl, isAmazonUrl } from '../lib/identifiers';
 
 interface StoreLink {
   label: string;
@@ -8,6 +9,7 @@ interface StoreLink {
 interface StoreLinkManagerProps {
   links: StoreLink[];
   onChange: (links: StoreLink[]) => void;
+  onAsinExtracted?: (asin: string) => void;
   disabled?: boolean;
 }
 
@@ -22,7 +24,12 @@ const COMMON_LABELS = [
   'Custom'
 ];
 
-const StoreLinkManager: React.FC<StoreLinkManagerProps> = ({ links, onChange, disabled = false }) => {
+const StoreLinkManager: React.FC<StoreLinkManagerProps> = ({
+  links,
+  onChange,
+  onAsinExtracted,
+  disabled = false,
+}) => {
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [newLink, setNewLink] = useState<StoreLink>({ label: '', url: '' });
   const [errors, setErrors] = useState<{ label?: string; url?: string }>({});
@@ -70,11 +77,22 @@ const StoreLinkManager: React.FC<StoreLinkManagerProps> = ({ links, onChange, di
     return errors;
   };
 
+  const handleUrlInputChange = (url: string) => {
+    const autoLabel =
+      !newLink.label && !showCustomLabel && isAmazonUrl(url) ? 'Amazon' : newLink.label;
+    setNewLink({ label: autoLabel, url });
+  };
+
   const handleAddLink = () => {
     const validationErrors = validateLink(newLink);
     if (Object.keys(validationErrors).length > 0) {
       setErrors(validationErrors);
       return;
+    }
+
+    const extractedAsin = extractAmazonAsinFromUrl(newLink.url);
+    if (extractedAsin) {
+      onAsinExtracted?.(extractedAsin);
     }
 
     onChange([...links, newLink]);
@@ -108,6 +126,11 @@ const StoreLinkManager: React.FC<StoreLinkManagerProps> = ({ links, onChange, di
     if (Object.keys(validationErrors).length > 0) {
       setErrors(validationErrors);
       return;
+    }
+
+    const extractedAsin = extractAmazonAsinFromUrl(newLink.url);
+    if (extractedAsin) {
+      onAsinExtracted?.(extractedAsin);
     }
 
     const updatedLinks = [...links];
@@ -222,7 +245,7 @@ const StoreLinkManager: React.FC<StoreLinkManagerProps> = ({ links, onChange, di
               <input
                 type="url"
                 value={newLink.url}
-                onChange={(e) => setNewLink({ ...newLink, url: e.target.value })}
+                onChange={(e) => handleUrlInputChange(e.target.value)}
                 disabled={disabled}
                 placeholder="https://example.com"
                 className={`w-full px-3 py-2 border rounded-lg focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface ${
@@ -284,7 +307,7 @@ const StoreLinkManager: React.FC<StoreLinkManagerProps> = ({ links, onChange, di
               <input
                 type="url"
                 value={newLink.url}
-                onChange={(e) => setNewLink({ ...newLink, url: e.target.value })}
+                onChange={(e) => handleUrlInputChange(e.target.value)}
                 disabled={disabled}
                 placeholder="https://example.com"
                 className={`w-full px-3 py-2 border rounded-lg focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface ${

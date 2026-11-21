@@ -3,13 +3,18 @@ import { TMDbTVShowDetails, TMDbTVSeason } from '../types';
 import { apiService } from '../services/api.service';
 import { useToast } from '../context/ToastContext';
 import { PHYSICAL_FORMATS } from '../lib/formats';
+import { sortTVSeasons } from '../lib/tvNaming';
 
 interface SelectedSeason {
   title: string;
+  original_title?: string;
+  original_language?: string;
   media_type: 'tv_season';
   tmdb_id: number;
   tv_show_tmdb_id: number;
   tv_show_name: string;
+  tv_show_poster_url?: string;
+  tv_show_total_seasons?: number;
   season_number: number;
   episode_count: number;
   synopsis?: string;
@@ -110,12 +115,20 @@ const TVSeasonPicker: React.FC<TVSeasonPickerProps> = ({
       return;
     }
 
-    const selectedSeasons: SelectedSeason[] = tvDetails.seasons
+    const orderedSeasons = sortTVSeasons(tvDetails.seasons);
+    const showPosterUrl =
+      tvDetails.poster_url ||
+      (tvDetails.poster_path ? `https://image.tmdb.org/t/p/w500${tvDetails.poster_path}` : undefined);
+    const totalRegularSeasons =
+      tvDetails.number_of_seasons ||
+      tvDetails.seasons.filter((s) => s.season_number > 0).length;
+
+    const selectedSeasons: SelectedSeason[] = orderedSeasons
       .filter(s => selectedSeasonIds.has(s.id))
       .map(season => {
         const posterUrl = season.poster_path
           ? `https://image.tmdb.org/t/p/w500${season.poster_path}`
-          : tvDetails.poster_url || (tvDetails.poster_path ? `https://image.tmdb.org/t/p/w500${tvDetails.poster_path}` : undefined);
+          : showPosterUrl;
 
         const title = season.season_number === 0
           ? `${tvDetails.name} - Specials`
@@ -123,10 +136,14 @@ const TVSeasonPicker: React.FC<TVSeasonPickerProps> = ({
 
         return {
           title,
+          original_title: tvDetails.original_name || undefined,
+          original_language: tvDetails.original_language || undefined,
           media_type: 'tv_season' as const,
           tmdb_id: season.id,
           tv_show_tmdb_id: tvDetails.id,
           tv_show_name: tvDetails.name,
+          tv_show_poster_url: showPosterUrl,
+          tv_show_total_seasons: totalRegularSeasons,
           season_number: season.season_number,
           episode_count: season.episode_count,
           synopsis: season.overview || tvDetails.overview,
@@ -226,7 +243,7 @@ const TVSeasonPicker: React.FC<TVSeasonPickerProps> = ({
 
                 {/* Season List */}
                 <div className="space-y-2 mb-6">
-                  {tvDetails.seasons.map((season) => {
+                  {sortTVSeasons(tvDetails.seasons).map((season) => {
                     const posterUrl = getSeasonPosterUrl(season);
                     const isSelected = selectedSeasonIds.has(season.id);
 

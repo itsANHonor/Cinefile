@@ -19,6 +19,7 @@ import {
   BulkCreatePhysicalItemsResponse,
   CollectionStatistics,
   CollectionDashboardStatistics,
+  PeopleExplorerResponse,
   CollectionFacets,
   PhysicalLibrary,
   ShelfGroup,
@@ -274,6 +275,8 @@ class ApiService {
       if (filterOptions.series && filterOptions.series.length > 0) {
         params.series = filterOptions.series.join(',');
       }
+      if (filterOptions.director) params.director = filterOptions.director;
+      if (filterOptions.actor) params.actor = filterOptions.actor;
       if (filterOptions.media_type && filterOptions.media_type !== 'all') params.media_type = filterOptions.media_type;
       if (filterOptions.archived) params.archived = 'true';
       if (filterOptions.sort_by) params.sort_by = filterOptions.sort_by;
@@ -450,6 +453,8 @@ class ApiService {
     editions?: string[];
     versions?: string[];
     series?: number[];
+    director?: string;
+    actor?: string;
     search?: string;
     media_type?: 'all' | 'movie' | 'tv_season';
     archived?: boolean;
@@ -479,6 +484,12 @@ class ApiService {
       if (filters.series && filters.series.length > 0) {
         params.series = filters.series.join(',');
       }
+      if (filters.director) {
+        params.director = filters.director;
+      }
+      if (filters.actor) {
+        params.actor = filters.actor;
+      }
       if (filters.search) {
         params.search = filters.search;
       }
@@ -496,6 +507,22 @@ class ApiService {
   async getDashboardStatistics(): Promise<CollectionDashboardStatistics> {
     const response = await this.api.get<CollectionDashboardStatistics>('/statistics/dashboard');
     return response.data;
+  }
+
+  async getPeopleExplorer(): Promise<PeopleExplorerResponse> {
+    const response = await this.api.get<PeopleExplorerResponse>('/statistics/people');
+    return response.data;
+  }
+
+  async resolvePersonProfiles(names: string[]): Promise<Record<string, string | null>> {
+    if (names.length === 0) return {};
+    const response = await this.api.get<{ profiles: Record<string, string | null> }>(
+      '/statistics/people/profiles',
+      {
+        params: { names: names.join('|') },
+      }
+    );
+    return response.data.profiles || {};
   }
 
   // Bulk metadata methods

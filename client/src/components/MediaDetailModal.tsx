@@ -6,6 +6,8 @@ import { Button } from './ui/Button';
 import { VisuallyHidden } from './ui/VisuallyHidden';
 import { formatBadgeClasses } from '../lib/formats';
 import { parseEditionTags } from '../lib/editionTags';
+import { getDistinctOriginalTitle } from '../lib/titles';
+import { detectBarcode } from '../lib/identifiers';
 import {
   LetterboxdActivityBanner,
   LetterboxdDotsIcon,
@@ -142,6 +144,7 @@ const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
   const editionTags = parseEditionTags(physicalItem.edition_notes);
   const hasThickness = Boolean(physicalItem.thickness_units && physicalItem.thickness_units > 1);
   const hasStoreLinks = Boolean(physicalItem.store_links && physicalItem.store_links.length > 0);
+  const barcodeInfo = detectBarcode(physicalItem.barcode);
   const watchedMediaCount = mediaList.filter((m) => hasLetterboxdActivity(m)).length;
   const hasAnyLetterboxdInItem = watchedMediaCount > 0;
   const hasDetailFields =
@@ -149,6 +152,8 @@ const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
     editionTags.length > 0 ||
     Boolean(physicalItem.shelf_placement) ||
     Boolean(physicalItem.purchase_date) ||
+    Boolean(barcodeInfo) ||
+    Boolean(physicalItem.asin) ||
     hasThickness ||
     hasStoreLinks;
 
@@ -156,6 +161,7 @@ const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
     ? new Date(activeMovie.release_date).getFullYear()
     : null;
   const isTVSeason = activeMovie?.media_type === 'tv_season';
+  const distinctOriginalTitle = activeMovie ? getDistinctOriginalTitle(activeMovie) : null;
 
   const primaryPosterUrl =
     showCustomArt && physicalItem.custom_image_url
@@ -420,6 +426,11 @@ const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
                         </span>
                       ))}
                     </div>
+                    {distinctOriginalTitle && (
+                      <p className="mt-1 text-sm font-medium italic text-content-muted">
+                        Original title: {distinctOriginalTitle}
+                      </p>
+                    )}
                     {(releaseYear || activeMovie.director || isTVSeason) && (
                       <div className="mt-2 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-sm text-content-muted">
                         {releaseYear && (
@@ -615,6 +626,28 @@ const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
                     </h3>
                     <p className="text-xs font-medium text-content">
                       {new Date(physicalItem.purchase_date).toLocaleDateString()}
+                    </p>
+                  </div>
+                )}
+
+                {barcodeInfo && (
+                  <div>
+                    <h3 className="mb-0.5 text-[11px] font-semibold uppercase tracking-wider text-content-muted">
+                      {barcodeInfo.type}
+                    </h3>
+                    <p className="font-mono text-xs font-medium text-content">
+                      {barcodeInfo.normalized}
+                    </p>
+                  </div>
+                )}
+
+                {physicalItem.asin && (
+                  <div>
+                    <h3 className="mb-0.5 text-[11px] font-semibold uppercase tracking-wider text-content-muted">
+                      ASIN
+                    </h3>
+                    <p className="font-mono text-xs font-medium text-content">
+                      {physicalItem.asin}
                     </p>
                   </div>
                 )}

@@ -3,7 +3,27 @@ import React, { useCallback, useEffect, useRef } from 'react';
 export interface SegmentedControlOption {
   value: string;
   label: string;
+  icon?: React.ReactNode;
   disabled?: boolean;
+}
+
+export const SEGMENTED_TRACK_CLASSES =
+  'inline-flex items-center rounded-[--radius-control] border border-subtle bg-surface-sunken p-1';
+
+export function segmentedItemClasses(isSelected: boolean, extra: string = ''): string {
+  return [
+    'relative inline-flex items-center justify-center gap-1.5 whitespace-nowrap',
+    'rounded-[calc(var(--radius-control)-0.25rem)] px-3 py-1.5 text-sm font-medium',
+    'transition-all duration-200',
+    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface',
+    'disabled:cursor-not-allowed disabled:opacity-50',
+    isSelected
+      ? 'bg-primary-600 text-white shadow-sm dark:ring-1 dark:ring-inset dark:ring-primary-400/40'
+      : 'text-content-muted hover:bg-surface-raised/60 hover:text-content',
+    extra,
+  ]
+    .filter(Boolean)
+    .join(' ');
 }
 
 export interface SegmentedControlProps {
@@ -84,7 +104,7 @@ export const SegmentedControl: React.FC<SegmentedControlProps> = ({
     <div
       role="radiogroup"
       aria-label={name}
-      className={`inline-flex items-center rounded-[--radius-control] bg-surface-sunken p-1 ${className}`}
+      className={`${SEGMENTED_TRACK_CLASSES} ${className}`.trim()}
       onKeyDown={handleKeyDown}
     >
       {options.map((option, index) => {
@@ -99,21 +119,14 @@ export const SegmentedControl: React.FC<SegmentedControlProps> = ({
             tabIndex={isSelected ? 0 : -1}
             disabled={disabled || option.disabled}
             onClick={() => onChange(option.value)}
-            className={`
-              relative flex-1 whitespace-nowrap rounded-[calc(var(--radius-control)-0.25rem)]
-              px-3 py-1.5 text-sm font-medium transition-all duration-200
-              focus-visible:outline-none focus-visible:ring-2
-              focus-visible:ring-ring focus-visible:ring-offset-2
-              focus-visible:ring-offset-surface
-              disabled:cursor-not-allowed disabled:opacity-50
-              ${
-                isSelected
-                  ? 'bg-surface-raised text-content shadow-[--shadow-card]'
-                  : 'text-content-muted hover:bg-surface-raised/60 hover:text-content'
-              }
-            `}
+            className={segmentedItemClasses(isSelected, 'flex-1')}
           >
-            {option.label}
+            {option.icon && (
+              <span className="shrink-0" aria-hidden="true">
+                {option.icon}
+              </span>
+            )}
+            <span>{option.label}</span>
           </button>
         );
       })}

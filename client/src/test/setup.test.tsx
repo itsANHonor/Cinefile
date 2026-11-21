@@ -41,18 +41,22 @@ describe('CollectionPage floating Add item button', () => {
     });
   };
 
-  it('shows the floating Add item button in admin mode and opens the card flow on click', async () => {
+  it('shows the header and mobile floating Add item buttons in admin mode and opens the card flow on click', async () => {
     const user = userEvent.setup();
     vi.spyOn(apiService, 'verifyAuth').mockResolvedValue(true);
     mockCollectionApis();
 
     renderWithProviders(<CollectionPage />);
 
-    const addButton = await screen.findByRole('button', { name: 'Add item' });
-    expect(addButton).toBeInTheDocument();
-    expect(addButton).toHaveClass('fixed', 'right-4');
+    const addButtons = await screen.findAllByRole('button', { name: 'Add item' });
+    expect(addButtons).toHaveLength(2);
+    const headerAddBtn = addButtons.find((btn) => btn.classList.contains('sm:inline-flex'));
+    const mobileFabBtn = addButtons.find((btn) => btn.classList.contains('fixed'));
+    expect(headerAddBtn).toBeDefined();
+    expect(mobileFabBtn).toBeDefined();
+    expect(mobileFabBtn).toHaveClass('sm:hidden', 'fixed', 'right-4', 'ring-2');
 
-    await user.click(addButton);
+    await user.click(headerAddBtn!);
 
     expect(await screen.findByRole('heading', { name: 'Add New Media' })).toBeInTheDocument();
   });

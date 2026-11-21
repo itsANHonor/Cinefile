@@ -17,6 +17,30 @@ check_docker() {
     echo "✅ Docker is running"
 }
 
+# Function to verify Electron desktop compatibility before rebuilding Docker
+verify_electron() {
+    echo "🖥️  Checking Electron desktop compatibility..."
+
+    # 1. Verify every TypeScript migration has a matching .js migration (required by electron-builder & runtime Knex)
+    for ts_mig in server/migrations/*.ts; do
+        [ -e "$ts_mig" ] || continue
+        js_mig="${ts_mig%.ts}.js"
+        if [ ! -f "$js_mig" ]; then
+            echo "❌ Missing runtime JS migration for Electron/Docker: $js_mig"
+            exit 1
+        fi
+    done
+    echo "✅ All database migrations have matching .js files for Electron packaging"
+
+    # 2. Compile client, server, and electron TypeScript targets
+    if [ -d "node_modules" ] && [ -d "client/node_modules" ] && [ -d "server/node_modules" ]; then
+        npm run build:all
+        echo "✅ Electron, client, and server builds succeeded"
+    else
+        echo "⚠️  Local node_modules missing; skipping host npm run build:all"
+    fi
+}
+
 # Function to stop and remove existing container
 stop_container() {
     echo "🛑 Stopping existing container..."
@@ -103,6 +127,7 @@ show_troubleshooting() {
 # Main execution
 main() {
     check_docker
+    verify_electron
     stop_container
     rebuild_image
     start_container

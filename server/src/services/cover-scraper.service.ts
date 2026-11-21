@@ -495,17 +495,19 @@ class CoverScraperService {
       .replace(/\b4K\s+UHD\b/gi, '4K')
       .replace(/\bUltra\s+HD\b/gi, '4K')
       .replace(/\bBlu-ray\b/gi, '')
+      .replace(/\s+-\s+/g, ' ')
       .replace(/\s+/g, ' ')
       .trim();
 
     let results = await fetchSection(normalizedQuery || query, section);
 
-    // Blu-ray.com's title quicksearch fails if studio/packaging words like "Criterion", "Arrow", "Collector's Edition" are in the title query.
-    // If 0 results came back, strip studio/edition tokens, search the base title, and rank matching studio/edition items first!
+    // Blu-ray.com's title quicksearch fails if studio/packaging words like "Criterion", "Arrow", "Collector's Edition"
+    // or TV range suffixes like "Complete Series" / "Seasons 1-5" don't match the exact listing title.
+    // If 0 results came back, strip those tokens, search the base title, and rank matching items first!
     if (results.length === 0) {
       const strippedQuery = normalizedQuery
         .replace(
-          /\b(criterion(\s+collection)?|steelbook|slipcover|arrow(\s+video)?|shout(\s+factory)?|scream\s+factory|kino(\s+lorber)?|vinegar\s+syndrome|collector'?s(\s+edition)?|limited(\s+edition)?|special(\s+edition)?|deluxe(\s+edition)?|digipack|box\s+set|dvd)\b/gi,
+          /\b(criterion(\s+collection)?|steelbook|slipcover|arrow(\s+video)?|shout(\s+factory)?|scream\s+factory|kino(\s+lorber)?|vinegar\s+syndrome|collector'?s(\s+edition)?|limited(\s+edition)?|special(\s+edition)?|deluxe(\s+edition)?|digipack|box\s+set|complete\s+(series|collection|television\s+series)|seasons?\s+\d+(\s*-\s*\d+)?(\s*,\s*\d+)*|dvd)\b/gi,
           ''
         )
         .replace(/\s+/g, ' ')
@@ -514,11 +516,11 @@ class CoverScraperService {
       if (strippedQuery && strippedQuery.toLowerCase() !== normalizedQuery.toLowerCase()) {
         const fallbackResults = await fetchSection(strippedQuery, section);
         const lowerOriginal = query.toLowerCase();
-        // Sort results that match the user's filter words (e.g., Criterion, SteelBook) to the top
+        // Sort results that match the user's filter words (e.g., Complete, Criterion, SteelBook) to the top
         results = fallbackResults.sort((a, b) => {
           const aText = `${a.title} ${a.subtitle || ''}`.toLowerCase();
           const bText = `${b.title} ${b.subtitle || ''}`.toLowerCase();
-          const filterTokens = ['criterion', 'steelbook', 'arrow', '4k', 'limited', 'deluxe', 'digipack'].filter(
+          const filterTokens = ['complete', 'series', 'criterion', 'steelbook', 'arrow', '4k', 'limited', 'deluxe', 'digipack'].filter(
             (t) => lowerOriginal.includes(t)
           );
           const aScore = filterTokens.reduce((acc, t) => acc + (aText.includes(t) ? 1 : 0), 0);

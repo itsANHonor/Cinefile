@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { PhysicalFormat } from '../types';
 import { PHYSICAL_FORMATS } from '../lib/formats';
 import { Chip } from './ui/Chip';
+import { SEGMENTED_TRACK_CLASSES, segmentedItemClasses } from './ui/SegmentedControl';
 import { lockBodyScroll } from './ui/Sheet';
 
 const focusableSelector = [
@@ -21,6 +22,8 @@ interface ActiveFilterInput {
   selectedEditions?: string[];
   selectedVersions?: string[];
   selectedSeries?: number[];
+  director?: string;
+  actor?: string;
   mediaType?: 'all' | 'movie' | 'tv_season';
   archived?: boolean;
 }
@@ -33,6 +36,8 @@ export const countActiveFilters = ({
   selectedEditions = [],
   selectedVersions = [],
   selectedSeries = [],
+  director = '',
+  actor = '',
   mediaType = 'all',
   archived = false,
 }: ActiveFilterInput): number => {
@@ -44,6 +49,8 @@ export const countActiveFilters = ({
     selectedEditions.length +
     selectedVersions.length +
     selectedSeries.length +
+    (director.trim() ? 1 : 0) +
+    (actor.trim() ? 1 : 0) +
     (mediaType === 'all' ? 0 : 1) +
     (archived ? 1 : 0)
   );
@@ -377,18 +384,14 @@ const FilterPanel: React.FC<FilterPanelProps> = ({
               <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2">
                 Media type
               </h3>
-              <div className="inline-flex bg-gray-100 dark:bg-gray-800 rounded-lg p-1">
+              <div className={SEGMENTED_TRACK_CLASSES}>
                 {(['all', 'movie', 'tv_season'] as const).map((type) => (
                   <button
                     key={type}
                     type="button"
                     aria-pressed={mediaType === type}
                     onClick={() => onMediaTypeChange(type)}
-                    className={`px-3.5 py-1.5 text-sm font-medium rounded-md transition-colors ${
-                      mediaType === type
-                        ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-sm'
-                        : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
-                    }`}
+                    className={segmentedItemClasses(mediaType === type)}
                   >
                     {MEDIA_TYPE_LABELS[type]}
                   </button>
@@ -701,16 +704,12 @@ const FilterPanel: React.FC<FilterPanelProps> = ({
                   Status
                 </h3>
               </div>
-              <div className="inline-flex bg-gray-100 dark:bg-gray-800 rounded-lg p-1">
+              <div className={SEGMENTED_TRACK_CLASSES}>
                 <button
                   type="button"
                   aria-pressed={!archived}
                   onClick={() => onArchivedChange(false)}
-                  className={`px-3.5 py-1.5 text-sm font-medium rounded-md transition-colors ${
-                    !archived
-                      ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-sm'
-                      : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
-                  }`}
+                  className={segmentedItemClasses(!archived)}
                 >
                   In Collection
                 </button>
@@ -718,11 +717,7 @@ const FilterPanel: React.FC<FilterPanelProps> = ({
                   type="button"
                   aria-pressed={archived}
                   onClick={() => onArchivedChange(true)}
-                  className={`px-3.5 py-1.5 text-sm font-medium rounded-md transition-colors ${
-                    archived
-                      ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-sm'
-                      : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
-                  }`}
+                  className={segmentedItemClasses(archived)}
                 >
                   Archived
                 </button>

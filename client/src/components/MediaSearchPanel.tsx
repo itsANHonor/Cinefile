@@ -4,6 +4,8 @@ import { apiService } from '../services/api.service';
 import FormatSelector from './FormatSelector';
 import TVSeasonPicker from './TVSeasonPicker';
 import ManualMovieModal from './ManualMovieModal';
+import { SEGMENTED_TRACK_CLASSES, segmentedItemClasses } from './ui/SegmentedControl';
+import { getDistinctOriginalTitle } from '../lib/titles';
 
 export type SearchMode = 'movies' | 'tv';
 
@@ -74,16 +76,19 @@ const MediaSearchPanel: React.FC<MediaSearchPanelProps> = ({
         // Search local database for movies (allow already-linked movies so users can add another version/cut)
         const filteredMovies = allMovies.filter(movie => {
           const isMovie = !movie.media_type || movie.media_type === 'movie';
+          const lowerQ = query.toLowerCase();
           const matchesSearch =
-            movie.title.toLowerCase().includes(query.toLowerCase()) ||
-            movie.director?.toLowerCase().includes(query.toLowerCase()) ||
-            movie.synopsis?.toLowerCase().includes(query.toLowerCase());
+            movie.title.toLowerCase().includes(lowerQ) ||
+            movie.original_title?.toLowerCase().includes(lowerQ) ||
+            movie.director?.toLowerCase().includes(lowerQ) ||
+            movie.synopsis?.toLowerCase().includes(lowerQ);
           return isMovie && matchesSearch;
         });
 
         const dbResults: UnifiedSearchResult[] = filteredMovies.map(movie => ({
           id: movie.id,
           title: movie.title,
+          original_title: movie.original_title,
           release_date: movie.release_date,
           overview: movie.synopsis,
           cover_art_url: movie.cover_art_url,
@@ -101,6 +106,7 @@ const MediaSearchPanel: React.FC<MediaSearchPanelProps> = ({
         const tmdbMovieResults: UnifiedSearchResult[] = tmdbResponse.results.map(movie => ({
           id: movie.id,
           title: movie.title,
+          original_title: movie.original_title,
           release_date: movie.release_date,
           overview: movie.overview,
           poster_path: movie.poster_path,
@@ -115,10 +121,12 @@ const MediaSearchPanel: React.FC<MediaSearchPanelProps> = ({
         // Search local database for TV seasons
         const filteredTV = allMovies.filter(media => {
           const isTV = media.media_type === 'tv_season';
+          const lowerQ = query.toLowerCase();
           const matchesSearch =
-            media.title.toLowerCase().includes(query.toLowerCase()) ||
-            media.tv_show_name?.toLowerCase().includes(query.toLowerCase()) ||
-            media.synopsis?.toLowerCase().includes(query.toLowerCase());
+            media.title.toLowerCase().includes(lowerQ) ||
+            media.original_title?.toLowerCase().includes(lowerQ) ||
+            media.tv_show_name?.toLowerCase().includes(lowerQ) ||
+            media.synopsis?.toLowerCase().includes(lowerQ);
           const notLinked = !linkedMovieIds.includes(media.id);
           return isTV && matchesSearch && notLinked;
         });
@@ -126,6 +134,7 @@ const MediaSearchPanel: React.FC<MediaSearchPanelProps> = ({
         const dbResults: UnifiedSearchResult[] = filteredTV.map(media => ({
           id: media.id,
           title: media.title,
+          original_title: media.original_title,
           release_date: media.release_date,
           overview: media.synopsis,
           cover_art_url: media.cover_art_url,
@@ -143,6 +152,7 @@ const MediaSearchPanel: React.FC<MediaSearchPanelProps> = ({
         const tmdbTVResults: UnifiedSearchResult[] = tmdbResponse.results.map(show => ({
           id: show.id,
           title: show.name,
+          original_title: show.original_name,
           release_date: show.first_air_date,
           overview: show.overview,
           poster_path: show.poster_path,
@@ -251,7 +261,11 @@ const MediaSearchPanel: React.FC<MediaSearchPanelProps> = ({
         )}
 
         {/* Search Mode Toggle */}
-        <div className="flex mb-4 bg-gray-100 dark:bg-gray-700 rounded-lg p-1" role="tablist" aria-label="Media type">
+        <div
+          className={`flex w-full mb-4 ${SEGMENTED_TRACK_CLASSES}`}
+          role="tablist"
+          aria-label="Media type"
+        >
           <button
             type="button"
             role="tab"
@@ -263,11 +277,7 @@ const MediaSearchPanel: React.FC<MediaSearchPanelProps> = ({
               setTmdbResults([]);
               setHasSearched(false);
             }}
-            className={`flex-1 px-4 py-2 text-sm font-medium rounded-md transition-colors ${
-              searchMode === 'movies'
-                ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-gray-100 shadow-sm'
-                : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
-            }`}
+            className={segmentedItemClasses(searchMode === 'movies', 'flex-1 py-2')}
           >
             Movies
           </button>
@@ -282,11 +292,7 @@ const MediaSearchPanel: React.FC<MediaSearchPanelProps> = ({
               setTmdbResults([]);
               setHasSearched(false);
             }}
-            className={`flex-1 px-4 py-2 text-sm font-medium rounded-md transition-colors ${
-              searchMode === 'tv'
-                ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-gray-100 shadow-sm'
-                : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
-            }`}
+            className={segmentedItemClasses(searchMode === 'tv', 'flex-1 py-2')}
           >
             TV Shows
           </button>
@@ -393,6 +399,15 @@ const MediaSearchPanel: React.FC<MediaSearchPanelProps> = ({
                             {result.title}
                           </h4>
                           <p className="text-sm text-gray-500 dark:text-gray-400">
+                            {getDistinctOriginalTitle({
+                              title: result.title,
+                              original_title: result.original_title,
+                              media_type: result.media_type,
+                            }) && (
+                              <span className="italic">
+                                {result.original_title} •{' '}
+                              </span>
+                            )}
                             {getReleaseYear(result.release_date)} • {result.director || 'Unknown'}
                           </p>
                           {result.overview && (
@@ -458,6 +473,15 @@ const MediaSearchPanel: React.FC<MediaSearchPanelProps> = ({
                             {result.title}
                           </h4>
                           <p className="text-sm text-gray-500 dark:text-gray-400">
+                            {getDistinctOriginalTitle({
+                              title: result.title,
+                              original_title: result.original_title,
+                              media_type: result.media_type,
+                            }) && (
+                              <span className="italic">
+                                {result.original_title} •{' '}
+                              </span>
+                            )}
                             {getReleaseYear(result.release_date)}
                             {searchMode === 'tv' && ' • TV Show'}
                           </p>

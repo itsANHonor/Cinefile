@@ -10,6 +10,12 @@ import {
   normalizeEditionNotes,
   normalizeVersionNotes,
 } from '../utils/edition-tags.util';
+import { applyItemActorFilter, applyItemDirectorFilter } from '../utils/person-filter.util';
+import {
+  extractAsinFromStoreLinks,
+  normalizeAsin,
+  normalizeBarcode,
+} from '../utils/identifiers.util';
 import { extractSpineColors } from '../services/color.service';
 import { letterboxdService } from '../services/letterboxd.service';
 
@@ -56,7 +62,7 @@ interface PhysicalItemWithMedia extends PhysicalItem {
  */
 router.get('/', async (req: Request, res: Response) => {
   try {
-    const { format, genres, decades, editions, edition, versions, version, series, sort_by = 'created_at', sort_order = 'desc', search, media_type, archived, page = '1', limit = '24' } = req.query;
+    const { format, genres, decades, editions, edition, versions, version, series, director, actor, sort_by = 'created_at', sort_order = 'desc', search, media_type, archived, page = '1', limit = '24' } = req.query;
 
     const isAdmin = isRequestAdmin(req);
     const showArchived = isAdmin && (archived === 'true' || archived === '1');
@@ -188,6 +194,14 @@ router.get('/', async (req: Request, res: Response) => {
       query = applyVersionTagFilter(query, versions || version);
     }
 
+    if (director) {
+      query = applyItemDirectorFilter(query, director);
+    }
+
+    if (actor) {
+      query = applyItemActorFilter(query, actor);
+    }
+
     // Filter by series if specified (multi-select: comma-separated series IDs)
     if (series && typeof series === 'string') {
       const seriesIds = series.split(',').map(s => parseInt(s.trim(), 10)).filter(id => !isNaN(id));
@@ -219,15 +233,20 @@ router.get('/', async (req: Request, res: Response) => {
     // Search functionality
     if (search && typeof search === 'string' && search.trim() !== '') {
       const searchTerm = `%${search.trim()}%`;
+      const compactBarcodeTerm = `%${search.trim().replace(/[\s-]+/g, '')}%`;
       query = query.where(function() {
         this.where('physical_items.name', 'like', searchTerm)
           .orWhere('physical_items.edition_notes', 'like', searchTerm)
+          .orWhere('physical_items.barcode', 'like', compactBarcodeTerm)
+          .orWhere('physical_items.asin', 'like', searchTerm)
           .orWhereRaw(`EXISTS (
             SELECT 1 FROM physical_item_media
             JOIN media ON physical_item_media.media_id = media.id
             WHERE physical_item_media.physical_item_id = physical_items.id
             AND (
               media.title LIKE ? OR
+              media.original_title LIKE ? OR
+              media.tv_show_name LIKE ? OR
               media.director LIKE ? OR
               media.synopsis LIKE ? OR
               physical_item_media.version_notes LIKE ? OR
@@ -236,7 +255,7 @@ router.get('/', async (req: Request, res: Response) => {
                 WHERE json_each.value LIKE ?
               )
             )
-          )`, [searchTerm, searchTerm, searchTerm, searchTerm, searchTerm]);
+          )`, [searchTerm, searchTerm, searchTerm, searchTerm, searchTerm, searchTerm, searchTerm]);
       });
     }
 
@@ -399,6 +418,14 @@ router.get('/', async (req: Request, res: Response) => {
       countQuery = applyVersionTagFilter(countQuery, versions || version);
     }
 
+    if (director) {
+      countQuery = applyItemDirectorFilter(countQuery, director);
+    }
+
+    if (actor) {
+      countQuery = applyItemActorFilter(countQuery, actor);
+    }
+
     // Filter by series in count query
     if (series && typeof series === 'string') {
       const seriesIds = series.split(',').map(s => parseInt(s.trim(), 10)).filter(id => !isNaN(id));
@@ -429,15 +456,20 @@ router.get('/', async (req: Request, res: Response) => {
 
     if (search && typeof search === 'string' && search.trim() !== '') {
       const searchTerm = `%${search.trim()}%`;
+      const compactBarcodeTerm = `%${search.trim().replace(/[\s-]+/g, '')}%`;
       countQuery = countQuery.where(function() {
         this.where('physical_items.name', 'like', searchTerm)
           .orWhere('physical_items.edition_notes', 'like', searchTerm)
+          .orWhere('physical_items.barcode', 'like', compactBarcodeTerm)
+          .orWhere('physical_items.asin', 'like', searchTerm)
           .orWhereRaw(`EXISTS (
             SELECT 1 FROM physical_item_media
             JOIN media ON physical_item_media.media_id = media.id
             WHERE physical_item_media.physical_item_id = physical_items.id
             AND (
               media.title LIKE ? OR
+              media.original_title LIKE ? OR
+              media.tv_show_name LIKE ? OR
               media.director LIKE ? OR
               media.synopsis LIKE ? OR
               physical_item_media.version_notes LIKE ? OR
@@ -446,7 +478,7 @@ router.get('/', async (req: Request, res: Response) => {
                 WHERE json_each.value LIKE ?
               )
             )
-          )`, [searchTerm, searchTerm, searchTerm, searchTerm, searchTerm]);
+          )`, [searchTerm, searchTerm, searchTerm, searchTerm, searchTerm, searchTerm, searchTerm]);
       });
     }
 
@@ -661,6 +693,8 @@ router.get('/', async (req: Request, res: Response) => {
           id: m.id,
           link_id: m.link_id,
           title: m.title,
+          original_title: m.original_title || null,
+          original_language: m.original_language || null,
           tmdb_id: m.tmdb_id,
           synopsis: m.synopsis,
           cover_art_url: m.cover_art_url,
@@ -1009,6 +1043,7 @@ router.post('/', authMiddleware, async (req: Request, res: Response) => {
   try {
     const { 
       name, edition_notes, notes, notes_public, custom_image_url, purchase_date, 
+      barcode, asin,
       media, store_links, sort_name,
       thickness_units, width_mm, height_mm, depth_mm,
       sort_series_id, // Used for sorting preference
@@ -1118,6 +1153,8 @@ router.post('/', authMiddleware, async (req: Request, res: Response) => {
         archive_reason: isArchived ? trimmedReason : null,
         custom_image_url,
         purchase_date,
+        barcode: normalizeBarcode(barcode),
+        asin: normalizeAsin(asin) || extractAsinFromStoreLinks(store_links),
         thickness_units: Math.max(1, parseInt(thickness_units) || 1),
         width_mm: width_mm || null,
         height_mm: height_mm || null,
@@ -1145,6 +1182,8 @@ router.post('/', authMiddleware, async (req: Request, res: Response) => {
 
           const mediaData: any = {
             title: mediaItem.title,
+            original_title: mediaItem.original_title || null,
+            original_language: mediaItem.original_language || null,
             tmdb_id: mediaItem.tmdb_id,
             synopsis: mediaItem.synopsis,
             cover_art_url: mediaItem.cover_art_url,
@@ -1292,7 +1331,7 @@ router.put('/:id', authMiddleware, async (req: Request, res: Response) => {
     const { id } = req.params;
     const { 
       name, physical_format, edition_notes, notes, notes_public, 
-      custom_image_url, purchase_date, store_links, sort_name,
+      custom_image_url, purchase_date, barcode, asin, store_links, sort_name,
       thickness_units, width_mm, height_mm, depth_mm,
       sort_series_id, // Used for sorting preference
       media_primary_series_id, // When set, adds all media to this series and sets it as their primary
@@ -1389,6 +1428,13 @@ router.put('/:id', authMiddleware, async (req: Request, res: Response) => {
     }
     if (custom_image_url !== undefined) updateData.custom_image_url = custom_image_url;
     if (purchase_date !== undefined) updateData.purchase_date = purchase_date;
+    if (barcode !== undefined) updateData.barcode = normalizeBarcode(barcode);
+    if (asin !== undefined) {
+      updateData.asin = normalizeAsin(asin);
+    } else if (!existingItem.asin && store_links) {
+      const extracted = extractAsinFromStoreLinks(store_links);
+      if (extracted) updateData.asin = extracted;
+    }
     if (thickness_units !== undefined) updateData.thickness_units = Math.max(1, parseInt(thickness_units) || 1);
     if (width_mm !== undefined) updateData.width_mm = width_mm || null;
     if (height_mm !== undefined) updateData.height_mm = height_mm || null;
@@ -1590,6 +1636,8 @@ router.post('/:id/media', authMiddleware, async (req: Request, res: Response) =>
 
         const mediaData: any = {
           title: media.title,
+          original_title: media.original_title || null,
+          original_language: media.original_language || null,
           tmdb_id: media.tmdb_id,
           synopsis: media.synopsis,
           cover_art_url: media.cover_art_url,
@@ -1802,6 +1850,8 @@ router.post('/bulk', authMiddleware, async (req: Request, res: Response) => {
 
             const mediaData: any = {
               title: item.media.title,
+              original_title: item.media.original_title || null,
+              original_language: item.media.original_language || null,
               tmdb_id: item.media.tmdb_id,
               synopsis: item.media.synopsis,
               cover_art_url: item.media.cover_art_url,
@@ -1838,6 +1888,8 @@ router.post('/bulk', authMiddleware, async (req: Request, res: Response) => {
             edition_notes: normalizeEditionNotes(item.edition_notes, canonicalTagMap),
             custom_image_url: item.custom_image_url,
             purchase_date: item.purchase_date,
+            barcode: normalizeBarcode(item.barcode),
+            asin: normalizeAsin(item.asin) || extractAsinFromStoreLinks(item.store_links),
           };
 
           const [physicalItemId] = await trx('physical_items').insert(physicalItemData);

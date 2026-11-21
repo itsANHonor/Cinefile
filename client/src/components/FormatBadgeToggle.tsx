@@ -8,10 +8,10 @@ const FormatBadgeToggle: React.FC = () => {
     <button
       type="button"
       onClick={toggleFormatBadges}
-      className={`inline-flex h-9 items-center gap-1.5 rounded-[--radius-control] border px-2.5 py-1.5 text-sm font-medium transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface ${
+      className={`inline-flex h-10 items-center gap-1.5 rounded-[--radius-control] border px-3 py-1.5 text-sm font-medium transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface ${
         showFormatBadges
-          ? 'border-subtle bg-surface-raised text-content shadow-sm hover:bg-surface-sunken'
-          : 'border-subtle bg-surface-sunken text-content-muted hover:text-content'
+          ? 'border-primary-500 bg-primary-50 text-primary-700 shadow-sm hover:bg-primary-100 dark:border-primary-500/70 dark:bg-primary-900/35 dark:text-primary-200 dark:hover:bg-primary-900/50'
+          : 'border-subtle bg-surface-raised text-content-muted hover:bg-surface-sunken hover:text-content'
       }`}
       aria-label="Toggle format tags on posters"
       aria-pressed={showFormatBadges}
@@ -20,7 +20,7 @@ const FormatBadgeToggle: React.FC = () => {
       {showFormatBadges ? (
         // Tag icon - badges are visible
         <svg
-          className="h-4 w-4 text-primary-600 dark:text-primary-400"
+          className="h-4 w-4 text-primary-600 dark:text-primary-300"
           fill="none"
           stroke="currentColor"
           viewBox="0 0 24 24"

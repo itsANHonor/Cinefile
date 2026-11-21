@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { PhysicalItem, TMDbMovie, Media, UnifiedSearchResult, Series, ManualMovieData } from '../types';
+import { PhysicalItem, TMDbMovie, Media, UnifiedSearchResult, Series, ManualMovieData, CoverCandidate } from '../types';
 import { apiService } from '../services/api.service';
 import { useToast } from '../context/ToastContext';
 import { useConfirm } from '../context/ConfirmContext';
@@ -8,8 +8,10 @@ import MediaSearchPanel from './MediaSearchPanel';
 import StoreLinkManager from './StoreLinkManager';
 import MediaEditModal from './MediaEditModal';
 import FormatSelector from './FormatSelector';
-import PosterSelector from './PosterSelector';
+import PosterSelector, { PosterMovieOption } from './PosterSelector';
 import EditionTagInput from './EditionTagInput';
+import { formatCoverSearchQuery, generatePhysicalItemName } from '../lib/tvNaming';
+import { detectBarcode } from '../lib/identifiers';
 import { Sheet } from './ui/Sheet';
 import { Button } from './ui/Button';
 
@@ -33,6 +35,8 @@ interface MovieWithFormats {
   media_type?: 'movie' | 'tv_season';
   tv_show_tmdb_id?: number;
   tv_show_name?: string;
+  tv_show_poster_url?: string;
+  tv_show_total_seasons?: number;
   season_number?: number;
   episode_count?: number;
   genres?: { id: number; name: string }[];
@@ -74,6 +78,8 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
     archive_reason: '',
     custom_image_url: '',
     purchase_date: '',
+    barcode: '',
+    asin: '',
     thickness_units: 1,
     width_mm: undefined as number | undefined,
     height_mm: undefined as number | undefined,
@@ -128,6 +134,8 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
         archive_reason: editItem.archive_reason || '',
         custom_image_url: editItem.custom_image_url || '',
         purchase_date: editItem.purchase_date || '',
+        barcode: editItem.barcode || '',
+        asin: editItem.asin || '',
         thickness_units: editItem.thickness_units || 1,
         width_mm: editItem.width_mm,
         height_mm: editItem.height_mm,
@@ -146,6 +154,8 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
         movie: {
           id: m.tmdb_id || m.id,
           title: m.title,
+          original_title: m.original_title || undefined,
+          original_language: m.original_language || undefined,
           overview: m.synopsis || '',
           poster_path: null, // We'll use cover_art_url directly
           release_date: m.release_date || '',
@@ -164,6 +174,8 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
         genres: m.genres,
         details: {
           title: m.title,
+          original_title: m.original_title || undefined,
+          original_language: m.original_language || undefined,
           id: m.tmdb_id || m.id,
           poster_url: m.cover_art_url,
           cover_art_url: m.cover_art_url,
@@ -207,6 +219,8 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
         archive_reason: '',
         custom_image_url: '',
         purchase_date: '',
+        barcode: '',
+        asin: '',
         thickness_units: 1,
         width_mm: undefined,
         height_mm: undefined,
@@ -233,6 +247,8 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
           movie: {
             id: existingMedia.tmdb_id || existingMedia.id,
             title: existingMedia.title,
+            original_title: existingMedia.original_title || undefined,
+            original_language: existingMedia.original_language || undefined,
             overview: existingMedia.synopsis || '',
             poster_path: null,
             release_date: existingMedia.release_date || '',
@@ -251,6 +267,8 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
           genres: existingMedia.genres,
           details: {
             title: existingMedia.title,
+            original_title: existingMedia.original_title || undefined,
+            original_language: existingMedia.original_language || undefined,
             id: existingMedia.tmdb_id || existingMedia.id,
             poster_url: existingMedia.cover_art_url,
             cover_art_url: existingMedia.cover_art_url,
@@ -289,6 +307,7 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
           movie: {
             id: result.id,
             title: manualMovie.title,
+            original_title: manualMovie.original_title || undefined,
             overview: manualMovie.synopsis,
             poster_path: null,
             release_date: manualMovie.release_date,
@@ -304,6 +323,7 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
           episode_count: manualMovie.episode_count,
           details: {
             title: manualMovie.title,
+            original_title: manualMovie.original_title || undefined,
             synopsis: manualMovie.synopsis,
             overview: manualMovie.synopsis,
             director: manualMovie.director,
@@ -368,6 +388,8 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
       movie: {
         id: season.tmdb_id,
         title: season.title,
+        original_title: season.original_title,
+        original_language: season.original_language,
         overview: season.synopsis || '',
         poster_path: null,
         release_date: season.release_date || '',
@@ -378,11 +400,15 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
       media_type: 'tv_season' as const,
       tv_show_tmdb_id: season.tv_show_tmdb_id,
       tv_show_name: season.tv_show_name,
+      tv_show_poster_url: season.tv_show_poster_url,
+      tv_show_total_seasons: season.tv_show_total_seasons,
       season_number: season.season_number,
       episode_count: season.episode_count,
       genres: season.genres,
       details: {
         title: season.title,
+        original_title: season.original_title,
+        original_language: season.original_language,
         id: season.tmdb_id,
         poster_url: season.cover_art_url,
         cover_art_url: season.cover_art_url,
@@ -397,13 +423,26 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
     const updatedMovies = [...selectedMovies, ...newEntries];
     setSelectedMovies(updatedMovies);
 
-    // Auto-generate name
+    // Auto-generate name and default multi-season TV sets to the main series poster
     const oldAutoName = updatePhysicalItemName(selectedMovies);
     const newAutoName = updatePhysicalItemName(updatedMovies);
-    if (!formData.name || formData.name === oldAutoName) {
+    const shouldUpdateName = !formData.name || formData.name === oldAutoName;
+
+    const tvEntries = updatedMovies.filter(m => m.media_type === 'tv_season');
+    const distinctShowIds = new Set(
+      tvEntries.map(m => m.tv_show_tmdb_id || m.tv_show_name).filter(Boolean)
+    );
+    const showPosterUrl =
+      tvEntries.length > 1 && distinctShowIds.size === 1
+        ? tvEntries.find(m => m.tv_show_poster_url)?.tv_show_poster_url
+        : undefined;
+    const shouldSetShowPoster = Boolean(!formData.custom_image_url && showPosterUrl);
+
+    if (shouldUpdateName || shouldSetShowPoster) {
       setFormData({
         ...formData,
-        name: newAutoName,
+        ...(shouldUpdateName ? { name: newAutoName } : {}),
+        ...(shouldSetShowPoster ? { custom_image_url: showPosterUrl! } : {}),
       });
     }
     setShowSearch(false);
@@ -550,34 +589,39 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
     setShowPosterSelector(true);
   };
 
-  const handlePosterSelected = (url: string) => {
-    setFormData({ ...formData, custom_image_url: url });
+  const handlePosterSelected = (url: string, candidate?: CoverCandidate) => {
+    setFormData((prev) => ({
+      ...prev,
+      custom_image_url: url,
+      asin: !prev.asin.trim() && candidate?.asin ? candidate.asin.toUpperCase() : prev.asin,
+    }));
     setShowPosterSelector(false);
   };
 
-  const buildCoverSearchQuery = () => {
-    const baseTitle = (formData.name || updatePhysicalItemName(selectedMovies) || '').trim();
-    const parts: string[] = [];
-    if (baseTitle) parts.push(baseTitle);
-
-    const primaryFormats = Array.from(new Set(selectedMovies.flatMap((m) => m.formats)));
-    if (primaryFormats.includes('4K UHD') && !/\b4k\b/i.test(baseTitle)) {
-      parts.push('4K UHD');
-    } else if (primaryFormats.includes('Blu-ray') && !/\bblu-?ray\b/i.test(baseTitle)) {
-      parts.push('Blu-ray');
-    } else if (primaryFormats.includes('DVD') && !/\bdvd\b/i.test(baseTitle)) {
-      parts.push('DVD');
-    }
-
-    if (formData.edition_notes) {
-      const firstTag = formData.edition_notes.split(',')[0]?.trim();
-      if (firstTag && !baseTitle.toLowerCase().includes(firstTag.toLowerCase())) {
-        parts.push(firstTag);
-      }
-    }
-
-    return parts.join(' ').trim();
+  const handleAsinExtracted = (extractedAsin: string) => {
+    setFormData((prev) => {
+      if (prev.asin.trim()) return prev;
+      return { ...prev, asin: extractedAsin };
+    });
   };
+
+  const toNamingEntries = (movies: MovieWithFormats[]) =>
+    movies.map((m) => ({
+      title: m.movie.title,
+      media_type: m.media_type,
+      tv_show_name: m.tv_show_name,
+      tv_show_tmdb_id: m.tv_show_tmdb_id,
+      season_number: m.season_number,
+      tv_show_total_seasons: m.tv_show_total_seasons,
+      formats: m.formats,
+    }));
+
+  const buildCoverSearchQuery = () =>
+    formatCoverSearchQuery({
+      customName: formData.name,
+      entries: toNamingEntries(selectedMovies),
+      editionNotes: formData.edition_notes,
+    });
 
   const handleMediaSaved = (updatedMedia: Media) => {
     hasSavedMediaChangesRef.current = true;
@@ -593,6 +637,8 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
               ...m.movie,
               id: updatedMedia.tmdb_id || m.movie.id,
               title: updatedMedia.title,
+              original_title: updatedMedia.original_title || undefined,
+              original_language: updatedMedia.original_language || undefined,
               overview: updatedMedia.synopsis || '',
               release_date: updatedMedia.release_date || '',
             },
@@ -631,41 +677,39 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
   };
 
   // Auto-update physical item name when media change
-  const updatePhysicalItemName = (movies: MovieWithFormats[]) => {
-    if (movies.length === 0) return '';
-    
-    const tvSeasons = movies.filter(m => m.media_type === 'tv_season');
-    const isAllTV = tvSeasons.length === movies.length && tvSeasons.length > 0;
-    
-    if (isAllTV) {
-      // All TV seasons - group by show name
-      const showName = tvSeasons[0].tv_show_name || tvSeasons[0].movie.title;
-      const seasonNumbers = tvSeasons.map(s => s.season_number).filter(n => n != null).sort((a, b) => a! - b!);
-      
-      let title: string;
-      if (seasonNumbers.length === 0) {
-        title = showName;
-      } else if (seasonNumbers.length === 1) {
-        title = `${showName} - Season ${seasonNumbers[0]}`;
-      } else {
-        // Check if contiguous
-        const min = seasonNumbers[0]!;
-        const max = seasonNumbers[seasonNumbers.length - 1]!;
-        if (max - min + 1 === seasonNumbers.length) {
-          title = `${showName} - Complete Series`;
-          if (seasonNumbers.length < 10) {
-            title = `${showName} - Seasons ${min}-${max}`;
-          }
-        } else {
-          title = `${showName} - Seasons ${seasonNumbers.join(', ')}`;
-        }
+  const updatePhysicalItemName = (movies: MovieWithFormats[]) =>
+    generatePhysicalItemName(toNamingEntries(movies));
+
+  const buildPosterMovieOptions = (): PosterMovieOption[] => {
+    const nonManual = selectedMovies.filter((m) => !m.isManual);
+    const options: PosterMovieOption[] = [];
+    const seenShowIds = new Set<number>();
+
+    for (const m of nonManual) {
+      if (m.media_type === 'tv_season' && m.tv_show_tmdb_id && !seenShowIds.has(m.tv_show_tmdb_id)) {
+        seenShowIds.add(m.tv_show_tmdb_id);
+        options.push({
+          tmdbId: m.tv_show_tmdb_id,
+          title: `${m.tv_show_name || m.movie.title} (Series Posters)`,
+          mediaType: 'tv_season',
+          seasonNumber: null,
+        });
       }
-      
-      return title;
     }
-    
-    // Movies or mixed - use titles
-    return movies.map(m => m.movie.title).join(' / ');
+
+    for (const m of nonManual) {
+      options.push({
+        tmdbId:
+          m.media_type === 'tv_season' && m.tv_show_tmdb_id
+            ? m.tv_show_tmdb_id
+            : m.movie.id,
+        title: m.movie.title,
+        mediaType: m.media_type,
+        seasonNumber: m.season_number,
+      });
+    }
+
+    return options;
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -724,6 +768,8 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
           archive_reason: formData.archived ? formData.archive_reason.trim() : null,
           custom_image_url: formData.custom_image_url,
           purchase_date: formData.purchase_date,
+          barcode: formData.barcode.trim() || null,
+          asin: formData.asin.trim() || null,
           thickness_units: formData.thickness_units,
           width_mm: formData.width_mm || null,
           height_mm: formData.height_mm || null,
@@ -783,6 +829,8 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
           } else {
             mediaData = {
               title: details?.title || movie.title,
+              original_title: details?.original_title || movie.original_title || null,
+              original_language: details?.original_language || movie.original_language || null,
               ...(movieWithFormats.isManual ? {} : { tmdb_id: details?.id || movie.id }),
               synopsis: details?.overview || details?.synopsis || movie.overview,
               cover_art_url: details?.poster_url || details?.cover_art_url || '',
@@ -828,6 +876,8 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
           const { movie, formats, details, version_notes } = movieWithFormats;
           const mediaEntry: any = {
             title: details?.title || movie.title,
+            original_title: details?.original_title || movie.original_title || null,
+            original_language: details?.original_language || movie.original_language || null,
             ...(movieWithFormats.isManual ? {} : { tmdb_id: details?.id || movie.id }),
             synopsis: details?.overview || details?.synopsis || movie.overview,
             cover_art_url: details?.poster_url || details?.cover_art_url || '',
@@ -861,6 +911,8 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
           notes_public: formData.notes_public,
           custom_image_url: formData.custom_image_url,
           purchase_date: formData.purchase_date,
+          barcode: formData.barcode.trim() || undefined,
+          asin: formData.asin.trim() || undefined,
           thickness_units: formData.thickness_units,
           width_mm: formData.width_mm || undefined,
           height_mm: formData.height_mm || undefined,
@@ -1136,10 +1188,11 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
 
                   {/* Purchase Date */}
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    <label htmlFor="media-form-purchase-date" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                       Purchase Date
                     </label>
                     <input
+                      id="media-form-purchase-date"
                       type="date"
                       value={formData.purchase_date}
                       onChange={(e) => setFormData({ ...formData, purchase_date: e.target.value })}
@@ -1355,11 +1408,69 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
                     </p>
                   </div>
 
+                  {/* Product Identifiers: Barcode (UPC / EAN) & ASIN */}
+                  {(() => {
+                    const barcodeDetection = detectBarcode(formData.barcode);
+                    return (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                          <div className="flex items-center justify-between gap-2 mb-1">
+                            <label htmlFor="media-form-barcode" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                              Barcode (UPC / EAN)
+                            </label>
+                            {barcodeDetection && barcodeDetection.type !== 'Barcode' && (
+                              <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-primary-100 text-primary-800 dark:bg-primary-900/60 dark:text-primary-200">
+                                {barcodeDetection.type}
+                              </span>
+                            )}
+                          </div>
+                          <input
+                            id="media-form-barcode"
+                            type="text"
+                            inputMode="numeric"
+                            value={formData.barcode}
+                            onChange={(e) => setFormData({ ...formData, barcode: e.target.value })}
+                            placeholder="e.g., 4010232059819"
+                            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 font-mono text-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+                          />
+                          {barcodeDetection?.checksumValid === false ? (
+                            <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">
+                              Check digit looks unusual — double-check digits.
+                            </p>
+                          ) : (
+                            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                              12-digit UPC or 13-digit EAN.
+                            </p>
+                          )}
+                        </div>
+
+                        <div>
+                          <label htmlFor="media-form-asin" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                            ASIN
+                          </label>
+                          <input
+                            id="media-form-asin"
+                            type="text"
+                            value={formData.asin}
+                            onChange={(e) => setFormData({ ...formData, asin: e.target.value.toUpperCase() })}
+                            placeholder="e.g., B00DU61N52"
+                            maxLength={16}
+                            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 font-mono text-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+                          />
+                          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                            Auto-filled when adding an Amazon link.
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })()}
+
                   {/* Store Links */}
                   <div>
                     <StoreLinkManager
                       links={storeLinks}
                       onChange={setStoreLinks}
+                      onAsinExtracted={handleAsinExtracted}
                       disabled={isSubmitting}
                     />
                   </div>
@@ -1567,17 +1678,7 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
           }
           movieTitle={formData.name || updatePhysicalItemName(selectedMovies)}
           initialQuery={buildCoverSearchQuery()}
-          movieOptions={selectedMovies
-            .filter((m) => !m.isManual)
-            .map((m) => ({
-              tmdbId:
-                m.media_type === 'tv_season' && m.tv_show_tmdb_id
-                  ? m.tv_show_tmdb_id
-                  : m.movie.id,
-              title: m.movie.title,
-              mediaType: m.media_type,
-              seasonNumber: m.season_number,
-            }))}
+          movieOptions={buildPosterMovieOptions()}
           onSelect={handlePosterSelected}
           onClose={() => setShowPosterSelector(false)}
           currentPosterUrl={formData.custom_image_url}

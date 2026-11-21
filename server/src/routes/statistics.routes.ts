@@ -8,6 +8,14 @@ import {
   buildCanonicalVersionTagMap,
   parseEditionTags,
 } from '../utils/edition-tags.util';
+import {
+  applyItemActorFilter,
+  applyItemDirectorFilter,
+  applyMediaActorFilter,
+  applyMediaDirectorFilter,
+  getCastWorkKey,
+  hasDirectorFilter,
+} from '../utils/person-filter.util';
 
 const router = Router();
 
@@ -27,7 +35,7 @@ const STANDARD_UNIT_MM = 12.5;
 
 router.get('/', async (req: Request, res: Response) => {
   try {
-    const { format, genres, decades, editions, edition, versions, version, series, search, media_type, archived } = req.query;
+    const { format, genres, decades, editions, edition, versions, version, series, director, actor, search, media_type, archived } = req.query;
 
     const isAdmin = isRequestAdmin(req);
     const showArchived = isAdmin && (archived === 'true' || archived === '1');
@@ -156,6 +164,14 @@ router.get('/', async (req: Request, res: Response) => {
         query = applyVersionTagFilter(query, versions || version);
       }
 
+      if (director) {
+        query = applyItemDirectorFilter(query, director);
+      }
+
+      if (actor) {
+        query = applyItemActorFilter(query, actor);
+      }
+
       // Filter by series if specified (multi-select: comma-separated series IDs)
       if (series && typeof series === 'string') {
         const seriesIds = series.split(',').map(s => parseInt(s.trim(), 10)).filter(id => !isNaN(id));
@@ -187,15 +203,20 @@ router.get('/', async (req: Request, res: Response) => {
       // Search functionality
       if (search && typeof search === 'string' && search.trim() !== '') {
         const searchTerm = `%${search.trim()}%`;
+        const compactBarcodeTerm = `%${search.trim().replace(/[\s-]+/g, '')}%`;
         query = query.where(function(this: any) {
           this.where('physical_items.name', 'like', searchTerm)
             .orWhere('physical_items.edition_notes', 'like', searchTerm)
+            .orWhere('physical_items.barcode', 'like', compactBarcodeTerm)
+            .orWhere('physical_items.asin', 'like', searchTerm)
             .orWhereRaw(`EXISTS (
               SELECT 1 FROM physical_item_media
               JOIN media ON physical_item_media.media_id = media.id
               WHERE physical_item_media.physical_item_id = physical_items.id
               AND (
                 media.title LIKE ? OR
+                media.original_title LIKE ? OR
+                media.tv_show_name LIKE ? OR
                 media.director LIKE ? OR
                 media.synopsis LIKE ? OR
                 physical_item_media.version_notes LIKE ? OR
@@ -204,7 +225,7 @@ router.get('/', async (req: Request, res: Response) => {
                   WHERE json_each.value LIKE ?
                 )
               )
-            )`, [searchTerm, searchTerm, searchTerm, searchTerm, searchTerm]);
+            )`, [searchTerm, searchTerm, searchTerm, searchTerm, searchTerm, searchTerm, searchTerm]);
         });
       }
 
@@ -292,6 +313,14 @@ router.get('/', async (req: Request, res: Response) => {
       totalMoviesQuery = applyVersionTagFilter(totalMoviesQuery, versions || version);
     }
 
+    if (director) {
+      totalMoviesQuery = applyMediaDirectorFilter(totalMoviesQuery, director);
+    }
+
+    if (actor) {
+      totalMoviesQuery = applyMediaActorFilter(totalMoviesQuery, actor);
+    }
+
     if (series && typeof series === 'string') {
       const seriesIds = series.split(',').map(s => parseInt(s.trim(), 10)).filter(id => !isNaN(id));
       if (seriesIds.length > 0) {
@@ -320,11 +349,15 @@ router.get('/', async (req: Request, res: Response) => {
 
     if (search && typeof search === 'string' && search.trim() !== '') {
       const searchTerm = `%${search.trim()}%`;
+      const compactBarcodeTerm = `%${search.trim().replace(/[\s-]+/g, '')}%`;
       totalMoviesQuery = totalMoviesQuery.where(function(this: any) {
         this.where('physical_items.name', 'like', searchTerm)
           .orWhere('physical_items.edition_notes', 'like', searchTerm)
+          .orWhere('physical_items.barcode', 'like', compactBarcodeTerm)
+          .orWhere('physical_items.asin', 'like', searchTerm)
           .orWhere('physical_item_media.version_notes', 'like', searchTerm)
           .orWhere('media.title', 'like', searchTerm)
+          .orWhere('media.original_title', 'like', searchTerm)
           .orWhere('media.director', 'like', searchTerm)
           .orWhere('media.synopsis', 'like', searchTerm)
           .orWhereRaw(`EXISTS (
@@ -417,6 +450,10 @@ router.get('/', async (req: Request, res: Response) => {
       totalTVSeasonsQuery = applyVersionTagFilter(totalTVSeasonsQuery, versions || version);
     }
 
+    if (actor) {
+      totalTVSeasonsQuery = applyMediaActorFilter(totalTVSeasonsQuery, actor);
+    }
+
     if (series && typeof series === 'string') {
       const seriesIds = series.split(',').map(s => parseInt(s.trim(), 10)).filter(id => !isNaN(id));
       if (seriesIds.length > 0) {
@@ -445,14 +482,26 @@ router.get('/', async (req: Request, res: Response) => {
 
     if (search && typeof search === 'string' && search.trim() !== '') {
       const searchTerm = `%${search.trim()}%`;
+      const compactBarcodeTerm = `%${search.trim().replace(/[\s-]+/g, '')}%`;
       totalTVSeasonsQuery = totalTVSeasonsQuery.where(function(this: any) {
         this.where('physical_items.name', 'like', searchTerm)
+          .orWhere('physical_items.edition_notes', 'like', searchTerm)
+          .orWhere('physical_items.barcode', 'like', compactBarcodeTerm)
+          .orWhere('physical_items.asin', 'like', searchTerm)
+          .orWhere('physical_item_media.version_notes', 'like', searchTerm)
           .orWhere('media.title', 'like', searchTerm)
-          .orWhere('media.tv_show_name', 'like', searchTerm);
+          .orWhere('media.original_title', 'like', searchTerm)
+          .orWhere('media.tv_show_name', 'like', searchTerm)
+          .orWhere('media.director', 'like', searchTerm)
+          .orWhere('media.synopsis', 'like', searchTerm)
+          .orWhereRaw(`EXISTS (
+            SELECT 1 FROM json_each(media.cast) 
+            WHERE json_each.value LIKE ?
+          )`, [searchTerm]);
       });
     }
 
-    const totalTVSeasons = media_type === 'movie'
+    const totalTVSeasons = media_type === 'movie' || hasDirectorFilter(director)
       ? { count: 0 }
       : await totalTVSeasonsQuery.countDistinct('physical_item_media.media_id as count').first();
     
@@ -463,6 +512,12 @@ router.get('/', async (req: Request, res: Response) => {
     
     // Apply filters to format stats query
     formatStatsQuery = applyFilters(formatStatsQuery);
+    if (director) {
+      formatStatsQuery = applyMediaDirectorFilter(formatStatsQuery, director);
+    }
+    if (actor) {
+      formatStatsQuery = applyMediaActorFilter(formatStatsQuery, actor);
+    }
     
     const formatStats = await formatStatsQuery
       .select(
@@ -1063,8 +1118,22 @@ router.get('/dashboard', async (_req: Request, res: Response) => {
       number,
       { id: number; name: string; itemIds: Set<number>; mediaIds: Set<number> }
     >();
+    interface PersonWorkPreview {
+      id: number;
+      title: string;
+      year: number | null;
+      coverArtUrl: string | null;
+      seasonNumber?: number | null;
+    }
+
     const directorMap = new Map<string, Set<number>>();
-    const castMap = new Map<string, Set<number>>();
+    const castMap = new Map<string, Map<string, PersonWorkPreview>>();
+
+    const parseValidYear = (releaseDate: unknown): number | null => {
+      if (!releaseDate || typeof releaseDate !== 'string') return null;
+      const parsed = parseInt(releaseDate.substring(0, 4), 10);
+      return !isNaN(parsed) && parsed >= 1880 && parsed <= 2100 ? parsed : null;
+    };
 
     for (const row of itemMediaRows) {
       // Release year & decade
@@ -1111,8 +1180,13 @@ router.get('/dashboard', async (_req: Request, res: Response) => {
         }
       }
 
-      // Directors (split comma-separated director names)
-      if (row.director && typeof row.director === 'string' && row.director.trim()) {
+      // Directors (movies only — exclude tv_season so TV series creators don't inflate film director counts)
+      if (
+        row.media_type !== 'tv_season' &&
+        row.director &&
+        typeof row.director === 'string' &&
+        row.director.trim()
+      ) {
         const directors = row.director
           .split(',')
           .map((d: string) => d.trim())
@@ -1125,15 +1199,59 @@ router.get('/dashboard', async (_req: Request, res: Response) => {
         }
       }
 
-      // Cast
+      // Cast (deduplicate TV seasons by show so multi-season TV sets count as 1 title)
       const castList = parseJsonArray<string>(row.cast);
-      for (const actor of castList) {
-        if (typeof actor === 'string' && actor.trim()) {
-          const name = actor.trim();
-          if (!castMap.has(name)) {
-            castMap.set(name, new Set());
+      if (castList.length > 0) {
+        const workKey = getCastWorkKey(row);
+        const rowYear = parseValidYear(row.release_date);
+        const isTV = row.media_type === 'tv_season';
+        const cleanTitle = isTV
+          ? (row.tv_show_name || row.title || '').trim() || row.title
+          : row.title;
+
+        for (const actor of castList) {
+          if (typeof actor === 'string' && actor.trim()) {
+            const name = actor.trim();
+            if (!castMap.has(name)) {
+              castMap.set(name, new Map());
+            }
+            const works = castMap.get(name)!;
+            const existing = works.get(workKey);
+            if (!existing) {
+              works.set(workKey, {
+                id: row.media_id,
+                title: cleanTitle,
+                year: rowYear,
+                coverArtUrl: row.cover_art_url || null,
+                seasonNumber: row.season_number,
+              });
+            } else if (isTV) {
+              const currSeason = row.season_number ?? 999;
+              const prevSeason = existing.seasonNumber ?? 999;
+              const currIsRegular = currSeason > 0;
+              const prevIsRegular = prevSeason > 0 && prevSeason < 999;
+              const prefersCurr =
+                (currIsRegular && !prevIsRegular) ||
+                (currIsRegular && prevIsRegular && currSeason < prevSeason);
+
+              if (prefersCurr) {
+                works.set(workKey, {
+                  id: row.media_id,
+                  title: cleanTitle,
+                  year: rowYear ?? existing.year,
+                  coverArtUrl: row.cover_art_url || existing.coverArtUrl,
+                  seasonNumber: row.season_number,
+                });
+              } else {
+                if (!existing.coverArtUrl && row.cover_art_url) {
+                  existing.coverArtUrl = row.cover_art_url;
+                }
+                if (existing.year === null && rowYear !== null) {
+                  existing.year = rowYear;
+                }
+              }
+            }
           }
-          castMap.get(name)!.add(row.media_id);
         }
       }
     }
@@ -1183,6 +1301,18 @@ router.get('/dashboard', async (_req: Request, res: Response) => {
         .slice(0, 4);
     };
 
+    const buildCastTitles = (worksMap: Map<string, PersonWorkPreview>) => {
+      return Array.from(worksMap.values())
+        .map(({ id, title, year, coverArtUrl }) => ({
+          id,
+          title,
+          year,
+          coverArtUrl,
+        }))
+        .sort((a, b) => (b.year ?? 0) - (a.year ?? 0) || a.title.localeCompare(b.title))
+        .slice(0, 4);
+    };
+
     const rawTopDirectors = Array.from(directorMap.entries())
       .map(([name, mediaSet]) => ({
         name,
@@ -1193,10 +1323,10 @@ router.get('/dashboard', async (_req: Request, res: Response) => {
       .slice(0, 12);
 
     const rawTopCast = Array.from(castMap.entries())
-      .map(([name, mediaSet]) => ({
+      .map(([name, worksMap]) => ({
         name,
-        count: mediaSet.size,
-        titles: buildPersonTitles(mediaSet),
+        count: worksMap.size,
+        titles: buildCastTitles(worksMap),
       }))
       .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))
       .slice(0, 12);
@@ -1483,6 +1613,581 @@ router.get('/dashboard', async (_req: Request, res: Response) => {
   } catch (error) {
     console.error('Error fetching dashboard statistics:', error);
     res.status(500).json({ error: 'Failed to fetch dashboard statistics' });
+  }
+});
+
+/**
+ * Helper: Load cached TMDb person profile URLs from `person_profiles` without making external calls.
+ */
+async function getCachedPersonProfiles(names: string[]): Promise<Map<string, string | null>> {
+  const result = new Map<string, string | null>();
+  const keys = Array.from(
+    new Set(
+      names
+        .map((n) => n.trim().toLowerCase())
+        .filter(Boolean)
+    )
+  );
+
+  if (keys.length === 0) {
+    return result;
+  }
+
+  try {
+    await ensurePersonProfilesTable();
+    const CHUNK_SIZE = 400;
+    for (let i = 0; i < keys.length; i += CHUNK_SIZE) {
+      const chunk = keys.slice(i, i + CHUNK_SIZE);
+      const cachedRows = await db('person_profiles')
+        .whereIn('name_key', chunk)
+        .select('name_key', 'profile_url');
+      for (const row of cachedRows) {
+        result.set(row.name_key, row.profile_url || null);
+      }
+    }
+  } catch (err) {
+    console.warn('Failed to load cached person profiles:', err);
+  }
+
+  return result;
+}
+
+/**
+ * GET /api/statistics/people
+ * Full talent explorer dataset for Directors and Actors across the collection,
+ * including per-person formats, decades, genres, owned titles, dual roles, and collaborations.
+ */
+router.get('/people', async (_req: Request, res: Response) => {
+  try {
+    const itemMediaRows = await db('physical_item_media as pim')
+      .join('media as m', 'pim.media_id', 'm.id')
+      .join('physical_items as pi', 'pim.physical_item_id', 'pi.id')
+      .where(function() {
+        this.where('pi.archived', 0).orWhereNull('pi.archived');
+      })
+      .select(
+        'pim.physical_item_id',
+        'pim.media_id',
+        'pim.formats as link_formats',
+        'pi.physical_format as item_formats',
+        'm.title',
+        'm.cover_art_url',
+        'm.release_date',
+        'm.director',
+        'm.cast',
+        'm.genres',
+        'm.media_type',
+        'm.tv_show_tmdb_id',
+        'm.tv_show_name',
+        'm.season_number'
+      );
+
+    const parseValidYear = (releaseDate: unknown): number | null => {
+      if (!releaseDate || typeof releaseDate !== 'string') return null;
+      const parsed = parseInt(releaseDate.substring(0, 4), 10);
+      return !isNaN(parsed) && parsed >= 1880 && parsed <= 2100 ? parsed : null;
+    };
+
+    interface WorkMeta {
+      id: number;
+      title: string;
+      year: number | null;
+      decade: string | null;
+      coverArtUrl: string | null;
+      mediaType: 'movie' | 'tv_season';
+      seasonNumber?: number | null;
+      itemIds: Set<number>;
+      formats: Set<string>;
+      genres: Map<number, string>;
+      directors: Set<string>;
+      actors: Set<string>;
+    }
+
+    const movieWorks = new Map<number, WorkMeta>();
+    const castWorks = new Map<string, WorkMeta>();
+    const availableFormatsSet = new Set<string>();
+    const availableDecadesSet = new Set<string>();
+    const availableGenresMap = new Map<number, { id: number; name: string; mediaKeys: Set<string> }>();
+
+    const canonicalNameByKey = new Map<string, string>();
+    const getCanonicalName = (raw: string): { key: string; name: string } => {
+      const cleaned = raw.replace(/\s+/g, ' ').trim();
+      const key = cleaned.toLowerCase();
+      if (!canonicalNameByKey.has(key)) {
+        canonicalNameByKey.set(key, cleaned);
+      }
+      return { key, name: canonicalNameByKey.get(key)! };
+    };
+
+    for (const row of itemMediaRows) {
+      const isTV = row.media_type === 'tv_season';
+      const rowYear = parseValidYear(row.release_date);
+      const rowDecade = rowYear !== null ? String(Math.floor(rowYear / 10) * 10) : null;
+      if (rowDecade) {
+        availableDecadesSet.add(rowDecade);
+      }
+
+      const linkFormats = parseJsonArray<string>(row.link_formats);
+      const itemFormats = parseJsonArray<string>(row.item_formats);
+      const effectiveFormats = linkFormats.length > 0 ? linkFormats : itemFormats;
+      for (const fmt of effectiveFormats) {
+        if (CANONICAL_FORMATS.includes(fmt)) {
+          availableFormatsSet.add(fmt);
+        }
+      }
+
+      const mediaGenres = parseJsonArray<{ id?: number; name?: string }>(row.genres);
+      const workKey = getCastWorkKey(row);
+
+      for (const g of mediaGenres) {
+        const gId = Number(g?.id);
+        const gName = g?.name ? String(g.name).trim() : '';
+        if (gId && gName) {
+          if (!availableGenresMap.has(gId)) {
+            availableGenresMap.set(gId, { id: gId, name: gName, mediaKeys: new Set() });
+          }
+          availableGenresMap.get(gId)!.mediaKeys.add(workKey);
+        }
+      }
+
+      // Movie work aggregation (used for directors & collaborations)
+      if (!isTV) {
+        if (!movieWorks.has(row.media_id)) {
+          movieWorks.set(row.media_id, {
+            id: row.media_id,
+            title: row.title,
+            year: rowYear,
+            decade: rowDecade,
+            coverArtUrl: row.cover_art_url || null,
+            mediaType: 'movie',
+            itemIds: new Set(),
+            formats: new Set(),
+            genres: new Map(),
+            directors: new Set(),
+            actors: new Set(),
+          });
+        }
+        const mw = movieWorks.get(row.media_id)!;
+        mw.itemIds.add(row.physical_item_id);
+        for (const fmt of effectiveFormats) {
+          if (CANONICAL_FORMATS.includes(fmt)) {
+            mw.formats.add(fmt);
+          }
+        }
+        for (const g of mediaGenres) {
+          const gId = Number(g?.id);
+          const gName = g?.name ? String(g.name).trim() : '';
+          if (gId && gName) {
+            mw.genres.set(gId, gName);
+          }
+        }
+
+        if (row.director && typeof row.director === 'string' && row.director.trim()) {
+          const dirs = row.director
+            .split(',')
+            .map((d: string) => d.trim())
+            .filter(Boolean);
+          for (const d of dirs) {
+            const { key } = getCanonicalName(d);
+            if (key) mw.directors.add(key);
+          }
+        }
+
+        const castList = parseJsonArray<string>(row.cast);
+        for (const actor of castList) {
+          if (typeof actor === 'string' && actor.trim()) {
+            const { key } = getCanonicalName(actor);
+            if (key) mw.actors.add(key);
+          }
+        }
+      }
+
+      // Cast work aggregation (movies + deduplicated TV shows)
+      const castList = parseJsonArray<string>(row.cast);
+      if (castList.length > 0) {
+        const cleanTitle = isTV
+          ? (row.tv_show_name || row.title || '').trim() || row.title
+          : row.title;
+
+        if (!castWorks.has(workKey)) {
+          castWorks.set(workKey, {
+            id: row.media_id,
+            title: cleanTitle,
+            year: rowYear,
+            decade: rowDecade,
+            coverArtUrl: row.cover_art_url || null,
+            mediaType: isTV ? 'tv_season' : 'movie',
+            seasonNumber: row.season_number,
+            itemIds: new Set(),
+            formats: new Set(),
+            genres: new Map(),
+            directors: new Set(),
+            actors: new Set(),
+          });
+        }
+
+        const cw = castWorks.get(workKey)!;
+        cw.itemIds.add(row.physical_item_id);
+        for (const fmt of effectiveFormats) {
+          if (CANONICAL_FORMATS.includes(fmt)) {
+            cw.formats.add(fmt);
+          }
+        }
+        for (const g of mediaGenres) {
+          const gId = Number(g?.id);
+          const gName = g?.name ? String(g.name).trim() : '';
+          if (gId && gName) {
+            cw.genres.set(gId, gName);
+          }
+        }
+
+        if (isTV) {
+          const currSeason = row.season_number ?? 999;
+          const prevSeason = cw.seasonNumber ?? 999;
+          const currIsRegular = currSeason > 0;
+          const prevIsRegular = prevSeason > 0 && prevSeason < 999;
+          const prefersCurr =
+            (currIsRegular && !prevIsRegular) ||
+            (currIsRegular && prevIsRegular && currSeason < prevSeason);
+
+          if (prefersCurr) {
+            cw.id = row.media_id;
+            cw.title = cleanTitle;
+            cw.year = rowYear ?? cw.year;
+            cw.decade = rowDecade ?? cw.decade;
+            cw.coverArtUrl = row.cover_art_url || cw.coverArtUrl;
+            cw.seasonNumber = row.season_number;
+          } else {
+            if (!cw.coverArtUrl && row.cover_art_url) {
+              cw.coverArtUrl = row.cover_art_url;
+            }
+            if (cw.year === null && rowYear !== null) {
+              cw.year = rowYear;
+              cw.decade = rowDecade;
+            }
+          }
+        }
+
+        for (const actor of castList) {
+          if (typeof actor === 'string' && actor.trim()) {
+            const { key } = getCanonicalName(actor);
+            if (key) cw.actors.add(key);
+          }
+        }
+      }
+    }
+
+    // Group works per director & per actor
+    const directorWorksMap = new Map<string, WorkMeta[]>();
+    const actorWorksMap = new Map<string, WorkMeta[]>();
+
+    for (const mw of movieWorks.values()) {
+      for (const dirKey of mw.directors) {
+        if (!directorWorksMap.has(dirKey)) {
+          directorWorksMap.set(dirKey, []);
+        }
+        directorWorksMap.get(dirKey)!.push(mw);
+      }
+    }
+
+    for (const cw of castWorks.values()) {
+      for (const actorKey of cw.actors) {
+        if (!actorWorksMap.has(actorKey)) {
+          actorWorksMap.set(actorKey, []);
+        }
+        actorWorksMap.get(actorKey)!.push(cw);
+      }
+    }
+
+    // Build collaborations (Director + Actor pairs appearing together in >= 2 movies)
+    const collabPairMap = new Map<string, { directorKey: string; actorKey: string; works: WorkMeta[] }>();
+    const collabsByDirectorKey = new Map<string, Map<string, WorkMeta[]>>();
+    const collabsByActorKey = new Map<string, Map<string, WorkMeta[]>>();
+
+    for (const mw of movieWorks.values()) {
+      for (const dirKey of mw.directors) {
+        for (const actorKey of mw.actors) {
+          if (dirKey === actorKey) continue; // Skip self-directed acting for pair collaborations
+          const pairKey = `${dirKey}:::${actorKey}`;
+          if (!collabPairMap.has(pairKey)) {
+            collabPairMap.set(pairKey, { directorKey: dirKey, actorKey, works: [] });
+          }
+          collabPairMap.get(pairKey)!.works.push(mw);
+
+          if (!collabsByDirectorKey.has(dirKey)) {
+            collabsByDirectorKey.set(dirKey, new Map());
+          }
+          const dirMap = collabsByDirectorKey.get(dirKey)!;
+          if (!dirMap.has(actorKey)) dirMap.set(actorKey, []);
+          dirMap.get(actorKey)!.push(mw);
+
+          if (!collabsByActorKey.has(actorKey)) {
+            collabsByActorKey.set(actorKey, new Map());
+          }
+          const actMap = collabsByActorKey.get(actorKey)!;
+          if (!actMap.has(dirKey)) actMap.set(dirKey, []);
+          actMap.get(dirKey)!.push(mw);
+        }
+      }
+    }
+
+    const buildPersonEntry = (
+      personKey: string,
+      role: 'director' | 'actor',
+      works: WorkMeta[],
+      profileMap: Map<string, string | null>
+    ) => {
+      const name = canonicalNameByKey.get(personKey) || personKey;
+      const itemIds = new Set<number>();
+      const formatCounts = new Map<string, number>();
+      const decadeSet = new Set<string>();
+      const genreCounts = new Map<number, { id: number; name: string; count: number }>();
+      let earliestYear: number | null = null;
+      let latestYear: number | null = null;
+
+      for (const w of works) {
+        for (const itemId of w.itemIds) {
+          itemIds.add(itemId);
+        }
+        for (const fmt of w.formats) {
+          formatCounts.set(fmt, (formatCounts.get(fmt) || 0) + 1);
+        }
+        if (w.decade) {
+          decadeSet.add(w.decade);
+        }
+        if (w.year !== null) {
+          if (earliestYear === null || w.year < earliestYear) earliestYear = w.year;
+          if (latestYear === null || w.year > latestYear) latestYear = w.year;
+        }
+        for (const [gId, gName] of w.genres.entries()) {
+          const existing = genreCounts.get(gId);
+          if (existing) {
+            existing.count += 1;
+          } else {
+            genreCounts.set(gId, { id: gId, name: gName, count: 1 });
+          }
+        }
+      }
+
+      const sortedWorks = [...works]
+        .sort((a, b) => (b.year ?? 0) - (a.year ?? 0) || a.title.localeCompare(b.title))
+        .map((w) => ({
+          id: w.id,
+          title: w.title,
+          year: w.year,
+          coverArtUrl: w.coverArtUrl,
+          mediaType: w.mediaType,
+        }));
+
+      const formats = CANONICAL_FORMATS.filter((f) => formatCounts.has(f)).map((format) => ({
+        format,
+        count: formatCounts.get(format) || 0,
+      }));
+
+      const decades = Array.from(decadeSet).sort((a, b) => a.localeCompare(b));
+      const genres = Array.from(genreCounts.values()).sort(
+        (a, b) => b.count - a.count || a.name.localeCompare(b.name)
+      );
+
+      const collaboratorMap =
+        role === 'director'
+          ? collabsByDirectorKey.get(personKey)
+          : collabsByActorKey.get(personKey);
+
+      const topCollaborators = collaboratorMap
+        ? Array.from(collaboratorMap.entries())
+            .filter(([, sharedWorks]) => sharedWorks.length >= 2)
+            .map(([collabKey, sharedWorks]) => ({
+              name: canonicalNameByKey.get(collabKey) || collabKey,
+              role: (role === 'director' ? 'actor' : 'director') as 'director' | 'actor',
+              count: sharedWorks.length,
+              titles: sharedWorks
+                .sort((a, b) => (b.year ?? 0) - (a.year ?? 0) || a.title.localeCompare(b.title))
+                .slice(0, 3)
+                .map((w) => w.title),
+            }))
+            .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))
+            .slice(0, 3)
+        : [];
+
+      const directedCount = directorWorksMap.get(personKey)?.length || 0;
+      const actedCount = actorWorksMap.get(personKey)?.length || 0;
+      const alsoRoleCount = role === 'director' ? actedCount : directedCount;
+
+      return {
+        name,
+        role,
+        count: works.length,
+        itemCount: itemIds.size,
+        profileUrl: profileMap.get(personKey) ?? null,
+        titles: sortedWorks,
+        formats,
+        decades,
+        genres,
+        earliestYear,
+        latestYear,
+        alsoRoleCount,
+        topCollaborators,
+      };
+    };
+
+    const allPersonNames = Array.from(canonicalNameByKey.values());
+    const cachedProfileMap = await getCachedPersonProfiles(allPersonNames);
+
+    // Proactively resolve TMDb profiles for the top 24 directors and top 24 actors so the initial screen has photos
+    const topDirectorKeys = Array.from(directorWorksMap.entries())
+      .sort(
+        (a, b) =>
+          b[1].length - a[1].length ||
+          (canonicalNameByKey.get(a[0]) || a[0]).localeCompare(canonicalNameByKey.get(b[0]) || b[0])
+      )
+      .slice(0, 24)
+      .map(([k]) => canonicalNameByKey.get(k) || k);
+
+    const topActorKeys = Array.from(actorWorksMap.entries())
+      .sort(
+        (a, b) =>
+          b[1].length - a[1].length ||
+          (canonicalNameByKey.get(a[0]) || a[0]).localeCompare(canonicalNameByKey.get(b[0]) || b[0])
+      )
+      .slice(0, 24)
+      .map(([k]) => canonicalNameByKey.get(k) || k);
+
+    const resolvedTopProfiles = await resolvePersonProfiles([...topDirectorKeys, ...topActorKeys]);
+    for (const [k, v] of resolvedTopProfiles.entries()) {
+      cachedProfileMap.set(k, v);
+    }
+
+    const directors = Array.from(directorWorksMap.entries())
+      .map(([key, works]) => buildPersonEntry(key, 'director', works, cachedProfileMap))
+      .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+
+    const actors = Array.from(actorWorksMap.entries())
+      .map(([key, works]) => buildPersonEntry(key, 'actor', works, cachedProfileMap))
+      .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+
+    const dualRolePeople = Array.from(directorWorksMap.keys())
+      .filter((key) => actorWorksMap.has(key))
+      .map((key) => {
+        const dirWorks = directorWorksMap.get(key) || [];
+        const actWorks = actorWorksMap.get(key) || [];
+        const combinedTitleMap = new Map<number, { id: number; title: string; year: number | null; coverArtUrl: string | null }>();
+        for (const w of [...dirWorks, ...actWorks]) {
+          if (!combinedTitleMap.has(w.id)) {
+            combinedTitleMap.set(w.id, {
+              id: w.id,
+              title: w.title,
+              year: w.year,
+              coverArtUrl: w.coverArtUrl,
+            });
+          }
+        }
+        return {
+          name: canonicalNameByKey.get(key) || key,
+          directedCount: dirWorks.length,
+          actedCount: actWorks.length,
+          totalUniqueTitles: combinedTitleMap.size,
+          profileUrl: cachedProfileMap.get(key) ?? null,
+          titles: Array.from(combinedTitleMap.values())
+            .sort((a, b) => (b.year ?? 0) - (a.year ?? 0) || a.title.localeCompare(b.title))
+            .slice(0, 4),
+        };
+      })
+      .sort(
+        (a, b) =>
+          b.totalUniqueTitles - a.totalUniqueTitles ||
+          b.directedCount + b.actedCount - (a.directedCount + a.actedCount) ||
+          a.name.localeCompare(b.name)
+      );
+
+    const topCollaborations = Array.from(collabPairMap.values())
+      .filter((pair) => pair.works.length >= 2)
+      .map((pair) => ({
+        director: canonicalNameByKey.get(pair.directorKey) || pair.directorKey,
+        directorProfileUrl: cachedProfileMap.get(pair.directorKey) ?? null,
+        actor: canonicalNameByKey.get(pair.actorKey) || pair.actorKey,
+        actorProfileUrl: cachedProfileMap.get(pair.actorKey) ?? null,
+        count: pair.works.length,
+        titles: pair.works
+          .sort((a, b) => (b.year ?? 0) - (a.year ?? 0) || a.title.localeCompare(b.title))
+          .map((w) => ({
+            id: w.id,
+            title: w.title,
+            year: w.year,
+            coverArtUrl: w.coverArtUrl,
+          })),
+      }))
+      .sort(
+        (a, b) =>
+          b.count - a.count ||
+          a.director.localeCompare(b.director) ||
+          a.actor.localeCompare(b.actor)
+      )
+      .slice(0, 24);
+
+    res.json({
+      summary: {
+        totalDirectors: directors.length,
+        totalActors: actors.length,
+        multiFilmDirectorsCount: directors.filter((d) => d.count >= 2).length,
+        multiTitleActorsCount: actors.filter((a) => a.count >= 2).length,
+        dualRoleCount: dualRolePeople.length,
+        collaborationsCount: topCollaborations.length,
+      },
+      directors,
+      actors,
+      dualRolePeople,
+      topCollaborations,
+      availableFormats: CANONICAL_FORMATS.filter((f) => availableFormatsSet.has(f)),
+      availableDecades: Array.from(availableDecadesSet).sort((a, b) => a.localeCompare(b)),
+      availableGenres: Array.from(availableGenresMap.values())
+        .map((g) => ({
+          id: g.id,
+          name: g.name,
+          count: g.mediaKeys.size,
+        }))
+        .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name)),
+    });
+  } catch (error) {
+    console.error('Error fetching people explorer statistics:', error);
+    res.status(500).json({ error: 'Failed to fetch people explorer statistics' });
+  }
+});
+
+/**
+ * GET /api/statistics/people/profiles?names=Name1,Name2
+ * On-demand TMDb headshot resolver for people visible in the Talent Explorer.
+ * Caches resolved profile URLs in SQLite `person_profiles`.
+ */
+router.get('/people/profiles', async (req: Request, res: Response) => {
+  try {
+    const rawNames = req.query.names;
+    const namesList: string[] = [];
+    if (typeof rawNames === 'string') {
+      for (const part of rawNames.split('|')) {
+        const trimmed = part.trim();
+        if (trimmed) namesList.push(trimmed);
+      }
+    } else if (Array.isArray(rawNames)) {
+      for (const item of rawNames) {
+        if (typeof item === 'string' && item.trim()) {
+          namesList.push(item.trim());
+        }
+      }
+    }
+
+    const cappedNames = namesList.slice(0, 30);
+    const resolvedMap = await resolvePersonProfiles(cappedNames);
+    const profiles: Record<string, string | null> = {};
+    for (const name of cappedNames) {
+      const key = name.trim().toLowerCase();
+      profiles[name] = resolvedMap.get(key) ?? null;
+    }
+
+    res.json({ profiles });
+  } catch (error) {
+    console.error('Error resolving person profiles:', error);
+    res.status(500).json({ error: 'Failed to resolve person profiles' });
   }
 });
 

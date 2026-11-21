@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { db } from '../database';
 import { applyEditionTagFilter, applyVersionTagFilter } from '../utils/edition-tags.util';
+import { applyItemActorFilter, applyItemDirectorFilter } from '../utils/person-filter.util';
 
 const router = Router();
 
@@ -40,7 +41,7 @@ interface PhysicalItemWithMedia {
  */
 router.get('/', async (req: Request, res: Response) => {
   try {
-    const { format, genres, decades, editions, edition, versions, version, series, sort_by = 'created_at', sort_order = 'desc', search, media_type, page = '1', limit = '24' } = req.query;
+    const { format, genres, decades, editions, edition, versions, version, series, director, actor, sort_by = 'created_at', sort_order = 'desc', search, media_type, page = '1', limit = '24' } = req.query;
 
     // Start with base query - fetch physical items WITHOUT joins first
     // This ensures all items are returned, then we'll filter and attach media separately
@@ -163,6 +164,14 @@ router.get('/', async (req: Request, res: Response) => {
       query = applyVersionTagFilter(query, versions || version);
     }
 
+    if (director) {
+      query = applyItemDirectorFilter(query, director);
+    }
+
+    if (actor) {
+      query = applyItemActorFilter(query, actor);
+    }
+
     // Filter by series if specified (multi-select: comma-separated series IDs)
     if (series && typeof series === 'string') {
       const seriesIds = series.split(',').map(s => parseInt(s.trim(), 10)).filter(id => !isNaN(id));
@@ -194,15 +203,20 @@ router.get('/', async (req: Request, res: Response) => {
     // Search functionality
     if (search && typeof search === 'string' && search.trim() !== '') {
       const searchTerm = `%${search.trim()}%`;
+      const compactBarcodeTerm = `%${search.trim().replace(/[\s-]+/g, '')}%`;
       query = query.where(function() {
         this.where('physical_items.name', 'like', searchTerm)
           .orWhere('physical_items.edition_notes', 'like', searchTerm)
+          .orWhere('physical_items.barcode', 'like', compactBarcodeTerm)
+          .orWhere('physical_items.asin', 'like', searchTerm)
           .orWhereRaw(`EXISTS (
             SELECT 1 FROM physical_item_media
             JOIN media ON physical_item_media.media_id = media.id
             WHERE physical_item_media.physical_item_id = physical_items.id
             AND (
               media.title LIKE ? OR
+              media.original_title LIKE ? OR
+              media.tv_show_name LIKE ? OR
               media.director LIKE ? OR
               media.synopsis LIKE ? OR
               physical_item_media.version_notes LIKE ? OR
@@ -211,7 +225,7 @@ router.get('/', async (req: Request, res: Response) => {
                 WHERE json_each.value LIKE ?
               )
             )
-          )`, [searchTerm, searchTerm, searchTerm, searchTerm, searchTerm]);
+          )`, [searchTerm, searchTerm, searchTerm, searchTerm, searchTerm, searchTerm, searchTerm]);
       });
     }
 
@@ -368,6 +382,14 @@ router.get('/', async (req: Request, res: Response) => {
       countQuery = applyVersionTagFilter(countQuery, versions || version);
     }
 
+    if (director) {
+      countQuery = applyItemDirectorFilter(countQuery, director);
+    }
+
+    if (actor) {
+      countQuery = applyItemActorFilter(countQuery, actor);
+    }
+
     // Filter by series in count query
     if (series && typeof series === 'string') {
       const seriesIds = series.split(',').map(s => parseInt(s.trim(), 10)).filter(id => !isNaN(id));
@@ -398,15 +420,20 @@ router.get('/', async (req: Request, res: Response) => {
 
     if (search && typeof search === 'string' && search.trim() !== '') {
       const searchTerm = `%${search.trim()}%`;
+      const compactBarcodeTerm = `%${search.trim().replace(/[\s-]+/g, '')}%`;
       countQuery = countQuery.where(function() {
         this.where('physical_items.name', 'like', searchTerm)
           .orWhere('physical_items.edition_notes', 'like', searchTerm)
+          .orWhere('physical_items.barcode', 'like', compactBarcodeTerm)
+          .orWhere('physical_items.asin', 'like', searchTerm)
           .orWhereRaw(`EXISTS (
             SELECT 1 FROM physical_item_media
             JOIN media ON physical_item_media.media_id = media.id
             WHERE physical_item_media.physical_item_id = physical_items.id
             AND (
               media.title LIKE ? OR
+              media.original_title LIKE ? OR
+              media.tv_show_name LIKE ? OR
               media.director LIKE ? OR
               media.synopsis LIKE ? OR
               physical_item_media.version_notes LIKE ? OR
@@ -415,7 +442,7 @@ router.get('/', async (req: Request, res: Response) => {
                 WHERE json_each.value LIKE ?
               )
             )
-          )`, [searchTerm, searchTerm, searchTerm, searchTerm, searchTerm]);
+          )`, [searchTerm, searchTerm, searchTerm, searchTerm, searchTerm, searchTerm, searchTerm]);
       });
     }
 
@@ -629,6 +656,8 @@ router.get('/', async (req: Request, res: Response) => {
           id: m.id,
           link_id: m.link_id,
           title: m.title,
+          original_title: m.original_title || null,
+          original_language: m.original_language || null,
           tmdb_id: m.tmdb_id,
           synopsis: m.synopsis,
           cover_art_url: m.cover_art_url,

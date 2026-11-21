@@ -3,6 +3,7 @@ import { CollectionParams, CollectionViewMode } from '../hooks/useCollectionPara
 import { SortField } from '../types';
 import FilterPanel, { countActiveFilters } from './FilterPanel';
 import { Chip } from './ui/Chip';
+import { SEGMENTED_TRACK_CLASSES, segmentedItemClasses } from './ui/SegmentedControl';
 
 export interface CollectionToolbarProps {
   params: CollectionParams;
@@ -69,6 +70,8 @@ const CollectionToolbar: React.FC<CollectionToolbarProps> = ({
     selectedEditions,
     selectedVersions,
     selectedSeries,
+    director: params.director,
+    actor: params.actor,
     mediaType: params.type,
     archived: showArchivedFilter && params.archived,
   });
@@ -93,7 +96,7 @@ const CollectionToolbar: React.FC<CollectionToolbarProps> = ({
     availableSeries.find((s) => s.id === id)?.name ?? `Series ${id}`;
 
   return (
-    <div className="sticky top-16 lg:top-16 z-20 -mx-4 px-4 sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8 py-2 bg-white/85 dark:bg-gray-900/85 backdrop-blur border-b border-gray-200 dark:border-gray-700">
+    <div className="sticky top-16 lg:top-16 z-20 -mx-4 px-4 sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8 py-2 bg-surface/85 backdrop-blur border-b border-subtle">
       <div className="flex items-center gap-2">
         <div className="relative flex-1 min-w-0">
           <input
@@ -103,10 +106,10 @@ const CollectionToolbar: React.FC<CollectionToolbarProps> = ({
             value={searchInput}
             onChange={(e) => onSearchChange(e.target.value)}
             placeholder="Search collection..."
-            className="w-full min-h-11 pl-10 pr-10 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface dark:bg-gray-700 dark:text-gray-100"
+            className="w-full min-h-11 pl-10 pr-10 py-2 text-sm border border-subtle rounded-[--radius-control] bg-surface-raised text-content placeholder:text-content-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
           />
           <svg
-            className="absolute left-3 top-2.5 h-5 w-5 text-gray-400"
+            className="absolute left-3 top-2.5 h-5 w-5 text-content-muted"
             fill="none"
             stroke="currentColor"
             viewBox="0 0 24 24"
@@ -122,7 +125,7 @@ const CollectionToolbar: React.FC<CollectionToolbarProps> = ({
             <button
               type="button"
               onClick={() => onSearchChange('')}
-              className="absolute right-3 top-2.5 h-5 w-5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+              className="absolute right-3 top-2.5 h-5 w-5 text-content-muted hover:text-content"
               aria-label="Clear search"
             >
               <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -140,7 +143,7 @@ const CollectionToolbar: React.FC<CollectionToolbarProps> = ({
         <div
           role="group"
           aria-label="Filter by media type"
-          className="hidden sm:inline-flex items-center rounded-lg bg-gray-100 dark:bg-gray-800 p-1 flex-shrink-0"
+          className={`hidden sm:inline-flex flex-shrink-0 ${SEGMENTED_TRACK_CLASSES}`}
         >
           {(['all', 'movie', 'tv_season'] as const).map((type) => {
             const isSelected = params.type === type;
@@ -151,11 +154,7 @@ const CollectionToolbar: React.FC<CollectionToolbarProps> = ({
                 aria-pressed={isSelected}
                 disabled={isLoading}
                 onClick={() => setParams({ type })}
-                className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors whitespace-nowrap ${
-                  isSelected
-                    ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-sm'
-                    : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
-                }`}
+                className={segmentedItemClasses(isSelected)}
               >
                 {MEDIA_TYPE_LABELS[type]}
               </button>
@@ -167,15 +166,24 @@ const CollectionToolbar: React.FC<CollectionToolbarProps> = ({
           type="button"
           onClick={() => setIsFilterOpen(true)}
           disabled={isLoading}
-          className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium border transition-colors ${
+          className={`inline-flex min-h-[2.5rem] items-center gap-2 px-3 py-2 rounded-[--radius-control] text-sm font-medium border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:cursor-not-allowed disabled:opacity-50 ${
             activeFilterCount > 0
-              ? 'border-primary-500 text-primary-700 dark:text-primary-300 bg-primary-50 dark:bg-primary-900/30 hover:bg-primary-100 dark:hover:bg-primary-900/50'
-              : 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600'
+              ? 'border-primary-500 text-primary-700 bg-primary-50 hover:bg-primary-100 dark:border-primary-500/70 dark:text-primary-200 dark:bg-primary-900/35 dark:hover:bg-primary-900/50'
+              : 'border-subtle text-content bg-surface-raised hover:bg-surface-sunken'
           }`}
           aria-haspopup="dialog"
           aria-expanded={isFilterOpen}
         >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg
+            className={`w-4 h-4 ${
+              activeFilterCount > 0
+                ? 'text-primary-600 dark:text-primary-300'
+                : 'text-content-muted'
+            }`}
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
             <path
               strokeLinecap="round"
               strokeLinejoin="round"
@@ -195,22 +203,31 @@ const CollectionToolbar: React.FC<CollectionToolbarProps> = ({
           shelfActions
         ) : (
           <>
-            <div className="hidden lg:flex items-center gap-1">
-              {SORT_OPTIONS.map(({ field, label }) => (
-                <button
-                  key={field}
-                  type="button"
-                  onClick={() => handleSortByChange(field)}
-                  disabled={isLoading}
-                  className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${
-                    params.sortBy === field
-                      ? 'bg-primary-600 text-white'
-                      : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
-                  }`}
-                >
-                  {label} {params.sortBy === field && (params.sortOrder === 'asc' ? '↑' : '↓')}
-                </button>
-              ))}
+            <div
+              role="group"
+              aria-label="Sort collection"
+              className={`hidden lg:inline-flex flex-shrink-0 ${SEGMENTED_TRACK_CLASSES}`}
+            >
+              {SORT_OPTIONS.map(({ field, label }) => {
+                const isSelected = params.sortBy === field;
+                return (
+                  <button
+                    key={field}
+                    type="button"
+                    aria-pressed={isSelected}
+                    onClick={() => handleSortByChange(field)}
+                    disabled={isLoading}
+                    className={segmentedItemClasses(isSelected)}
+                  >
+                    <span>{label}</span>
+                    {isSelected && (
+                      <span aria-hidden="true" className="text-xs leading-none opacity-90">
+                        {params.sortOrder === 'asc' ? '↑' : '↓'}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
             </div>
 
             <div className="flex lg:hidden items-center gap-1">
@@ -222,7 +239,7 @@ const CollectionToolbar: React.FC<CollectionToolbarProps> = ({
                 value={params.sortBy}
                 onChange={(e) => handleSortByChange(e.target.value as SortField)}
                 disabled={isLoading}
-                className="min-h-11 pl-2 pr-8 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+                className="min-h-11 pl-2.5 pr-8 py-2 text-sm border border-subtle rounded-[--radius-control] bg-surface-raised text-content focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
               >
                 {SORT_OPTIONS.map(({ field, label }) => (
                   <option key={field} value={field}>
@@ -235,7 +252,7 @@ const CollectionToolbar: React.FC<CollectionToolbarProps> = ({
                 onClick={handleSortOrderToggle}
                 disabled={isLoading}
                 aria-label="Toggle sort order"
-                className="min-h-11 px-3 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors"
+                className="min-h-11 px-3 rounded-[--radius-control] border border-subtle bg-surface-raised text-content hover:bg-surface-sunken transition-colors"
               >
                 {params.sortOrder === 'asc' ? '↑' : '↓'}
               </button>
@@ -261,6 +278,18 @@ const CollectionToolbar: React.FC<CollectionToolbarProps> = ({
             <Chip
               label={MEDIA_TYPE_LABELS[params.type]}
               onRemove={() => setParams({ type: 'all' })}
+            />
+          )}
+          {params.director && (
+            <Chip
+              label={`Director: ${params.director}`}
+              onRemove={() => setParams({ director: '' })}
+            />
+          )}
+          {params.actor && (
+            <Chip
+              label={`Cast: ${params.actor}`}
+              onRemove={() => setParams({ actor: '' })}
             />
           )}
           {params.formats.map((fmt) => (

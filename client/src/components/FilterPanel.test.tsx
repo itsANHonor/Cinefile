@@ -13,6 +13,8 @@ const defaultParams: CollectionParams = {
   editions: [],
   versions: [],
   series: [],
+  director: '',
+  actor: '',
   type: 'all',
   archived: false,
   sortBy: 'title',
@@ -89,14 +91,39 @@ describe('FilterPanel', () => {
         selectedDecades: ['1990'],
         selectedEditions: ['Steelbook'],
         selectedSeries: [5],
+        director: 'Lars von Trier',
+        actor: 'Kirsten Dunst',
         mediaType: 'movie',
         archived: true,
       })
-    ).toBe(8);
+    ).toBe(10);
   });
 });
 
 describe('CollectionToolbar', () => {
+  it('renders removable Director and Cast filter chips when active', async () => {
+    const user = userEvent.setup();
+    const setParams = vi.fn();
+
+    render(
+      <CollectionToolbar
+        params={{ ...defaultParams, director: 'Lars von Trier', actor: 'Kirsten Dunst' }}
+        setParams={setParams}
+        clearAll={vi.fn()}
+        searchInput=""
+        onSearchChange={vi.fn()}
+        availableGenres={[]}
+        availableDecades={[]}
+        resultCount={2}
+      />
+    );
+
+    expect(screen.getByText('Director: Lars von Trier')).toBeInTheDocument();
+    expect(screen.getByText('Cast: Kirsten Dunst')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /Remove Director: Lars von Trier/i }));
+    expect(setParams).toHaveBeenCalledWith({ director: '' });
+  });
   it('renders a direct media type filter control and updates type when clicked', async () => {
     const user = userEvent.setup();
     const setParams = vi.fn();

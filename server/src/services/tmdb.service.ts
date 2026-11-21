@@ -11,6 +11,8 @@ const MIN_DELAY_MS = 1000 / RATE_LIMIT_REQUESTS_PER_SECOND; // 25ms minimum dela
 export interface TMDbMovie {
   id: number;
   title: string;
+  original_title?: string;
+  original_language?: string;
   overview: string;
   poster_path: string | null;
   release_date: string;
@@ -21,6 +23,8 @@ export interface TMDbMovie {
 export interface TMDbMovieDetails {
   id: number;
   title: string;
+  original_title?: string;
+  original_language?: string;
   overview: string;
   poster_path: string | null;
   backdrop_path: string | null;
@@ -44,6 +48,8 @@ export interface TMDbSearchResponse {
 export interface TMDbTVShow {
   id: number;
   name: string;
+  original_name?: string;
+  original_language?: string;
   overview: string;
   poster_path: string | null;
   first_air_date: string;
@@ -54,6 +60,8 @@ export interface TMDbTVShow {
 export interface TMDbTVShowDetails {
   id: number;
   name: string;
+  original_name?: string;
+  original_language?: string;
   overview: string;
   poster_path: string | null;
   backdrop_path: string | null;

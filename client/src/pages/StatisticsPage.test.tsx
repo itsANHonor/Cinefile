@@ -173,8 +173,17 @@ describe('StatisticsPage', () => {
     await user.click(screen.getByRole('radio', { name: /Content Insights/i }));
 
     // Elevated Director & Cast spotlight cards with photos, fallback initials, and owned titles preview
+    expect(screen.getByRole('link', { name: /Explore All Directors/i })).toHaveAttribute(
+      'href',
+      '/statistics/directors'
+    );
+    expect(screen.getByRole('link', { name: /Explore All Actors/i })).toHaveAttribute(
+      'href',
+      '/statistics/actors'
+    );
+
     const villeneuveLink = screen.getByRole('link', { name: /Denis Villeneuve/i });
-    expect(villeneuveLink).toHaveAttribute('href', '/?q=Denis%20Villeneuve');
+    expect(villeneuveLink).toHaveAttribute('href', '/?director=Denis%20Villeneuve');
     expect(screen.getByAltText('Denis Villeneuve')).toHaveAttribute(
       'src',
       'https://image.tmdb.org/t/p/w500/villeneuve.jpg'
@@ -182,7 +191,7 @@ describe('StatisticsPage', () => {
     expect(screen.getByText(/Dune: Part Two, Blade Runner 2049 \+3 more/i)).toBeInTheDocument();
 
     const cillianLink = screen.getByRole('link', { name: /Cillian Murphy/i });
-    expect(cillianLink).toHaveAttribute('href', '/?q=Cillian%20Murphy');
+    expect(cillianLink).toHaveAttribute('href', '/?actor=Cillian%20Murphy');
     expect(screen.getByAltText('Cillian Murphy')).toHaveAttribute(
       'src',
       'https://image.tmdb.org/t/p/w500/cillian.jpg'
