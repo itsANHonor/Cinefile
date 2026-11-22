@@ -274,4 +274,64 @@ describe('MediaDetailModal', () => {
     expect(screen.getByRole('heading', { name: 'UPC' })).toBeInTheDocument();
     expect(screen.getByText('036000291452')).toBeInTheDocument();
   });
+
+  it('renders a package photo gallery with thumbnails, labels, and prev/next navigation when custom_images has multiple photos', async () => {
+    const user = userEvent.setup();
+    const multiPhotoItem: PhysicalItem = {
+      ...singleMovieItem,
+      custom_image_url: '/uploads/lebowski-front.jpg',
+      custom_images: [
+        { url: '/uploads/lebowski-front.jpg', label: 'Front' },
+        { url: '/uploads/lebowski-back.jpg', label: 'Back' },
+        { url: '/uploads/lebowski-inside.jpg', label: 'Inside' },
+      ],
+      media: [
+        {
+          ...singleMovieItem.media[0],
+          cover_art_url: 'https://image.tmdb.org/t/p/w500/lebowski-poster.jpg',
+        },
+      ],
+    };
+
+    render(<MediaDetailModal physicalItem={multiPhotoItem} isOpen onClose={vi.fn()} />);
+
+    const mainPoster = screen.getByAltText('The Big Lebowski') as HTMLImageElement;
+    expect(mainPoster.getAttribute('src')).toBe('/uploads/lebowski-front.jpg');
+    expect(screen.getByText('1 / 3')).toBeInTheDocument();
+
+    // Thumbnail strip is rendered with all 3 photos
+    const thumbStrip = screen.getByTestId('package-photo-thumbnails');
+    const thumbButtons = within(thumbStrip).getAllByRole('tab');
+    expect(thumbButtons).toHaveLength(3);
+
+    // Click second thumbnail ("Back")
+    await user.click(within(thumbStrip).getByRole('tab', { name: /View package photo: Back/i }));
+    expect(mainPoster.getAttribute('src')).toBe('/uploads/lebowski-back.jpg');
+    expect(screen.getByText('2 / 3')).toBeInTheDocument();
+
+    // Advance to third photo via Next photo arrow button
+    await user.click(screen.getByRole('button', { name: 'Next photo' }));
+    expect(mainPoster.getAttribute('src')).toBe('/uploads/lebowski-inside.jpg');
+    expect(screen.getByText('3 / 3')).toBeInTheDocument();
+
+    // Toggle to movie poster and back to package photos (3)
+    await user.click(screen.getByRole('button', { name: 'Show movie poster' }));
+    expect(mainPoster.getAttribute('src')).toBe('https://image.tmdb.org/t/p/w500/lebowski-poster.jpg');
+    expect(screen.queryByTestId('package-photo-thumbnails')).not.toBeInTheDocument();
+
+    const showPackageBtn = screen.getByRole('button', { name: 'Show package photos (3)' });
+    await user.click(showPackageBtn);
+    expect(mainPoster.getAttribute('src')).toBe('/uploads/lebowski-inside.jpg');
+  });
+
+  it('displays formatted Cost in the physical item overview when cost is provided', () => {
+    const pricedItem: PhysicalItem = {
+      ...singleMovieItem,
+      cost: 34.99,
+    };
+
+    render(<MediaDetailModal physicalItem={pricedItem} isOpen onClose={vi.fn()} />);
+    expect(screen.getByRole('heading', { name: 'Cost' })).toBeInTheDocument();
+    expect(screen.getByText('$34.99')).toBeInTheDocument();
+  });
 });

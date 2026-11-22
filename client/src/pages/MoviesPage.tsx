@@ -426,6 +426,11 @@ const MoviesPage: React.FC = () => {
                 key={movie.id}
                 role="listitem"
                 style={{ '--stagger-index': staggerIndex } as React.CSSProperties}
+                onAnimationEnd={(e) => {
+                  if (e.target === e.currentTarget) {
+                    e.currentTarget.classList.remove('media-card-batch-enter');
+                  }
+                }}
                 className={`card group relative transition-shadow hover:shadow-md media-card-batch-enter ${
                   viewMode === 'grid' ? 'p-2' : 'flex items-center space-x-4'
                 }`}
@@ -485,6 +490,11 @@ const MoviesPage: React.FC = () => {
                       >
                         {movie.cover_art_url ? (
                           <img
+                            ref={(node) => {
+                              if (node && node.complete && node.naturalWidth > 0) {
+                                markImageLoaded(movie.id);
+                              }
+                            }}
                             src={movie.cover_art_url}
                             alt={movie.title}
                             loading="lazy"
@@ -533,6 +543,11 @@ const MoviesPage: React.FC = () => {
                         )}
                         {movie.cover_art_url ? (
                           <img
+                            ref={(node) => {
+                              if (node && node.complete && node.naturalWidth > 0) {
+                                markImageLoaded(movie.id);
+                              }
+                            }}
                             src={movie.cover_art_url}
                             alt={movie.title}
                             loading="lazy"

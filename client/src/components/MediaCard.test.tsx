@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { fireEvent, screen } from '@testing-library/react';
+import { act, fireEvent, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '../test/utils';
 import MediaCard from './MediaCard';
@@ -153,5 +153,78 @@ describe('MediaCard', () => {
 
     fireEvent.load(img);
     expect(img.className).toContain('opacity-100');
+  });
+
+  it('renders a fit-framed cover photo letterboxed over an ambient backdrop', () => {
+    const itemWithFramedCover = {
+      ...mockItem,
+      custom_image_url: '/uploads/futurama-box.jpg',
+      custom_images: [
+        { url: '/uploads/futurama-box.jpg', label: 'Front', frame: { fit: 'fit' } },
+      ],
+    } as unknown as import('../types').PhysicalItem;
+
+    const { container } = renderWithProviders(<MediaCard physicalItem={itemWithFramedCover} />);
+    const img = screen.getByRole('img', { name: 'Inception Blu-ray' });
+    expect(img.style.objectFit).toBe('contain');
+    const backdrop = container.querySelector('img[aria-hidden="true"].blur-2xl');
+    expect(backdrop).toBeInTheDocument();
+    expect(backdrop).toHaveAttribute('src', '/uploads/futurama-box.jpg');
+  });
+
+  it('renders a fill-framed cover photo with pan position and zoom', () => {
+    const itemWithFramedCover = {
+      ...mockItem,
+      custom_image_url: '/uploads/futurama-box.jpg',
+      custom_images: [
+        {
+          url: '/uploads/futurama-box.jpg',
+          label: 'Front',
+          frame: { fit: 'fill', panX: 20, panY: 30, zoom: 1.6 },
+        },
+      ],
+    } as unknown as import('../types').PhysicalItem;
+
+    renderWithProviders(<MediaCard physicalItem={itemWithFramedCover} />);
+    const img = screen.getByRole('img', { name: 'Inception Blu-ray' });
+    expect(img.style.objectFit).toBe('cover');
+    expect(img.style.objectPosition).toBe('20% 30%');
+    expect(img.style.transform).toBe('scale(1.6)');
+    expect(img.style.transformOrigin).toBe('20% 30%');
+  });
+
+  it('retries once before showing the fallback icon when cover image fails to load', () => {
+    vi.useFakeTimers();
+    try {
+      const itemWithCover = {
+        ...mockItem,
+        media: [
+          {
+            id: 10,
+            title: 'Inception',
+            release_date: '2010-07-16',
+            cover_art_url: 'https://example.com/flaky-poster.jpg',
+          },
+        ],
+      } as unknown as import('../types').PhysicalItem;
+
+      renderWithProviders(<MediaCard physicalItem={itemWithCover} />);
+      const firstImg = screen.getByRole('img', { name: 'Inception Blu-ray' });
+      fireEvent.error(firstImg);
+
+      // Before retry timer elapses, image is still present
+      expect(screen.getByRole('img', { name: 'Inception Blu-ray' })).toBeInTheDocument();
+
+      act(() => {
+        vi.advanceTimersByTime(600);
+      });
+
+      // Retried image is rendered; if it loads on retry, it becomes visible
+      const retriedImg = screen.getByRole('img', { name: 'Inception Blu-ray' });
+      fireEvent.load(retriedImg);
+      expect(retriedImg.className).toContain('opacity-100');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

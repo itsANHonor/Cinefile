@@ -13,7 +13,9 @@ import {
   extractAsinFromStoreLinks,
   normalizeAsin,
   normalizeBarcode,
+  normalizeCost,
 } from '../utils/identifiers.util';
+import { resolveCustomImagesForWrite } from '../utils/custom-images.util';
 
 const router = Router();
 
@@ -45,10 +47,12 @@ interface MediaExportRow {
   archived: boolean | number | null;
   archive_reason: string | null;
   purchase_date: string | null;
+  cost?: number | string | null;
   barcode: string | null;
   asin: string | null;
   store_links: string | null;
   custom_image_url: string | null;
+  custom_images?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -80,10 +84,12 @@ interface MediaImportRow {
   archived?: string | boolean;
   archive_reason?: string;
   purchase_date?: string;
+  cost?: string | number;
   barcode?: string;
   asin?: string;
   store_links?: string;
   custom_image_url?: string;
+  custom_images?: string;
 }
 
 /**
@@ -427,10 +433,12 @@ router.get('/export', authMiddleware, async (req: Request, res: Response) => {
         'physical_items.archived',
         'physical_items.archive_reason',
         'physical_items.purchase_date',
+        'physical_items.cost',
         'physical_items.barcode',
         'physical_items.asin',
         'physical_items.store_links',
         'physical_items.custom_image_url',
+        'physical_items.custom_images',
         'physical_items.created_at',
         'physical_items.updated_at',
         'physical_item_media.disc_number',
@@ -465,10 +473,12 @@ router.get('/export', authMiddleware, async (req: Request, res: Response) => {
         'physical_items.archived',
         'physical_items.archive_reason',
         'physical_items.purchase_date',
+        'physical_items.cost',
         'physical_items.barcode',
         'physical_items.asin',
         'physical_items.store_links',
         'physical_items.custom_image_url',
+        'physical_items.custom_images',
         'physical_items.created_at',
         'physical_items.updated_at',
         'physical_item_media.disc_number',
@@ -522,10 +532,12 @@ router.get('/export', authMiddleware, async (req: Request, res: Response) => {
       'archived',
       'archive_reason',
       'purchase_date',
+      'cost',
       'barcode',
       'asin',
       'store_links',
       'custom_image_url',
+      'custom_images',
       'created_at',
       'updated_at',
     ];
@@ -570,10 +582,12 @@ router.get('/export', authMiddleware, async (req: Request, res: Response) => {
         escapeCSV(item.archived ? 'true' : 'false'),
         escapeCSV(item.archive_reason),
         escapeCSV(item.purchase_date),
+        escapeCSV(item.cost !== null && item.cost !== undefined ? item.cost : ''),
         escapeCSV(item.barcode),
         escapeCSV(item.asin),
         escapeCSV(item.store_links), // Already JSON string in DB
         escapeCSV(item.custom_image_url),
+        escapeCSV(item.custom_images),
         escapeCSV(item.created_at),
         escapeCSV(item.updated_at),
       ];
@@ -881,6 +895,10 @@ router.post('/import', authMiddleware, async (req: Request, res: Response) => {
               }
             }
 
+            const resolvedImportImages = resolveCustomImagesForWrite(
+              movies[0].custom_images,
+              movies[0].custom_image_url
+            );
             const physicalItemData = {
               name: itemName,
               sort_name: calculateSortName(itemName) || null,
@@ -891,10 +909,12 @@ router.post('/import', authMiddleware, async (req: Request, res: Response) => {
               archived: isArchived ? 1 : 0,
               archive_reason: isArchived ? (movies[0].archive_reason || 'Archived via import') : null,
               purchase_date: movies[0].purchase_date || null,
+              cost: normalizeCost(movies[0].cost),
               barcode: normalizeBarcode(movies[0].barcode),
               asin: normalizeAsin(movies[0].asin) || extractAsinFromStoreLinks(parsedStoreLinksForAsin),
               store_links: movies[0].store_links || null,
-              custom_image_url: movies[0].custom_image_url || null,
+              custom_image_url: resolvedImportImages.custom_image_url,
+              custom_images: resolvedImportImages.custom_images,
             };
 
             const [physicalItemId] = await trx('physical_items').insert(physicalItemData);

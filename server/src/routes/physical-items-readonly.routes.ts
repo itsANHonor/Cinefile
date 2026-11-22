@@ -2,6 +2,8 @@ import { Router, Request, Response } from 'express';
 import { db } from '../database';
 import { applyEditionTagFilter, applyVersionTagFilter } from '../utils/edition-tags.util';
 import { applyItemActorFilter, applyItemDirectorFilter } from '../utils/person-filter.util';
+import { parseCustomImagesFromRow } from '../utils/custom-images.util';
+import { normalizeCost } from '../utils/identifiers.util';
 
 const router = Router();
 
@@ -463,6 +465,8 @@ router.get('/', async (req: Request, res: Response) => {
     }
 
     const physicalItems = await query;
+    const costPublicSetting = await db('settings').where({ key: 'cost_public' }).first();
+    const isCostPublic = costPublicSetting?.value === 'true';
 
     // Get all physical item IDs for batch fetching media
     const itemIds = physicalItems.map(item => item.id);
@@ -687,8 +691,12 @@ router.get('/', async (req: Request, res: Response) => {
 
       // Clean up the aggregated fields from the main query
       // Only include notes if notes_public is true (public view)
+      const parsedCustomImages = parseCustomImagesFromRow(item.custom_images, item.custom_image_url);
       const cleanedItem: any = {
         ...item,
+        custom_image_url: parsedCustomImages[0]?.url || item.custom_image_url || undefined,
+        custom_images: parsedCustomImages,
+        cost: isCostPublic ? normalizeCost(item.cost) : undefined,
         physical_format: item.physical_format ? (typeof item.physical_format === 'string' ? JSON.parse(item.physical_format) : item.physical_format) : [],
         store_links: item.store_links ? (typeof item.store_links === 'string' ? JSON.parse(item.store_links) : item.store_links) : [],
         notes: item.notes_public ? item.notes : undefined,
@@ -701,6 +709,7 @@ router.get('/', async (req: Request, res: Response) => {
       delete (cleanedItem as any).notes_public;
       delete (cleanedItem as any).archived;
       delete (cleanedItem as any).archive_reason;
+      if (!isCostPublic) delete (cleanedItem as any).cost;
 
       return cleanedItem;
     });
@@ -965,8 +974,17 @@ router.get('/:id', async (req: Request, res: Response) => {
     });
 
     // Only include notes if notes_public is true (public view)
+    const costPublicSetting = await db('settings').where({ key: 'cost_public' }).first();
+    const isCostPublic = costPublicSetting?.value === 'true';
+    const parsedCustomImages = parseCustomImagesFromRow(
+      physicalItem.custom_images,
+      physicalItem.custom_image_url
+    );
     const result: any = {
       ...physicalItem,
+      custom_image_url: parsedCustomImages[0]?.url || physicalItem.custom_image_url || undefined,
+      custom_images: parsedCustomImages,
+      cost: isCostPublic ? normalizeCost(physicalItem.cost) : undefined,
       physical_format: JSON.parse(physicalItem.physical_format),
       store_links: physicalItem.store_links ? JSON.parse(physicalItem.store_links) : [],
       notes: physicalItem.notes_public ? physicalItem.notes : undefined,
@@ -979,6 +997,7 @@ router.get('/:id', async (req: Request, res: Response) => {
     delete (result as any).notes_public;
     delete (result as any).archived;
     delete (result as any).archive_reason;
+    if (!isCostPublic) delete (result as any).cost;
 
     res.json(result);
   } catch (error) {

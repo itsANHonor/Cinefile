@@ -15,6 +15,8 @@ type StatisticsTab = 'collection' | 'content' | 'physical';
 const VALID_TABS: StatisticsTab[] = ['collection', 'content', 'physical'];
 
 const formatCount = (value: number) => value.toLocaleString();
+const formatCurrency = (value: number) =>
+  new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value);
 
 const formatBarColors: Record<string, string> = {
   '4K UHD': 'bg-blue-500 dark:bg-blue-400',
@@ -452,6 +454,113 @@ const StatisticsPage: React.FC = () => {
         </div>
       </div>
 
+      {/* Spending & Cost Analytics Summary (shown when cost visibility is enabled and items have recorded cost) */}
+      {acquisitions.spending && acquisitions.spending.itemsWithCost > 0 && (
+        <section
+          aria-label="Collection spending analytics"
+          data-testid="spending-analytics-section"
+          className="card space-y-5"
+        >
+          <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 className="text-base font-semibold text-content">Collection Spending &amp; Value</h2>
+              <p className="text-xs text-content-muted">
+                Tracked across {formatCount(acquisitions.spending.itemsWithCost)} of{' '}
+                {formatCount(overview.totalPhysicalItems)} physical{' '}
+                {overview.totalPhysicalItems === 1 ? 'item' : 'items'}
+              </p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <div className="rounded-[--radius-control] bg-emerald-50/80 dark:bg-emerald-950/30 border border-emerald-200/70 dark:border-emerald-800/50 p-4">
+              <span className="block text-xs font-medium uppercase tracking-wide text-emerald-800 dark:text-emerald-300">
+                Total Spent
+              </span>
+              <span className="mt-1 block text-xl sm:text-2xl font-bold text-emerald-700 dark:text-emerald-300">
+                {formatCurrency(acquisitions.spending.totalSpent)}
+              </span>
+              <span className="text-xs text-emerald-700/80 dark:text-emerald-400/80">
+                {formatCount(acquisitions.spending.itemsWithCost)} priced{' '}
+                {acquisitions.spending.itemsWithCost === 1 ? 'item' : 'items'}
+              </span>
+            </div>
+
+            <div className="rounded-[--radius-control] bg-surface-sunken p-4">
+              <span className="block text-xs font-medium uppercase tracking-wide text-content-muted">
+                Avg Cost / Item
+              </span>
+              <span className="mt-1 block text-xl sm:text-2xl font-bold text-content">
+                {formatCurrency(acquisitions.spending.averageCostPerItem)}
+              </span>
+              <span className="text-xs text-content-muted">
+                {formatCurrency(acquisitions.spending.averageCostPerTitle)} per title
+              </span>
+            </div>
+
+            {acquisitions.spending.highestCostItem && (
+              <div className="rounded-[--radius-control] bg-surface-sunken p-4">
+                <span className="block text-xs font-medium uppercase tracking-wide text-content-muted">
+                  Highest Cost Item
+                </span>
+                <span
+                  className="mt-1 block truncate text-sm font-semibold text-content"
+                  title={acquisitions.spending.highestCostItem.name}
+                >
+                  {acquisitions.spending.highestCostItem.name}
+                </span>
+                <span className="text-xs font-semibold text-primary-600 dark:text-primary-400">
+                  {formatCurrency(acquisitions.spending.highestCostItem.cost)}
+                </span>
+              </div>
+            )}
+
+            {acquisitions.spending.lowestCostItem && (
+              <div className="rounded-[--radius-control] bg-surface-sunken p-4">
+                <span className="block text-xs font-medium uppercase tracking-wide text-content-muted">
+                  Lowest Cost Item
+                </span>
+                <span
+                  className="mt-1 block truncate text-sm font-semibold text-content"
+                  title={acquisitions.spending.lowestCostItem.name}
+                >
+                  {acquisitions.spending.lowestCostItem.name}
+                </span>
+                <span className="text-xs font-semibold text-primary-600 dark:text-primary-400">
+                  {formatCurrency(acquisitions.spending.lowestCostItem.cost)}
+                </span>
+              </div>
+            )}
+          </div>
+
+          {acquisitions.spending.byFormat.length > 0 && (
+            <div className="border-t border-subtle pt-4">
+              <h3 className="mb-2.5 text-xs font-semibold uppercase tracking-wider text-content-muted">
+                Spend by Format
+              </h3>
+              <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 md:grid-cols-4">
+                {acquisitions.spending.byFormat.map((fs) => (
+                  <div
+                    key={fs.format}
+                    className="flex items-center justify-between gap-2 rounded-[--radius-control] border border-subtle bg-surface p-2.5 text-xs"
+                  >
+                    <div className="min-w-0">
+                      <span className="block font-semibold text-content truncate">{fs.format}</span>
+                      <span className="text-[11px] text-content-muted">
+                        Avg {formatCurrency(fs.averageSpend)}
+                      </span>
+                    </div>
+                    <span className="font-bold text-content whitespace-nowrap">
+                      {formatCurrency(fs.totalSpend)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </section>
+      )}
+
       {/* Tab Navigation */}
       <div className="border-b border-subtle pb-3 overflow-x-auto">
         <SegmentedControl
@@ -654,6 +763,8 @@ const StatisticsPage: React.FC = () => {
                     .map((pt) => {
                       const count =
                         timelineBasis === 'purchased' ? pt.purchasedCount : pt.addedCount;
+                      const spend =
+                        timelineBasis === 'purchased' ? pt.purchasedSpend : pt.addedSpend;
                       const widthPct = Math.round((count / maxTimelineVal) * 100);
                       return (
                         <div key={pt.period} className="space-y-1">
@@ -661,6 +772,7 @@ const StatisticsPage: React.FC = () => {
                             <span className="font-medium text-content">{pt.period}</span>
                             <span className="text-xs text-content-muted">
                               {formatCount(count)} {count === 1 ? 'item' : 'items'}
+                              {spend != null && spend > 0 ? ` · ${formatCurrency(spend)}` : ''}
                             </span>
                           </div>
                           <div className="h-2.5 w-full overflow-hidden rounded-full bg-surface-sunken">
@@ -699,8 +811,11 @@ const StatisticsPage: React.FC = () => {
                           <span className="font-medium text-content truncate pr-2">
                             {store.store}
                           </span>
-                          <span className="text-xs text-content-muted">
+                          <span className="text-xs text-content-muted whitespace-nowrap">
                             {formatCount(store.count)} {store.count === 1 ? 'item' : 'items'}
+                            {store.totalSpend != null && store.totalSpend > 0
+                              ? ` · ${formatCurrency(store.totalSpend)}`
+                              : ''}
                           </span>
                         </div>
                         <div className="h-2 w-full overflow-hidden rounded-full bg-surface-sunken">

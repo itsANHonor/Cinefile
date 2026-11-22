@@ -8,6 +8,8 @@ import { Button } from './ui/Button';
 import { formatBadgeClasses } from '../lib/formats';
 import { getItemSeriesList } from '../lib/series';
 import { parseEditionTags } from '../lib/editionTags';
+import { getCoverFrame } from '../lib/imageFrame';
+import FramedImage from './FramedImage';
 
 interface MediaCardProps {
   physicalItem: PhysicalItem;
@@ -30,13 +32,18 @@ const MediaCard: React.FC<MediaCardProps> = ({
   const confirm = useConfirm();
   const [imageFailed, setImageFailed] = useState(false);
   const [imageLoaded, setImageLoaded] = useState(false);
+  const [imageRetryCount, setImageRetryCount] = useState(0);
+  const [isCardVisible, setIsCardVisible] = useState(
+    () => typeof IntersectionObserver === 'undefined'
+  );
   const [showArchiveModal, setShowArchiveModal] = useState(false);
   const [archiveReason, setArchiveReason] = useState('');
   const [isArchiving, setIsArchiving] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
   const [isUnclamped, setIsUnclamped] = useState(false);
 
-  const imgRef = useRef<HTMLImageElement>(null);
+  const cardRef = useRef<HTMLDivElement>(null);
+  const imgRef = useRef<HTMLImageElement | null>(null);
   const slotRef = useRef<HTMLDivElement>(null);
   const drawerRef = useRef<HTMLDivElement>(null);
   const seriesRowRef = useRef<HTMLParagraphElement>(null);
@@ -51,25 +58,78 @@ const MediaCard: React.FC<MediaCardProps> = ({
   } | null>(null);
   const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     return () => {
       if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
       if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
+      if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
     };
   }, []);
 
   const primaryMedia = physicalItem.media[0];
   const imageUrl = physicalItem.custom_image_url || primaryMedia?.cover_art_url;
+  const coverFrame = physicalItem.custom_image_url ? getCoverFrame(physicalItem) : undefined;
+
+  const setImgRef = useCallback((node: HTMLImageElement | null) => {
+    imgRef.current = node;
+    if (node && node.complete && node.naturalWidth > 0) {
+      setImageLoaded(true);
+    }
+  }, []);
 
   useEffect(() => {
+    if (retryTimerRef.current) {
+      clearTimeout(retryTimerRef.current);
+      retryTimerRef.current = null;
+    }
     setImageFailed(false);
+    setImageRetryCount(0);
     if (imgRef.current?.complete && imgRef.current.naturalWidth > 0) {
       setImageLoaded(true);
     } else {
       setImageLoaded(false);
     }
   }, [imageUrl]);
+
+  useEffect(() => {
+    if (isCardVisible || typeof IntersectionObserver === 'undefined') return;
+    const el = cardRef.current;
+    if (!el) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          setIsCardVisible(true);
+          observer.disconnect();
+        }
+      },
+      { rootMargin: '400px 0px' }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [isCardVisible]);
+
+  // Safety check: once the card is visible, verify whether the image finished loading in cache
+  useEffect(() => {
+    if (!isCardVisible || imageLoaded || imageFailed || !imageUrl) return;
+    const img = imgRef.current;
+    if (img && img.complete && img.naturalWidth > 0) {
+      setImageLoaded(true);
+    }
+  }, [isCardVisible, imageLoaded, imageFailed, imageUrl, imageRetryCount]);
+
+  const handleImageError = useCallback(() => {
+    if (imageRetryCount < 1) {
+      if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+      retryTimerRef.current = setTimeout(() => {
+        setImageRetryCount((prev) => prev + 1);
+      }, 600);
+      return;
+    }
+    setImageFailed(true);
+  }, [imageRetryCount]);
 
   const getFormatColor = (format: string) =>
     formatBadgeClasses[format] || 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200';
@@ -307,6 +367,7 @@ const MediaCard: React.FC<MediaCardProps> = ({
 
   return (
     <div
+      ref={cardRef}
       role="button"
       tabIndex={onClick ? 0 : -1}
       aria-label={`Open details for ${physicalItem.name}`}
@@ -325,16 +386,18 @@ const MediaCard: React.FC<MediaCardProps> = ({
         }`}
       >
         {imageUrl && !imageFailed ? (
-          <img
-            ref={imgRef}
+          <FramedImage
+            key={imageRetryCount > 0 ? `${imageUrl}#retry-${imageRetryCount}` : imageUrl}
+            ref={setImgRef}
+            frame={coverFrame}
             src={imageUrl}
             alt={physicalItem.name}
             width={300}
             height={450}
             decoding="async"
-            loading="lazy"
+            loading={isCardVisible || imageRetryCount > 0 ? 'eager' : 'lazy'}
             onLoad={() => setImageLoaded(true)}
-            onError={() => setImageFailed(true)}
+            onError={handleImageError}
             className={`h-full w-full object-cover transition-[opacity,transform] duration-300 ease-out motion-reduce:transition-none ${
               imageLoaded ? 'scale-100 opacity-100' : 'scale-[1.02] opacity-0'
             }`}

@@ -251,4 +251,59 @@ describe('StatisticsPage', () => {
 
     expect(await screen.findByText(/No collection statistics yet/i)).toBeInTheDocument();
   });
+
+  it('renders Collection Spending & Value analytics when spending statistics are present', async () => {
+    vi.spyOn(apiService, 'getDashboardStatistics').mockResolvedValue({
+      ...sampleDashboard,
+      acquisitions: {
+        ...sampleDashboard.acquisitions,
+        byYear: [
+          { period: '2025', purchasedCount: 6, addedCount: 20, purchasedSpend: 180.5, addedSpend: 520.0 },
+          { period: '2026', purchasedCount: 9, addedCount: 22, purchasedSpend: 299.49, addedSpend: 610.0 },
+        ],
+        topStores: [
+          { store: 'Criterion', count: 8, totalSpend: 239.92 },
+          { store: 'Orbit DVD', count: 5, totalSpend: 145.0 },
+        ],
+        spending: {
+          totalSpent: 479.99,
+          itemsWithCost: 15,
+          averageCostPerItem: 32.0,
+          averageCostPerTitle: 26.67,
+          highestCostItem: {
+            id: 2,
+            name: 'Before Trilogy Criterion Box Set',
+            cost: 79.99,
+            purchaseDate: '2025-11-08',
+          },
+          lowestCostItem: {
+            id: 5,
+            name: 'Goodfellas Blu-ray',
+            cost: 9.99,
+            purchaseDate: '2025-05-01',
+          },
+          byFormat: [
+            { format: '4K UHD', itemCount: 8, totalSpend: 280.0, averageSpend: 35.0 },
+            { format: 'Blu-ray', itemCount: 7, totalSpend: 199.99, averageSpend: 28.57 },
+          ],
+        },
+      },
+    });
+
+    renderWithProviders(<StatisticsPage />, { initialRoute: '/statistics' });
+
+    const spendingSection = await screen.findByTestId('spending-analytics-section');
+    expect(spendingSection).toHaveTextContent('$479.99');
+    expect(spendingSection).toHaveTextContent('$32.00');
+    expect(spendingSection).toHaveTextContent('$26.67 per title');
+    expect(spendingSection).toHaveTextContent('Before Trilogy Criterion Box Set');
+    expect(spendingSection).toHaveTextContent('$79.99');
+    expect(spendingSection).toHaveTextContent('Goodfellas Blu-ray');
+    expect(spendingSection).toHaveTextContent('$9.99');
+    expect(spendingSection).toHaveTextContent('$280.00');
+
+    // Timeline and retailer rows include spend amounts
+    expect(screen.getByText(/9 items · \$299\.49/i)).toBeInTheDocument();
+    expect(screen.getByText(/8 items · \$239\.92/i)).toBeInTheDocument();
+  });
 });

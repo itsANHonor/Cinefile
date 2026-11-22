@@ -17,7 +17,9 @@ import {
   extractAsinFromStoreLinks,
   normalizeAsin,
   normalizeBarcode,
+  normalizeCost,
 } from '../utils/identifiers.util';
+import { parseCustomImagesFromRow } from '../utils/custom-images.util';
 
 export const CANONICAL_FORMATS = [
   '4K UHD',
@@ -468,7 +470,9 @@ async function hydratePhysicalItems(physicalItems: any[], minimal: boolean = fal
       archived: Boolean(item.archived),
       archive_reason: item.archive_reason || null,
       custom_image_url: item.custom_image_url || null,
+      custom_images: parseCustomImagesFromRow(item.custom_images, item.custom_image_url),
       purchase_date: item.purchase_date || null,
+      cost: normalizeCost(item.cost),
       barcode: item.barcode || null,
       asin: item.asin || null,
       store_links: parseJsonArray(item.store_links),

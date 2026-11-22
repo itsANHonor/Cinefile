@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { PhysicalItem, TMDbMovie, Media, UnifiedSearchResult, Series, ManualMovieData, CoverCandidate } from '../types';
+import { PhysicalItem, CustomImage, ImageFrame, TMDbMovie, Media, UnifiedSearchResult, Series, ManualMovieData, CoverCandidate } from '../types';
+import { FRAME_MAX_ZOOM, FRAME_MIN_ZOOM, normalizeFrameForWrite, normalizeImageFrame } from '../lib/imageFrame';
+import FramedImage from './FramedImage';
 import { apiService } from '../services/api.service';
 import { useToast } from '../context/ToastContext';
 import { useConfirm } from '../context/ConfirmContext';
@@ -42,6 +44,42 @@ interface MovieWithFormats {
   genres?: { id: number; name: string }[];
 }
 
+const PHOTO_LABEL_PRESETS = ['Front', 'Back', 'Spine', 'Inside', 'Disc', 'Slipcover', 'Booklet'];
+
+const FORM_TABS = [
+  { id: 'details', label: 'Details' },
+  { id: 'notes', label: 'Notes & Links' },
+] as const;
+type FormTabId = (typeof FORM_TABS)[number]['id'];
+
+function serializeCustomImagesForSave(images: CustomImage[]): CustomImage[] {
+  return images.map((img) => {
+    const frame = normalizeFrameForWrite(img.frame);
+    return {
+      url: img.url,
+      ...(img.label?.trim() ? { label: img.label.trim() } : {}),
+      ...(frame ? { frame } : {}),
+    };
+  });
+}
+
+function normalizeInitialCustomImages(item?: PhysicalItem | null): CustomImage[] {
+  if (!item) return [];
+  if (Array.isArray(item.custom_images) && item.custom_images.length > 0) {
+    return item.custom_images
+      .filter((entry) => entry && typeof entry.url === 'string' && entry.url.trim() !== '')
+      .map((entry) => ({
+        url: entry.url.trim(),
+        label: entry.label?.trim() || undefined,
+        ...(entry.frame ? { frame: entry.frame } : {}),
+      }));
+  }
+  if (item.custom_image_url && item.custom_image_url.trim() !== '') {
+    return [{ url: item.custom_image_url.trim(), label: 'Front' }];
+  }
+  return [];
+}
+
 const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editItem, onDelete }) => {
   console.log('🎬 MediaForm rendered:', { isOpen, editItemId: editItem?.id, editItemName: editItem?.name });
   
@@ -60,6 +98,18 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
   
   // Poster selection state
   const [showPosterSelector, setShowPosterSelector] = useState(false);
+  const [customImages, setCustomImages] = useState<CustomImage[]>([]);
+  const [previewPhotoIndex, setPreviewPhotoIndex] = useState(0);
+  const [activeFormTab, setActiveFormTab] = useState<FormTabId>('details');
+  const [isPanningCover, setIsPanningCover] = useState(false);
+  const coverPanDragRef = useRef<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+    panX: number;
+    panY: number;
+    rect: DOMRect;
+  } | null>(null);
   const [showArchivePrompt, setShowArchivePrompt] = useState(false);
   const [archivePromptReason, setArchivePromptReason] = useState('');
   const [isDeleting, setIsDeleting] = useState(false);
@@ -78,6 +128,7 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
     archive_reason: '',
     custom_image_url: '',
     purchase_date: '',
+    cost: '',
     barcode: '',
     asin: '',
     thickness_units: 1,
@@ -103,6 +154,9 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
   useEffect(() => {
     if (!isOpen) {
       setShowSearch(false);
+      setActiveFormTab('details');
+      coverPanDragRef.current = null;
+      setIsPanningCover(false);
       hasSavedMediaChangesRef.current = false;
     }
   }, [isOpen]);
@@ -122,6 +176,9 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
 
   useEffect(() => {
     if (editItem) {
+      const initialPhotos = normalizeInitialCustomImages(editItem);
+      setCustomImages(initialPhotos);
+      setPreviewPhotoIndex(0);
       // Editing an existing physical item
       setFormData({
         // Physical item fields
@@ -132,8 +189,9 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
         notes_public: editItem.notes_public || false,
         archived: Boolean(editItem.archived),
         archive_reason: editItem.archive_reason || '',
-        custom_image_url: editItem.custom_image_url || '',
+        custom_image_url: initialPhotos[0]?.url || editItem.custom_image_url || '',
         purchase_date: editItem.purchase_date || '',
+        cost: editItem.cost != null ? String(editItem.cost) : '',
         barcode: editItem.barcode || '',
         asin: editItem.asin || '',
         thickness_units: editItem.thickness_units || 1,
@@ -219,6 +277,7 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
         archive_reason: '',
         custom_image_url: '',
         purchase_date: '',
+        cost: '',
         barcode: '',
         asin: '',
         thickness_units: 1,
@@ -229,6 +288,8 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
         sort_series_id: undefined,
       });
       setShowDimensions(false);
+      setCustomImages([]);
+      setPreviewPhotoIndex(0);
       setSelectedMovies([]);
       setMovieDetails(new Map());
       setStoreLinks([]);
@@ -589,12 +650,38 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
     setShowPosterSelector(true);
   };
 
-  const handlePosterSelected = (url: string, candidate?: CoverCandidate) => {
+  const syncCustomImages = (nextImages: CustomImage[]) => {
+    setCustomImages(nextImages);
+    const primaryUrl = nextImages[0]?.url || '';
     setFormData((prev) => ({
       ...prev,
-      custom_image_url: url,
-      asin: !prev.asin.trim() && candidate?.asin ? candidate.asin.toUpperCase() : prev.asin,
+      custom_image_url: primaryUrl,
     }));
+  };
+
+  const getSuggestedPhotoLabel = (index: number): string | undefined => {
+    return PHOTO_LABEL_PRESETS[index] || undefined;
+  };
+
+  const handlePosterSelected = (url: string, candidate?: CoverCandidate) => {
+    setCustomImages((prev) => {
+      const existingIdx = prev.findIndex((img) => img.url === url);
+      let next: CustomImage[];
+      if (existingIdx !== -1) {
+        next = prev;
+        setPreviewPhotoIndex(existingIdx);
+      } else {
+        const label = getSuggestedPhotoLabel(prev.length);
+        next = [...prev, label ? { url, label } : { url }];
+        setPreviewPhotoIndex(next.length - 1);
+      }
+      setFormData((f) => ({
+        ...f,
+        custom_image_url: next[0]?.url || url,
+        asin: !f.asin.trim() && candidate?.asin ? candidate.asin.toUpperCase() : f.asin,
+      }));
+      return next;
+    });
     setShowPosterSelector(false);
   };
 
@@ -713,19 +800,122 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const files = e.target.files ? Array.from(e.target.files) : [];
+    if (files.length === 0) return;
 
     setUploadingImage(true);
     try {
-      const result = await apiService.uploadImage(file);
-      setFormData({ ...formData, custom_image_url: result.url });
+      const uploadedUrls: string[] = [];
+      for (const file of files) {
+        const result = await apiService.uploadImage(file);
+        if (result?.url) {
+          uploadedUrls.push(result.url);
+        }
+      }
+      if (uploadedUrls.length > 0) {
+        setCustomImages((prev) => {
+          const next = [...prev];
+          for (const url of uploadedUrls) {
+            if (!next.some((img) => img.url === url)) {
+              const label = getSuggestedPhotoLabel(next.length);
+              next.push(label ? { url, label } : { url });
+            }
+          }
+          setPreviewPhotoIndex(next.length - 1);
+          setFormData((f) => ({
+            ...f,
+            custom_image_url: next[0]?.url || '',
+          }));
+          return next;
+        });
+      }
     } catch (error) {
       console.error('Upload failed:', error);
       toast({ message: 'Failed to upload image. Please try again.', type: 'error' });
     } finally {
       setUploadingImage(false);
+      e.target.value = '';
     }
+  };
+
+  const handleSetPrimaryPhoto = (index: number) => {
+    if (index <= 0 || index >= customImages.length) return;
+    const next = [...customImages];
+    const [selected] = next.splice(index, 1);
+    next.unshift(selected);
+    syncCustomImages(next);
+    setPreviewPhotoIndex(0);
+  };
+
+  const handleMovePhoto = (index: number, direction: -1 | 1) => {
+    const targetIndex = index + direction;
+    if (targetIndex < 0 || targetIndex >= customImages.length) return;
+    const next = [...customImages];
+    const [moved] = next.splice(index, 1);
+    next.splice(targetIndex, 0, moved);
+    syncCustomImages(next);
+    setPreviewPhotoIndex(targetIndex);
+  };
+
+  const handleRemovePhoto = (index: number) => {
+    const next = customImages.filter((_, i) => i !== index);
+    syncCustomImages(next);
+    setPreviewPhotoIndex((prev) => Math.max(0, Math.min(prev, next.length - 1)));
+  };
+
+  const handleUpdatePhotoLabel = (index: number, label: string) => {
+    const next = customImages.map((img, i) =>
+      i === index ? { ...img, label: label || undefined } : img
+    );
+    syncCustomImages(next);
+  };
+
+  const handleUpdatePhotoFrame = (index: number, partial: Partial<ImageFrame> | null) => {
+    const next = customImages.map((img, i) => {
+      if (i !== index) return img;
+      if (partial === null) {
+        const { frame: _removed, ...rest } = img;
+        return rest;
+      }
+      return { ...img, frame: { ...img.frame, ...partial } };
+    });
+    syncCustomImages(next);
+  };
+
+  const clampPan = (value: number) => Math.min(100, Math.max(0, Math.round(value * 10) / 10));
+
+  const handleCoverPanStart = (e: React.PointerEvent<HTMLDivElement>) => {
+    const photo = customImages[Math.min(previewPhotoIndex, Math.max(0, customImages.length - 1))];
+    if (!photo || normalizeImageFrame(photo.frame).fit !== 'fill') return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const normalized = normalizeImageFrame(photo.frame);
+    coverPanDragRef.current = {
+      pointerId: e.pointerId,
+      startX: e.clientX,
+      startY: e.clientY,
+      panX: normalized.panX,
+      panY: normalized.panY,
+      rect,
+    };
+    e.currentTarget.setPointerCapture(e.pointerId);
+    setIsPanningCover(true);
+  };
+
+  const handleCoverPanMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const drag = coverPanDragRef.current;
+    if (!drag || drag.pointerId !== e.pointerId) return;
+    const dx = ((e.clientX - drag.startX) / drag.rect.width) * 100;
+    const dy = ((e.clientY - drag.startY) / drag.rect.height) * 100;
+    handleUpdatePhotoFrame(safePreviewIndex, {
+      panX: clampPan(drag.panX - dx),
+      panY: clampPan(drag.panY - dy),
+    });
+  };
+
+  const handleCoverPanEnd = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (coverPanDragRef.current?.pointerId !== e.pointerId) return;
+    coverPanDragRef.current = null;
+    setIsPanningCover(false);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -758,6 +948,7 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
         console.log('🎬 Updating existing physical item:', editItem.id);
         
         // Update existing physical item (physical fields only)
+        const normalizedCustomImages = serializeCustomImagesForSave(customImages);
         await apiService.updatePhysicalItem(editItem.id, {
           name: finalName,
           sort_name: formData.sort_name || undefined,
@@ -766,8 +957,13 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
           notes_public: formData.notes_public,
           archived: formData.archived,
           archive_reason: formData.archived ? formData.archive_reason.trim() : null,
-          custom_image_url: formData.custom_image_url,
+          custom_image_url: normalizedCustomImages[0]?.url || '',
+          custom_images: normalizedCustomImages,
           purchase_date: formData.purchase_date,
+          cost:
+            formData.cost.trim() !== '' && !Number.isNaN(Number(formData.cost))
+              ? Math.round(Number(formData.cost) * 100) / 100
+              : null,
           barcode: formData.barcode.trim() || null,
           asin: formData.asin.trim() || null,
           thickness_units: formData.thickness_units,
@@ -903,14 +1099,21 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
           return mediaEntry;
         });
 
+        const normalizedCustomImages = serializeCustomImagesForSave(customImages);
+
         await apiService.createPhysicalItem({
           name: finalName,
           sort_name: formData.sort_name || undefined,
           edition_notes: formData.edition_notes,
           notes: formData.notes || undefined,
           notes_public: formData.notes_public,
-          custom_image_url: formData.custom_image_url,
+          custom_image_url: normalizedCustomImages[0]?.url || '',
+          custom_images: normalizedCustomImages,
           purchase_date: formData.purchase_date,
+          cost:
+            formData.cost.trim() !== '' && !Number.isNaN(Number(formData.cost))
+              ? Math.round(Number(formData.cost) * 100) / 100
+              : undefined,
           barcode: formData.barcode.trim() || undefined,
           asin: formData.asin.trim() || undefined,
           thickness_units: formData.thickness_units,
@@ -937,8 +1140,13 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
 
   if (!isOpen) return null;
 
-  // Get image URL - prioritize custom, then first selected movie's poster
-  const imageUrl = formData.custom_image_url || 
+  const safePreviewIndex = Math.min(previewPhotoIndex, Math.max(0, customImages.length - 1));
+  const activePreviewPhoto = customImages[safePreviewIndex] || null;
+  const activeFrame = normalizeImageFrame(activePreviewPhoto?.frame);
+  // Get image URL - prioritize active preview photo, then primary custom photo, then first selected movie's poster
+  const imageUrl =
+    activePreviewPhoto?.url ||
+    formData.custom_image_url ||
     (selectedMovies.length > 0 ? selectedMovies[0].details?.poster_url : null);
 
   // The modal body is a two-step flow: searching for media is the
@@ -956,9 +1164,9 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
 
         {/* Modal */}
         <div className="flex min-h-screen items-center justify-center p-4">
-          <div className="relative bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+          <div className="relative flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-lg bg-white shadow-xl dark:bg-gray-800">
             {/* Header */}
-            <div className="sticky top-0 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 p-6 z-10">
+            <div className="shrink-0 border-b border-gray-200 bg-white p-6 dark:border-gray-700 dark:bg-gray-800">
               <div className="flex items-center justify-between">
                 <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">
                   {editItem ? 'Edit Physical Item' : 'Add New Media'}
@@ -973,7 +1181,7 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
 
             {/* Body: media search step, or the item details form */}
             {showSearchStep ? (
-              <div className="p-6">
+              <div className="min-h-0 flex-1 overflow-y-auto p-6">
                 <MediaSearchPanel
                   onSelect={handleUnifiedSearchSelect}
                   onSelectTVSeasons={handleTVSeasonsSelect}
@@ -993,13 +1201,55 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
                 )}
               </div>
             ) : (
-            <form onSubmit={handleSubmit} className="p-6">
-              <div className="grid md:grid-cols-2 gap-6">
+            <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
+              {/* Scrollable body - columns scroll independently on desktop */}
+              <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
+                {editItem && formData.archived && (
+                  <div className="mb-5 flex items-center justify-between gap-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm text-amber-900 dark:border-amber-700/60 dark:bg-amber-950/40 dark:text-amber-200">
+                    <div>
+                      <span className="font-semibold">Marked as Archived:</span>{' '}
+                      <span>{formData.archive_reason}</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setArchivePromptReason(formData.archive_reason);
+                        setShowArchivePrompt(true);
+                      }}
+                      className="text-xs font-medium underline hover:no-underline"
+                    >
+                      Edit reason
+                    </button>
+                  </div>
+                )}
+                <div className="grid gap-6 md:h-full md:grid-cols-2">
                 {/* Left Column - Image */}
-                <div>
-                  <div className="aspect-[2/3] bg-gray-200 dark:bg-gray-700 rounded-lg overflow-hidden mb-4">
+                <div className="md:min-h-0 md:overflow-y-auto md:pb-1 md:pr-2">
+                  <div
+                    className={`relative aspect-[2/3] bg-gray-200 dark:bg-gray-700 rounded-lg overflow-hidden mb-3 select-none ${
+                      activePreviewPhoto && activeFrame.fit === 'fill'
+                        ? isPanningCover
+                          ? 'cursor-grabbing'
+                          : 'cursor-grab'
+                        : ''
+                    }`}
+                    style={{
+                      touchAction:
+                        activePreviewPhoto && activeFrame.fit === 'fill' ? 'pan-y' : undefined,
+                    }}
+                    onPointerDown={handleCoverPanStart}
+                    onPointerMove={handleCoverPanMove}
+                    onPointerUp={handleCoverPanEnd}
+                    onPointerCancel={handleCoverPanEnd}
+                  >
                     {imageUrl ? (
-                      <img src={imageUrl} alt={formData.name || "Physical item cover"} className="w-full h-full object-cover" />
+                      <FramedImage
+                        frame={activePreviewPhoto?.frame}
+                        src={imageUrl}
+                        alt={formData.name || "Physical item cover"}
+                        className="w-full h-full object-cover"
+                        draggable={false}
+                      />
                     ) : (
                       <div className="w-full h-full flex items-center justify-center">
                         <svg className="w-20 h-20 text-gray-400 dark:text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1007,7 +1257,141 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
                         </svg>
                       </div>
                     )}
+                    {activePreviewPhoto && (
+                      <div className="absolute inset-x-2 bottom-2 flex items-center justify-between gap-2 pointer-events-none">
+                        <span className="rounded-full bg-black/75 px-2.5 py-0.5 text-xs font-semibold text-white backdrop-blur-sm">
+                          {safePreviewIndex === 0 ? 'Primary Cover' : `Photo ${safePreviewIndex + 1}`}
+                          {activePreviewPhoto.label ? ` · ${activePreviewPhoto.label}` : ''}
+                        </span>
+                        {customImages.length > 1 && (
+                          <span className="rounded-full bg-black/75 px-2 py-0.5 text-[11px] font-medium text-white backdrop-blur-sm">
+                            {safePreviewIndex + 1} / {customImages.length}
+                          </span>
+                        )}
+                      </div>
+                    )}
                   </div>
+
+                  {activePreviewPhoto && (
+                    <div className="mb-4 space-y-2.5 rounded-lg border border-gray-200 bg-gray-50/70 p-3 dark:border-gray-700 dark:bg-gray-800/60">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                          Cover Framing
+                        </span>
+                        <div
+                          className="flex rounded-md bg-gray-200/80 p-0.5 dark:bg-gray-700"
+                          role="group"
+                          aria-label="Cover fit mode"
+                        >
+                          {(['fill', 'fit'] as const).map((mode) => (
+                            <button
+                              key={mode}
+                              type="button"
+                              aria-pressed={activeFrame.fit === mode}
+                              onClick={() => handleUpdatePhotoFrame(safePreviewIndex, { fit: mode })}
+                              className={`rounded px-2.5 py-1 text-xs transition-colors ${
+                                activeFrame.fit === mode
+                                  ? 'bg-white font-semibold text-gray-900 shadow-sm dark:bg-gray-600 dark:text-gray-100'
+                                  : 'font-medium text-gray-600 hover:text-gray-900 dark:text-gray-300 dark:hover:text-gray-100'
+                              }`}
+                            >
+                              {mode === 'fill' ? 'Fill' : 'Fit'}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {activeFrame.fit === 'fill' ? (
+                        <>
+                          <p className="text-[11px] leading-snug text-gray-500 dark:text-gray-400">
+                            Crops the photo to the card frame. Drag the preview or use the sliders to reframe it.
+                          </p>
+                          <div className="flex items-center gap-2">
+                            <label
+                              htmlFor="cover-zoom"
+                              className="w-12 shrink-0 text-xs font-medium text-gray-600 dark:text-gray-300"
+                            >
+                              Zoom
+                            </label>
+                            <input
+                              id="cover-zoom"
+                              type="range"
+                              min={FRAME_MIN_ZOOM}
+                              max={FRAME_MAX_ZOOM}
+                              step={0.05}
+                              value={activeFrame.zoom}
+                              onChange={(e) =>
+                                handleUpdatePhotoFrame(safePreviewIndex, { zoom: Number(e.target.value) })
+                              }
+                              aria-label="Cover zoom"
+                              className="h-1.5 flex-1 cursor-pointer accent-primary-600"
+                            />
+                            <span className="w-11 shrink-0 text-right text-xs tabular-nums text-gray-500 dark:text-gray-400">
+                              {activeFrame.zoom.toFixed(2)}&times;
+                            </span>
+                          </div>
+                          <div className="grid grid-cols-2 gap-x-3 gap-y-1.5">
+                            <div className="flex items-center gap-2">
+                              <label
+                                htmlFor="cover-pan-x"
+                                className="w-10 shrink-0 text-xs font-medium text-gray-600 dark:text-gray-300"
+                              >
+                                Horiz.
+                              </label>
+                              <input
+                                id="cover-pan-x"
+                                type="range"
+                                min={0}
+                                max={100}
+                                step={1}
+                                value={activeFrame.panX}
+                                onChange={(e) =>
+                                  handleUpdatePhotoFrame(safePreviewIndex, { panX: Number(e.target.value) })
+                                }
+                                aria-label="Horizontal position"
+                                className="h-1.5 flex-1 cursor-pointer accent-primary-600"
+                              />
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <label
+                                htmlFor="cover-pan-y"
+                                className="w-10 shrink-0 text-xs font-medium text-gray-600 dark:text-gray-300"
+                              >
+                                Vert.
+                              </label>
+                              <input
+                                id="cover-pan-y"
+                                type="range"
+                                min={0}
+                                max={100}
+                                step={1}
+                                value={activeFrame.panY}
+                                onChange={(e) =>
+                                  handleUpdatePhotoFrame(safePreviewIndex, { panY: Number(e.target.value) })
+                                }
+                                aria-label="Vertical position"
+                                className="h-1.5 flex-1 cursor-pointer accent-primary-600"
+                              />
+                            </div>
+                          </div>
+                        </>
+                      ) : (
+                        <p className="text-[11px] leading-snug text-gray-500 dark:text-gray-400">
+                          Shows the entire photo letterboxed over a blurred backdrop &mdash; best for wide box sets.
+                        </p>
+                      )}
+
+                      {normalizeFrameForWrite(activePreviewPhoto.frame) && (
+                        <button
+                          type="button"
+                          onClick={() => handleUpdatePhotoFrame(safePreviewIndex, null)}
+                          className="text-xs font-medium text-primary-700 hover:underline dark:text-primary-300"
+                        >
+                          Reset framing
+                        </button>
+                      )}
+                    </div>
+                  )}
 
                   <div className="mb-4">
                     <button
@@ -1019,45 +1403,205 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
                     </button>
                   </div>
 
-                  <div className="mb-4">
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                      Custom Image
-                    </label>
-                    <div className="flex gap-2 mb-2">
+                  <div className="mb-4 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                        Package Photos {customImages.length > 0 && `(${customImages.length})`}
+                      </label>
+                      {customImages.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            syncCustomImages([]);
+                            setPreviewPhotoIndex(0);
+                          }}
+                          className="text-xs font-medium text-red-600 hover:underline dark:text-red-400"
+                          title="Remove all package photos and revert to movie poster"
+                        >
+                          Clear all
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="flex gap-2">
                       <button
                         type="button"
                         onClick={handleSelectPosterClick}
                         className="flex-1 btn-secondary text-sm"
                       >
-                        Find Cover Art
+                        + Find Cover Art
                       </button>
-                      {formData.custom_image_url && (
-                        <button
-                          type="button"
-                          onClick={() => setFormData({ ...formData, custom_image_url: '' })}
-                          className="px-3 py-2 text-xs font-medium rounded-lg border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-                          title="Revert to default movie poster"
-                        >
-                          Reset
-                        </button>
-                      )}
                     </div>
-                    <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                      Or upload your own:
-                    </label>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      onChange={handleFileUpload}
-                      disabled={uploadingImage}
-                      className="w-full text-sm text-gray-500 dark:text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-semibold file:bg-primary-50 dark:file:bg-primary-900 file:text-primary-700 dark:file:text-primary-200 hover:file:bg-primary-100 dark:hover:file:bg-primary-800"
-                    />
-                    {uploadingImage && <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">Uploading...</p>}
+
+                    <div>
+                      <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                        Or upload photos (front, back, spine, inside, discs):
+                      </label>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        multiple
+                        onChange={handleFileUpload}
+                        disabled={uploadingImage}
+                        className="w-full text-sm text-gray-500 dark:text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-semibold file:bg-primary-50 dark:file:bg-primary-900 file:text-primary-700 dark:file:text-primary-200 hover:file:bg-primary-100 dark:hover:file:bg-primary-800"
+                      />
+                      {uploadingImage && <p className="text-sm text-gray-500 dark:text-gray-400 mt-1.5">Uploading...</p>}
+                    </div>
+
+                    {customImages.length > 0 && (
+                      <div className="space-y-2 pt-1">
+                        {customImages.map((photo, idx) => {
+                          const isSelected = idx === safePreviewIndex;
+                          const isPrimary = idx === 0;
+                          return (
+                            <div
+                              key={`${photo.url}-${idx}`}
+                              onClick={() => setPreviewPhotoIndex(idx)}
+                              className={`flex items-center gap-2.5 rounded-lg border p-2 cursor-pointer transition-colors ${
+                                isSelected
+                                  ? 'border-primary-500 bg-primary-50/50 dark:border-primary-400 dark:bg-primary-950/30'
+                                  : 'border-gray-200 dark:border-gray-700 bg-gray-50/70 dark:bg-gray-700/50 hover:bg-gray-100 dark:hover:bg-gray-700'
+                              }`}
+                            >
+                              <div className="relative h-14 w-10 shrink-0 overflow-hidden rounded bg-gray-200 dark:bg-gray-800">
+                                <img
+                                  src={photo.url}
+                                  alt={photo.label || `Photo ${idx + 1}`}
+                                  className="h-full w-full object-cover"
+                                />
+                                {isPrimary && (
+                                  <span className="absolute bottom-0 inset-x-0 bg-primary-600/95 text-center text-[9px] font-bold uppercase tracking-wider text-white">
+                                    Cover
+                                  </span>
+                                )}
+                              </div>
+
+                              <div className="flex-1 min-w-0 space-y-1" onClick={(e) => e.stopPropagation()}>
+                                <div className="flex items-center gap-1.5">
+                                  <input
+                                    type="text"
+                                    value={photo.label || ''}
+                                    onChange={(e) => handleUpdatePhotoLabel(idx, e.target.value)}
+                                    placeholder={isPrimary ? 'Label (e.g., Front)' : 'Label (e.g., Back, Spine, Inside)'}
+                                    maxLength={80}
+                                    aria-label={`Photo ${idx + 1} label`}
+                                    className="w-full rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-2 py-1 text-xs text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-primary-500"
+                                  />
+                                </div>
+                                <div className="flex flex-wrap gap-1">
+                                  {PHOTO_LABEL_PRESETS.map((preset) => {
+                                    const active = (photo.label || '').toLowerCase() === preset.toLowerCase();
+                                    return (
+                                      <button
+                                        key={preset}
+                                        type="button"
+                                        onClick={() => handleUpdatePhotoLabel(idx, active ? '' : preset)}
+                                        className={`rounded px-1.5 py-0.5 text-[10px] font-medium transition-colors ${
+                                          active
+                                            ? 'bg-primary-600 text-white'
+                                            : 'bg-gray-200/80 text-gray-700 hover:bg-gray-300 dark:bg-gray-600 dark:text-gray-200 dark:hover:bg-gray-500'
+                                        }`}
+                                      >
+                                        {preset}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+
+                              <div className="flex flex-col items-end gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
+                                <div className="flex items-center gap-0.5">
+                                  {!isPrimary && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleSetPrimaryPhoto(idx)}
+                                      className="rounded px-1.5 py-0.5 text-[10px] font-semibold text-primary-700 hover:bg-primary-100 dark:text-primary-300 dark:hover:bg-primary-900/50"
+                                      title="Use as primary cover on collection cards & shelf spines"
+                                    >
+                                      Set Cover
+                                    </button>
+                                  )}
+                                  <button
+                                    type="button"
+                                    disabled={idx === 0}
+                                    onClick={() => handleMovePhoto(idx, -1)}
+                                    aria-label={`Move photo ${idx + 1} up`}
+                                    className="p-1 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 disabled:opacity-30"
+                                    title="Move earlier"
+                                  >
+                                    <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+                                    </svg>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    disabled={idx === customImages.length - 1}
+                                    onClick={() => handleMovePhoto(idx, 1)}
+                                    aria-label={`Move photo ${idx + 1} down`}
+                                    className="p-1 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 disabled:opacity-30"
+                                    title="Move later"
+                                  >
+                                    <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                                    </svg>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRemovePhoto(idx)}
+                                    aria-label={`Remove photo ${idx + 1}`}
+                                    className="p-1 text-gray-400 hover:text-red-600 dark:hover:text-red-400"
+                                    title="Remove photo"
+                                  >
+                                    <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                    </svg>
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
                 </div>
 
-                {/* Right Column - Form Fields */}
-                <div className="space-y-4">
+                {/* Right Column - Tabbed Form Fields */}
+                <div className="flex flex-col md:min-h-0">
+                  <div className="shrink-0">
+                    <div
+                      className="flex rounded-lg bg-gray-100 p-1 dark:bg-gray-700/60"
+                      role="tablist"
+                      aria-label="Physical item sections"
+                    >
+                      {FORM_TABS.map((tab) => (
+                        <button
+                          key={tab.id}
+                          type="button"
+                          role="tab"
+                          id={`media-form-tab-${tab.id}`}
+                          aria-selected={activeFormTab === tab.id}
+                          aria-controls={`media-form-panel-${tab.id}`}
+                          onClick={() => setActiveFormTab(tab.id)}
+                          className={`flex-1 rounded-md px-3 py-1.5 text-sm transition-colors ${
+                            activeFormTab === tab.id
+                              ? 'bg-white font-semibold text-gray-900 shadow-sm dark:bg-gray-800 dark:text-gray-100'
+                              : 'font-medium text-gray-600 hover:text-gray-900 dark:text-gray-300 dark:hover:text-gray-100'
+                          }`}
+                        >
+                          {tab.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="pt-4 md:min-h-0 md:flex-1 md:overflow-y-auto md:pb-1 md:pr-2">
+                  {activeFormTab === 'details' && (
+                  <div
+                    role="tabpanel"
+                    id="media-form-panel-details"
+                    aria-labelledby="media-form-tab-details"
+                    className="space-y-4"
+                  >
                   {/* Selected Movies */}
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
@@ -1186,18 +1730,41 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
                     </p>
                   </div>
 
-                  {/* Purchase Date */}
-                  <div>
-                    <label htmlFor="media-form-purchase-date" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      Purchase Date
-                    </label>
-                    <input
-                      id="media-form-purchase-date"
-                      type="date"
-                      value={formData.purchase_date}
-                      onChange={(e) => setFormData({ ...formData, purchase_date: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
-                    />
+                  {/* Purchase Date & Cost */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label htmlFor="media-form-purchase-date" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                        Purchase Date
+                      </label>
+                      <input
+                        id="media-form-purchase-date"
+                        type="date"
+                        value={formData.purchase_date}
+                        onChange={(e) => setFormData({ ...formData, purchase_date: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+                      />
+                    </div>
+
+                    <div>
+                      <label htmlFor="media-form-cost" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                        Purchase Cost ($)
+                      </label>
+                      <div className="relative">
+                        <span className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3 text-sm text-gray-500 dark:text-gray-400">
+                          $
+                        </span>
+                        <input
+                          id="media-form-cost"
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={formData.cost}
+                          onChange={(e) => setFormData({ ...formData, cost: e.target.value })}
+                          placeholder="0.00"
+                          className="w-full pl-7 pr-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+                        />
+                      </div>
+                    </div>
                   </div>
 
                   {/* Case Thickness */}
@@ -1371,6 +1938,15 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
                     </p>
                   </div>
 
+                  </div>
+                  )}
+                  {activeFormTab === 'notes' && (
+                  <div
+                    role="tabpanel"
+                    id="media-form-panel-notes"
+                    aria-labelledby="media-form-tab-notes"
+                    className="space-y-4"
+                  >
                   {/* Personal Notes */}
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
@@ -1474,11 +2050,16 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
                       disabled={isSubmitting}
                     />
                   </div>
+                  </div>
+                  )}
+                  </div>
+                </div>
                 </div>
               </div>
 
-              {/* Actions */}
-              <div className="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-between gap-3 mt-6 pt-6 border-t border-gray-200 dark:border-gray-700">
+              {/* Actions - sticky footer, always visible */}
+              <div className="shrink-0 border-t border-gray-200 bg-white px-6 py-4 dark:border-gray-700 dark:bg-gray-800">
+                <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">
                 {editItem ? (
                   <div className="flex flex-wrap items-center gap-2">
                     <button
@@ -1567,26 +2148,8 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
                     {isSubmitting ? 'Saving...' : editItem ? 'Update' : 'Add Media'}
                   </button>
                 </div>
-              </div>
-
-              {editItem && formData.archived && (
-                <div className="mt-4 flex items-center justify-between gap-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm text-amber-900 dark:border-amber-700/60 dark:bg-amber-950/40 dark:text-amber-200">
-                  <div>
-                    <span className="font-semibold">Marked as Archived:</span>{' '}
-                    <span>{formData.archive_reason}</span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setArchivePromptReason(formData.archive_reason);
-                      setShowArchivePrompt(true);
-                    }}
-                    className="text-xs font-medium underline hover:no-underline"
-                  >
-                    Edit reason
-                  </button>
                 </div>
-              )}
+              </div>
             </form>
             )}
           </div>

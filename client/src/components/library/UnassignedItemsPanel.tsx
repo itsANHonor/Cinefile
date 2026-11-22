@@ -2,6 +2,8 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useDraggable, useDroppable, useDndContext } from '@dnd-kit/core';
 import { PhysicalItem } from '../../types';
 import { apiService } from '../../services/api.service';
+import { getCoverFrame, getFramedImageStyle } from '../../lib/imageFrame';
+import FramedImage from '../FramedImage';
 
 const DEFAULT_SPINE_BG = 'rgba(30, 64, 175, 0.65)';
 const DEFAULT_SPINE_SOLID = '#1e40af';
@@ -60,6 +62,7 @@ const DraggableUnassignedItem: React.FC<{
   const thickness = item.thickness_units || 1;
   const spineWidth = Math.max(32, thickness * 40);
   const coverUrl = item.custom_image_url || (item as any).cover_art_url;
+  const coverFrame = item.custom_image_url ? getCoverFrame(item) : undefined;
   const customSpineColor = (item as any).spine_color as string | undefined;
   const spineColor = customSpineColor || DEFAULT_SPINE_SOLID;
   const spineAccent = (item as any).spine_color_accent || (customSpineColor ? getContrastColor(customSpineColor) : '#f0f0f0');
@@ -99,6 +102,7 @@ const DraggableUnassignedItem: React.FC<{
             src={coverUrl}
             alt={item.name}
             className="absolute inset-0 w-full h-full object-cover"
+            style={getFramedImageStyle(coverFrame, { forceCover: true })}
             draggable={false}
           />
         )}
@@ -135,11 +139,11 @@ const DraggableUnassignedItem: React.FC<{
           style={{ width: '160px', height: '240px', zIndex: 30, bottom: '-4px' }}
         >
           <div
-            className="w-full h-full rounded-md shadow-2xl overflow-hidden border-2 border-white/80 dark:border-gray-600"
+            className="relative w-full h-full rounded-md shadow-2xl overflow-hidden border-2 border-white/80 dark:border-gray-600 bg-neutral-900"
             style={{ backgroundColor: !coverUrl ? spineColor : undefined }}
           >
             {coverUrl ? (
-              <img src={coverUrl} alt={item.name} className="w-full h-full object-cover" draggable={false} />
+              <FramedImage frame={coverFrame} src={coverUrl} alt={item.name} className="w-full h-full object-cover" draggable={false} />
             ) : (
               <div className="w-full h-full flex items-center justify-center p-2">
                 <span className="text-xs font-semibold text-center leading-tight" style={{ color: spineAccent }}>

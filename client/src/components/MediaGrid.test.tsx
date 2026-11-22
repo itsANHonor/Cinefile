@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '../test/utils';
 import MediaGrid from './MediaGrid';
@@ -82,6 +82,10 @@ describe('MediaGrid', () => {
     // Newly appended batch restarts stagger at 0
     expect(updatedListItems[2].style.getPropertyValue('--stagger-index')).toBe('0');
     expect(updatedListItems[3].style.getPropertyValue('--stagger-index')).toBe('1');
+
+    // Animation class is cleaned up when the batch enter animation ends
+    fireEvent.animationEnd(updatedListItems[0]);
+    expect(updatedListItems[0]).not.toHaveClass('media-card-batch-enter');
   });
 
   it('renders a floating series bar above contiguous grouped series items', () => {

@@ -191,6 +191,26 @@ export interface UnifiedSearchResult {
 }
 
 // Physical Item types (what you actually own)
+export interface ImageFrame {
+  /**
+   * 'fill' (default) crops the photo into the fixed card frame, positioned by
+   * panX/panY and magnified by zoom. 'fit' shows the whole photo letterboxed
+   * over an ambient blurred backdrop - best for wide box sets.
+   */
+  fit?: 'fill' | 'fit';
+  /** Focal point percentages (0-100) for crop positioning in 'fill' mode. */
+  panX?: number;
+  panY?: number;
+  /** Additional zoom multiplier (1-3) in 'fill' mode. */
+  zoom?: number;
+}
+
+export interface CustomImage {
+  url: string;
+  label?: string | null;
+  frame?: ImageFrame;
+}
+
 export interface PhysicalItem {
   id: number;
   name: string;
@@ -202,7 +222,9 @@ export interface PhysicalItem {
   archived?: boolean;
   archive_reason?: string | null;
   custom_image_url?: string;
+  custom_images?: CustomImage[];
   purchase_date?: string;
+  cost?: number | null;
   barcode?: string | null;
   asin?: string | null;
   store_links?: Array<{label: string; url: string}>;
@@ -232,7 +254,9 @@ export interface CreatePhysicalItemDto {
   archived?: boolean;
   archive_reason?: string | null;
   custom_image_url?: string;
+  custom_images?: CustomImage[];
   purchase_date?: string;
+  cost?: number | null;
   barcode?: string | null;
   asin?: string | null;
   store_links?: Array<{label: string; url: string}>;
@@ -467,6 +491,8 @@ export interface CollectionStatistics {
   totalMovies: number;
   totalTVSeasons: number;
   formatCounts: Record<string, number>;
+  totalCost?: number;
+  itemsWithCost?: number;
 }
 
 export interface FormatStatItem {
@@ -614,11 +640,38 @@ export interface AcquisitionTimelinePoint {
   period: string;
   purchasedCount: number;
   addedCount: number;
+  purchasedSpend?: number;
+  addedSpend?: number;
 }
 
 export interface StoreStatItem {
   store: string;
   count: number;
+  totalSpend?: number;
+}
+
+export interface SpendingCostExtreme {
+  id: number;
+  name: string;
+  cost: number;
+  purchaseDate: string | null;
+}
+
+export interface FormatSpendingStatItem {
+  format: string;
+  itemCount: number;
+  totalSpend: number;
+  averageSpend: number;
+}
+
+export interface CollectionSpendingStatistics {
+  totalSpent: number;
+  itemsWithCost: number;
+  averageCostPerItem: number;
+  averageCostPerTitle: number;
+  highestCostItem: SpendingCostExtreme | null;
+  lowestCostItem: SpendingCostExtreme | null;
+  byFormat: FormatSpendingStatItem[];
 }
 
 export interface CollectionDashboardStatistics {
@@ -662,6 +715,7 @@ export interface CollectionDashboardStatistics {
     byYear: AcquisitionTimelinePoint[];
     byMonth: AcquisitionTimelinePoint[];
     topStores: StoreStatItem[];
+    spending?: CollectionSpendingStatistics;
   };
 }
 

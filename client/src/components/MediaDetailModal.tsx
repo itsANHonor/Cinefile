@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { PhysicalItem } from '../types';
+import { PhysicalItem, CustomImage } from '../types';
 import { lockBodyScroll } from './ui/Sheet';
 import { Button } from './ui/Button';
 import { VisuallyHidden } from './ui/VisuallyHidden';
@@ -8,6 +8,7 @@ import { formatBadgeClasses } from '../lib/formats';
 import { parseEditionTags } from '../lib/editionTags';
 import { getDistinctOriginalTitle } from '../lib/titles';
 import { detectBarcode } from '../lib/identifiers';
+import { getFramedImageStyle } from '../lib/imageFrame';
 import {
   LetterboxdActivityBanner,
   LetterboxdDotsIcon,
@@ -42,6 +43,19 @@ const areFormatListsEqual = (a: string[] = [], b: string[] = []) => {
   return sortedA.every((val, idx) => val === sortedB[idx]);
 };
 
+const getPackagePhotos = (item: PhysicalItem | null): CustomImage[] => {
+  if (!item) return [];
+  if (Array.isArray(item.custom_images) && item.custom_images.length > 0) {
+    return item.custom_images.filter(
+      (img) => img && typeof img.url === 'string' && img.url.trim() !== ''
+    );
+  }
+  if (item.custom_image_url && item.custom_image_url.trim() !== '') {
+    return [{ url: item.custom_image_url.trim() }];
+  }
+  return [];
+};
+
 const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
   physicalItem,
   isOpen,
@@ -49,12 +63,14 @@ const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
   onEdit,
 }) => {
   const [activeMediaIndex, setActiveMediaIndex] = useState(0);
+  const [activePhotoIndex, setActivePhotoIndex] = useState(0);
   const [showCustomArt, setShowCustomArt] = useState(true);
   const panelRef = useRef<HTMLDivElement>(null);
   const previouslyFocused = useRef<Element | null>(null);
 
   useEffect(() => {
     setActiveMediaIndex(0);
+    setActivePhotoIndex(0);
     setShowCustomArt(true);
   }, [physicalItem?.id, isOpen]);
 
@@ -84,16 +100,28 @@ const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
         onClose();
         return;
       }
-      if (physicalItem && physicalItem.media.length > 1) {
-        if (event.key === 'ArrowLeft') {
-          setActiveMediaIndex(
-            (prev) => (prev - 1 + physicalItem.media.length) % physicalItem.media.length
-          );
-          return;
-        }
-        if (event.key === 'ArrowRight') {
-          setActiveMediaIndex((prev) => (prev + 1) % physicalItem.media.length);
-          return;
+      if (physicalItem) {
+        const photos = getPackagePhotos(physicalItem);
+        if (showCustomArt && photos.length > 1) {
+          if (event.key === 'ArrowLeft') {
+            setActivePhotoIndex((prev) => (prev - 1 + photos.length) % photos.length);
+            return;
+          }
+          if (event.key === 'ArrowRight') {
+            setActivePhotoIndex((prev) => (prev + 1) % photos.length);
+            return;
+          }
+        } else if (physicalItem.media.length > 1) {
+          if (event.key === 'ArrowLeft') {
+            setActiveMediaIndex(
+              (prev) => (prev - 1 + physicalItem.media.length) % physicalItem.media.length
+            );
+            return;
+          }
+          if (event.key === 'ArrowRight') {
+            setActiveMediaIndex((prev) => (prev + 1) % physicalItem.media.length);
+            return;
+          }
         }
       }
       if (event.key !== 'Tab') return;
@@ -111,7 +139,7 @@ const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
         first.focus();
       }
     },
-    [onClose, physicalItem]
+    [onClose, physicalItem, showCustomArt]
   );
 
   const handleBackdropClick = useCallback(
@@ -145,6 +173,7 @@ const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
   const hasThickness = Boolean(physicalItem.thickness_units && physicalItem.thickness_units > 1);
   const hasStoreLinks = Boolean(physicalItem.store_links && physicalItem.store_links.length > 0);
   const barcodeInfo = detectBarcode(physicalItem.barcode);
+  const hasCost = physicalItem.cost !== null && physicalItem.cost !== undefined && Number.isFinite(Number(physicalItem.cost));
   const watchedMediaCount = mediaList.filter((m) => hasLetterboxdActivity(m)).length;
   const hasAnyLetterboxdInItem = watchedMediaCount > 0;
   const hasDetailFields =
@@ -152,6 +181,7 @@ const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
     editionTags.length > 0 ||
     Boolean(physicalItem.shelf_placement) ||
     Boolean(physicalItem.purchase_date) ||
+    hasCost ||
     Boolean(barcodeInfo) ||
     Boolean(physicalItem.asin) ||
     hasThickness ||
@@ -163,10 +193,15 @@ const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
   const isTVSeason = activeMovie?.media_type === 'tv_season';
   const distinctOriginalTitle = activeMovie ? getDistinctOriginalTitle(activeMovie) : null;
 
-  const primaryPosterUrl =
-    showCustomArt && physicalItem.custom_image_url
-      ? physicalItem.custom_image_url
-      : activeMovie?.cover_art_url || physicalItem.custom_image_url;
+  const packagePhotos = getPackagePhotos(physicalItem);
+  const hasPackagePhotos = packagePhotos.length > 0;
+  const safePhotoIndex = Math.min(activePhotoIndex, Math.max(0, packagePhotos.length - 1));
+  const activePackagePhoto = packagePhotos[safePhotoIndex] || null;
+  const isViewingPackagePhotos = showCustomArt && hasPackagePhotos;
+
+  const primaryPosterUrl = isViewingPackagePhotos
+    ? activePackagePhoto?.url
+    : activeMovie?.cover_art_url || activePackagePhoto?.url;
 
   const handlePrevTitle = () => {
     setActiveMediaIndex((prev) => (prev - 1 + mediaList.length) % mediaList.length);
@@ -174,6 +209,14 @@ const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
 
   const handleNextTitle = () => {
     setActiveMediaIndex((prev) => (prev + 1) % mediaList.length);
+  };
+
+  const handlePrevPhoto = () => {
+    setActivePhotoIndex((prev) => (prev - 1 + packagePhotos.length) % packagePhotos.length);
+  };
+
+  const handleNextPhoto = () => {
+    setActivePhotoIndex((prev) => (prev + 1) % packagePhotos.length);
   };
 
   return createPortal(
@@ -192,7 +235,11 @@ const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
         className="grid max-h-[88dvh] w-full max-w-6xl overflow-hidden rounded-2xl bg-surface-raised shadow-2xl ring-1 ring-white/10 outline-none lg:grid-cols-[48%_52%]"
       >
         {/* Left Stage: Ambient Poster Showcase */}
-        <div className="relative flex min-h-[340px] items-center justify-center overflow-hidden bg-neutral-950 p-6 sm:p-10 lg:min-h-[620px]">
+        <div
+          className={`relative flex min-h-[340px] flex-col items-center justify-center overflow-hidden bg-neutral-950 p-6 sm:p-10 lg:min-h-[620px] ${
+            isViewingPackagePhotos && packagePhotos.length > 1 ? 'pb-24 sm:pb-28' : ''
+          }`}
+        >
           {primaryPosterUrl && (
             <img
               src={primaryPosterUrl}
@@ -203,6 +250,23 @@ const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
           )}
           <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/80 via-black/25 to-black/50" />
 
+          {/* Active Photo Label & Counter Badge */}
+          {isViewingPackagePhotos && (activePackagePhoto?.label || packagePhotos.length > 1) && (
+            <div className="absolute left-4 top-4 z-20 flex items-center gap-2 rounded-full bg-black/60 px-3 py-1 text-xs font-medium text-white backdrop-blur-md ring-1 ring-white/15">
+              {activePackagePhoto?.label && (
+                <span className="font-semibold">{activePackagePhoto.label}</span>
+              )}
+              {activePackagePhoto?.label && packagePhotos.length > 1 && (
+                <span className="opacity-50" aria-hidden="true">&middot;</span>
+              )}
+              {packagePhotos.length > 1 && (
+                <span className="tabular-nums opacity-85">
+                  {safePhotoIndex + 1} / {packagePhotos.length}
+                </span>
+              )}
+            </div>
+          )}
+
           {/* Poster Frame */}
           <div className="relative z-10 flex items-center justify-center">
             {primaryPosterUrl ? (
@@ -212,7 +276,11 @@ const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
                 width={360}
                 height={540}
                 decoding="async"
-                className="max-h-[360px] w-auto rounded-xl object-contain shadow-[0_25px_60px_-15px_rgba(0,0,0,0.9)] ring-1 ring-white/15 sm:max-h-[440px] lg:max-h-[540px]"
+                className={`w-auto rounded-xl object-contain shadow-[0_25px_60px_-15px_rgba(0,0,0,0.9)] ring-1 ring-white/15 ${
+                  isViewingPackagePhotos && packagePhotos.length > 1
+                    ? 'max-h-[290px] sm:max-h-[370px] lg:max-h-[450px]'
+                    : 'max-h-[360px] sm:max-h-[440px] lg:max-h-[540px]'
+                }`}
               />
             ) : (
               <div className="aspect-[2/3] w-60 overflow-hidden rounded-xl shadow-2xl ring-1 ring-white/15 sm:w-64">
@@ -237,8 +305,74 @@ const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
             )}
           </div>
 
-          {/* Instagram-style stage overlay arrows & dots for multi-movie box sets */}
-          {isMultiTitle && (
+          {/* Package Photo Gallery controls & thumbnail strip when multiple package photos exist */}
+          {isViewingPackagePhotos && packagePhotos.length > 1 && (
+            <>
+              <button
+                type="button"
+                onClick={handlePrevPhoto}
+                aria-label="Previous photo"
+                className="absolute left-3 top-1/2 z-20 -translate-y-1/2 inline-flex h-10 w-10 items-center justify-center rounded-full bg-black/55 text-white backdrop-blur-md transition hover:bg-black/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.2} d="M15 19l-7-7 7-7" />
+                </svg>
+              </button>
+              <button
+                type="button"
+                onClick={handleNextPhoto}
+                aria-label="Next photo"
+                className="absolute right-3 top-1/2 z-20 -translate-y-1/2 inline-flex h-10 w-10 items-center justify-center rounded-full bg-black/55 text-white backdrop-blur-md transition hover:bg-black/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.2} d="M9 5l7 7-7 7" />
+                </svg>
+              </button>
+
+              <div
+                role="tablist"
+                aria-label="Package photos"
+                data-testid="package-photo-thumbnails"
+                className="absolute bottom-3 inset-x-4 z-20 flex items-center justify-center gap-2 overflow-x-auto py-1"
+              >
+                {packagePhotos.map((photo, idx) => {
+                  const isActive = idx === safePhotoIndex;
+                  const thumbLabel = photo.label || `Photo ${idx + 1}`;
+                  return (
+                    <button
+                      key={`${photo.url}-${idx}`}
+                      type="button"
+                      role="tab"
+                      aria-selected={isActive}
+                      aria-label={`View package photo: ${thumbLabel}`}
+                      onClick={() => setActivePhotoIndex(idx)}
+                      className={`group relative h-14 w-10 shrink-0 overflow-hidden rounded-lg transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                        isActive
+                          ? 'ring-2 ring-white scale-105 shadow-lg opacity-100'
+                          : 'ring-1 ring-white/25 opacity-60 hover:opacity-95'
+                      }`}
+                    >
+                      <img
+                        src={photo.url}
+                        alt=""
+                        aria-hidden="true"
+                        className="h-full w-full object-cover bg-neutral-900"
+                        style={getFramedImageStyle(photo.frame)}
+                      />
+                      {photo.label && (
+                        <span className="absolute inset-x-0 bottom-0 truncate bg-black/75 px-1 py-0.5 text-[9px] font-semibold leading-none text-white">
+                          {photo.label}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </>
+          )}
+
+          {/* Instagram-style stage overlay arrows & dots for multi-movie box sets (when viewing movie posters or single-photo box sets) */}
+          {isMultiTitle && (!isViewingPackagePhotos || packagePhotos.length <= 1) && (
             <>
               <button
                 type="button"
@@ -538,14 +672,18 @@ const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
               Physical item overview
             </h2>
 
-            {physicalItem.custom_image_url && activeMovie?.cover_art_url && (
+            {hasPackagePhotos && activeMovie?.cover_art_url && (
               <div className="flex justify-end">
                 <button
                   type="button"
                   onClick={() => setShowCustomArt((v) => !v)}
                   className="text-xs font-medium text-primary-600 hover:underline dark:text-primary-400"
                 >
-                  {showCustomArt ? 'Show movie poster' : 'Show package photo'}
+                  {showCustomArt
+                    ? 'Show movie poster'
+                    : packagePhotos.length > 1
+                      ? `Show package photos (${packagePhotos.length})`
+                      : 'Show package photo'}
                 </button>
               </div>
             )}
@@ -626,6 +764,20 @@ const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
                     </h3>
                     <p className="text-xs font-medium text-content">
                       {new Date(physicalItem.purchase_date).toLocaleDateString()}
+                    </p>
+                  </div>
+                )}
+
+                {hasCost && (
+                  <div>
+                    <h3 className="mb-0.5 text-[11px] font-semibold uppercase tracking-wider text-content-muted">
+                      Cost
+                    </h3>
+                    <p className="text-xs font-medium text-content">
+                      {new Intl.NumberFormat('en-US', {
+                        style: 'currency',
+                        currency: 'USD',
+                      }).format(Number(physicalItem.cost))}
                     </p>
                   </div>
                 )}

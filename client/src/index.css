@@ -131,19 +131,16 @@
 
 @keyframes mediaCardBatchEnter {
   from {
-    opacity: 0;
-    transform: translate3d(0, 16px, 0) scale(0.97);
+    transform: translate3d(0, 12px, 0) scale(0.98);
   }
   to {
-    opacity: 1;
     transform: translate3d(0, 0, 0) scale(1);
   }
 }
 
 .media-card-batch-enter {
-  animation: mediaCardBatchEnter 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
-  animation-delay: calc(var(--stagger-index, 0) * 30ms);
-  will-change: transform, opacity;
+  animation: mediaCardBatchEnter 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+  animation-delay: calc(var(--stagger-index, 0) * 25ms);
 }
 
 /* Showcase immersive slideshow animations */

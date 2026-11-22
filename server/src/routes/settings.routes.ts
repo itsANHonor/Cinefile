@@ -13,6 +13,7 @@ const ADMIN_ONLY_SETTING_KEYS = new Set([
 ]);
 const ALLOWED_SETTING_KEYS = new Set([
   'collection_public',
+  'cost_public',
   'site_title',
   'collection_title',
   'default_theme',

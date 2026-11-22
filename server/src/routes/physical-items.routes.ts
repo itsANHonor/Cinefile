@@ -15,7 +15,13 @@ import {
   extractAsinFromStoreLinks,
   normalizeAsin,
   normalizeBarcode,
+  normalizeCost,
 } from '../utils/identifiers.util';
+import {
+  CustomImageEntry,
+  parseCustomImagesFromRow,
+  resolveCustomImagesForWrite,
+} from '../utils/custom-images.util';
 import { extractSpineColors } from '../services/color.service';
 import { letterboxdService } from '../services/letterboxd.service';
 
@@ -31,8 +37,10 @@ interface PhysicalItem {
   notes_public?: boolean;
   archived?: boolean;
   archive_reason?: string | null;
-  custom_image_url?: string;
+  custom_image_url?: string | null;
+  custom_images?: string | CustomImageEntry[] | null;
   purchase_date?: string;
+  cost?: number | null;
   store_links?: string; // JSON string of array
   primary_series_id?: number | null; // Legacy - still used but being phased out
   sort_series_id?: number | null; // Used for sorting by series
@@ -66,6 +74,10 @@ router.get('/', async (req: Request, res: Response) => {
 
     const isAdmin = isRequestAdmin(req);
     const showArchived = isAdmin && (archived === 'true' || archived === '1');
+    const costPublicSetting = !isAdmin
+      ? await db('settings').where({ key: 'cost_public' }).first()
+      : null;
+    const canSeeCost = isAdmin || costPublicSetting?.value === 'true';
 
     // Start with base query - fetch physical items WITHOUT joins first
     // This ensures all items are returned, then we'll filter and attach media separately
@@ -723,8 +735,12 @@ router.get('/', async (req: Request, res: Response) => {
       });
 
       // Clean up the aggregated fields from the main query
+      const parsedCustomImages = parseCustomImagesFromRow(item.custom_images, item.custom_image_url);
       const cleanedItem: any = {
         ...item,
+        custom_image_url: parsedCustomImages[0]?.url || item.custom_image_url || undefined,
+        custom_images: parsedCustomImages,
+        cost: canSeeCost ? normalizeCost(item.cost) : undefined,
         notes: isAdmin ? item.notes : (item.notes_public ? item.notes : undefined),
         notes_public: isAdmin ? Boolean(item.notes_public) : undefined,
         archived: isAdmin ? Boolean(item.archived) : undefined,
@@ -740,6 +756,7 @@ router.get('/', async (req: Request, res: Response) => {
         delete cleanedItem.notes_public;
         delete cleanedItem.archived;
         delete cleanedItem.archive_reason;
+        if (!canSeeCost) delete cleanedItem.cost;
       }
 
       return cleanedItem;
@@ -905,6 +922,10 @@ router.get('/:id', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const isAdmin = isRequestAdmin(req);
+    const costPublicSetting = !isAdmin
+      ? await db('settings').where({ key: 'cost_public' }).first()
+      : null;
+    const canSeeCost = isAdmin || costPublicSetting?.value === 'true';
 
     const physicalItem = await db('physical_items').where('id', id).first();
 
@@ -1009,8 +1030,15 @@ router.get('/:id', async (req: Request, res: Response) => {
       };
     });
 
+    const parsedCustomImages = parseCustomImagesFromRow(
+      physicalItem.custom_images,
+      physicalItem.custom_image_url
+    );
     const result: any = {
       ...physicalItem,
+      custom_image_url: parsedCustomImages[0]?.url || physicalItem.custom_image_url || undefined,
+      custom_images: parsedCustomImages,
+      cost: canSeeCost ? normalizeCost(physicalItem.cost) : undefined,
       notes: isAdmin ? physicalItem.notes : (physicalItem.notes_public ? physicalItem.notes : undefined),
       notes_public: isAdmin ? Boolean(physicalItem.notes_public) : undefined,
       archived: isAdmin ? Boolean(physicalItem.archived) : undefined,
@@ -1026,6 +1054,7 @@ router.get('/:id', async (req: Request, res: Response) => {
       delete result.notes_public;
       delete result.archived;
       delete result.archive_reason;
+      if (!canSeeCost) delete result.cost;
     }
 
     res.json(result);
@@ -1042,7 +1071,7 @@ router.get('/:id', async (req: Request, res: Response) => {
 router.post('/', authMiddleware, async (req: Request, res: Response) => {
   try {
     const { 
-      name, edition_notes, notes, notes_public, custom_image_url, purchase_date, 
+      name, edition_notes, notes, notes_public, custom_image_url, custom_images, purchase_date, cost,
       barcode, asin,
       media, store_links, sort_name,
       thickness_units, width_mm, height_mm, depth_mm,
@@ -1142,6 +1171,7 @@ router.post('/', authMiddleware, async (req: Request, res: Response) => {
       // Create physical item first (formats will be calculated after linking media)
       // Calculate sort_name if not provided, but allow user override
       const calculatedSortName = sort_name !== undefined ? sort_name : calculateSortName(name);
+      const resolvedImages = resolveCustomImagesForWrite(custom_images, custom_image_url);
       const physicalItemData = {
         name,
         sort_name: calculatedSortName || null,
@@ -1151,8 +1181,10 @@ router.post('/', authMiddleware, async (req: Request, res: Response) => {
         notes_public: notes_public === true ? 1 : 0, // SQLite boolean
         archived: isArchived ? 1 : 0,
         archive_reason: isArchived ? trimmedReason : null,
-        custom_image_url,
+        custom_image_url: resolvedImages.custom_image_url,
+        custom_images: resolvedImages.custom_images,
         purchase_date,
+        cost: normalizeCost(cost),
         barcode: normalizeBarcode(barcode),
         asin: normalizeAsin(asin) || extractAsinFromStoreLinks(store_links),
         thickness_units: Math.max(1, parseInt(thickness_units) || 1),
@@ -1282,8 +1314,15 @@ router.post('/', authMiddleware, async (req: Request, res: Response) => {
         .orderBy('physical_item_media.disc_number')
         .orderBy('physical_item_media.id');
 
+      const createdCustomImages = parseCustomImagesFromRow(
+        createdItem.custom_images,
+        createdItem.custom_image_url
+      );
       return {
         ...createdItem,
+        custom_image_url: createdCustomImages[0]?.url || createdItem.custom_image_url || undefined,
+        custom_images: createdCustomImages,
+        cost: normalizeCost(createdItem.cost),
         archived: Boolean(createdItem.archived),
         archive_reason: createdItem.archive_reason || null,
         physical_format: JSON.parse(createdItem.physical_format),
@@ -1331,7 +1370,7 @@ router.put('/:id', authMiddleware, async (req: Request, res: Response) => {
     const { id } = req.params;
     const { 
       name, physical_format, edition_notes, notes, notes_public, 
-      custom_image_url, purchase_date, barcode, asin, store_links, sort_name,
+      custom_image_url, custom_images, purchase_date, cost, barcode, asin, store_links, sort_name,
       thickness_units, width_mm, height_mm, depth_mm,
       sort_series_id, // Used for sorting preference
       media_primary_series_id, // When set, adds all media to this series and sets it as their primary
@@ -1426,8 +1465,17 @@ router.put('/:id', authMiddleware, async (req: Request, res: Response) => {
       updateData.archived = nextArchived ? 1 : 0;
       updateData.archive_reason = nextArchived ? nextReasonTrimmed : null;
     }
-    if (custom_image_url !== undefined) updateData.custom_image_url = custom_image_url;
+    if (custom_images !== undefined || custom_image_url !== undefined) {
+      const resolvedImages = resolveCustomImagesForWrite(
+        custom_images,
+        custom_image_url,
+        existingItem
+      );
+      updateData.custom_image_url = resolvedImages.custom_image_url;
+      updateData.custom_images = resolvedImages.custom_images;
+    }
     if (purchase_date !== undefined) updateData.purchase_date = purchase_date;
+    if (cost !== undefined) updateData.cost = normalizeCost(cost);
     if (barcode !== undefined) updateData.barcode = normalizeBarcode(barcode);
     if (asin !== undefined) {
       updateData.asin = normalizeAsin(asin);
@@ -1521,8 +1569,15 @@ router.put('/:id', authMiddleware, async (req: Request, res: Response) => {
       .orderBy('physical_item_media.disc_number')
       .orderBy('physical_item_media.id');
 
+    const updatedCustomImages = parseCustomImagesFromRow(
+      updatedItem.custom_images,
+      updatedItem.custom_image_url
+    );
     const result: PhysicalItemWithMedia = {
       ...updatedItem,
+      custom_image_url: updatedCustomImages[0]?.url || updatedItem.custom_image_url || undefined,
+      custom_images: updatedCustomImages,
+      cost: normalizeCost(updatedItem.cost),
       archived: Boolean(updatedItem.archived),
       archive_reason: updatedItem.archive_reason || null,
       physical_format: JSON.parse(updatedItem.physical_format),
@@ -1534,8 +1589,11 @@ router.put('/:id', authMiddleware, async (req: Request, res: Response) => {
       })),
     };
 
-    // Re-extract spine colors when custom_image_url changes
-    if (custom_image_url !== undefined && custom_image_url !== existingItem.custom_image_url) {
+    // Re-extract spine colors when primary custom_image_url changes
+    if (
+      (custom_images !== undefined || custom_image_url !== undefined) &&
+      result.custom_image_url !== existingItem.custom_image_url
+    ) {
       const coverUrl = result.custom_image_url || result.media?.[0]?.cover_art_url;
       if (coverUrl) {
         extractSpineColors(coverUrl, result.name).then(async (colors) => {
@@ -1881,13 +1939,19 @@ router.post('/bulk', authMiddleware, async (req: Request, res: Response) => {
           // Create physical item
           // Calculate sort_name if not provided, but allow user override
           const calculatedSortName = item.sort_name !== undefined ? item.sort_name : calculateSortName(item.name);
+          const resolvedBulkImages = resolveCustomImagesForWrite(
+            item.custom_images,
+            item.custom_image_url
+          );
           const physicalItemData = {
             name: item.name,
             sort_name: calculatedSortName || null,
             physical_format: JSON.stringify(formatArray),
             edition_notes: normalizeEditionNotes(item.edition_notes, canonicalTagMap),
-            custom_image_url: item.custom_image_url,
+            custom_image_url: resolvedBulkImages.custom_image_url,
+            custom_images: resolvedBulkImages.custom_images,
             purchase_date: item.purchase_date,
+            cost: normalizeCost(item.cost),
             barcode: normalizeBarcode(item.barcode),
             asin: normalizeAsin(item.asin) || extractAsinFromStoreLinks(item.store_links),
           };

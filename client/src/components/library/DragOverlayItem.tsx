@@ -1,5 +1,6 @@
 import React from 'react';
 import { PhysicalItem, ShelfGroup, Shelf } from '../../types';
+import { getCoverFrame, getFramedImageStyle } from '../../lib/imageFrame';
 
 const DEFAULT_SPINE_SOLID = '#1e40af';
 
@@ -16,6 +17,7 @@ function getContrastColor(hex: string): string {
 
 export const ItemDragOverlay: React.FC<{ item: PhysicalItem }> = ({ item }) => {
   const coverUrl = item.custom_image_url || (item as any).cover_art_url;
+  const coverFrame = item.custom_image_url ? getCoverFrame(item) : undefined;
   const spineColor = (item as any).spine_color || DEFAULT_SPINE_SOLID;
   const spineAccent = (item as any).spine_color_accent || getContrastColor(spineColor);
 
@@ -33,6 +35,7 @@ export const ItemDragOverlay: React.FC<{ item: PhysicalItem }> = ({ item }) => {
             src={coverUrl}
             alt={item.name}
             className="w-full h-full object-cover"
+            style={getFramedImageStyle(coverFrame)}
             draggable={false}
           />
         ) : (

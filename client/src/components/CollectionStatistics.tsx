@@ -12,6 +12,8 @@ interface CollectionStatisticsProps {
 }
 
 const formatCount = (value: number) => value.toLocaleString();
+const formatCurrency = (value: number) =>
+  new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value);
 
 /**
  * One-line collection summary with a "View breakdown" action that opens the
@@ -39,6 +41,9 @@ const CollectionStatistics: React.FC<CollectionStatisticsProps> = ({ statistics,
   ];
   if (statistics.totalTVSeasons > 0) {
     summaryParts.push(`${formatCount(statistics.totalTVSeasons)} TV seasons`);
+  }
+  if (statistics.itemsWithCost && statistics.itemsWithCost > 0 && statistics.totalCost != null) {
+    summaryParts.push(`${formatCurrency(statistics.totalCost)} spent`);
   }
 
   return (

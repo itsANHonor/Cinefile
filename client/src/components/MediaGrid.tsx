@@ -116,10 +116,12 @@ const MediaGrid: React.FC<MediaGridProps> = ({
       style={gridTemplateStyle}
       className="grid grid-cols-2 gap-x-3 gap-y-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 sm:gap-x-4 sm:gap-y-5"
     >
-      {rows.map((row) => (
-        <React.Fragment key={`row-${row.rowIndex}`}>
-          {row.segments.length > 0 && (
+      {rows.flatMap((row) => {
+        const nodes: React.ReactNode[] = [];
+        if (row.segments.length > 0) {
+          nodes.push(
             <div
+              key={`series-row-${row.rowIndex}`}
               role="presentation"
               data-testid={`series-row-track-${row.rowIndex}`}
               style={gridTemplateStyle}
@@ -178,29 +180,37 @@ const MediaGrid: React.FC<MediaGridProps> = ({
                 </div>
               ))}
             </div>
-          )}
-          {row.items.map(({ item }) => {
-            const staggerIndex = staggerMapRef.current.get(item.id) ?? 0;
-            return (
-              <div
-                key={item.id}
-                role="listitem"
-                style={{ '--stagger-index': staggerIndex } as React.CSSProperties}
-                className="h-full media-card-batch-enter"
-              >
-                <MediaCard
-                  physicalItem={item}
-                  onClick={() => onItemClick(item)}
-                  isEditMode={isEditMode}
-                  isAuthenticated={isAuthenticated}
-                  onEdit={onEditItem}
-                  onArchive={onArchiveItem}
-                />
-              </div>
-            );
-          })}
-        </React.Fragment>
-      ))}
+          );
+        }
+
+        for (const { item } of row.items) {
+          const staggerIndex = staggerMapRef.current.get(item.id) ?? 0;
+          nodes.push(
+            <div
+              key={item.id}
+              role="listitem"
+              style={{ '--stagger-index': staggerIndex } as React.CSSProperties}
+              onAnimationEnd={(e) => {
+                if (e.target === e.currentTarget) {
+                  e.currentTarget.classList.remove('media-card-batch-enter');
+                }
+              }}
+              className="h-full media-card-batch-enter"
+            >
+              <MediaCard
+                physicalItem={item}
+                onClick={() => onItemClick(item)}
+                isEditMode={isEditMode}
+                isAuthenticated={isAuthenticated}
+                onEdit={onEditItem}
+                onArchive={onArchiveItem}
+              />
+            </div>
+          );
+        }
+
+        return nodes;
+      })}
       {showSkeletons &&
         Array.from({ length: effectiveSkeletonCount }).map((_, i) => (
           <div

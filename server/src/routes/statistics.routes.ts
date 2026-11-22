@@ -16,6 +16,7 @@ import {
   getCastWorkKey,
   hasDirectorFilter,
 } from '../utils/person-filter.util';
+import { normalizeCost } from '../utils/identifiers.util';
 
 const router = Router();
 
@@ -235,7 +236,18 @@ router.get('/', async (req: Request, res: Response) => {
     // Get total physical items with filters applied
     let totalPhysicalItemsQuery = db('physical_items');
     totalPhysicalItemsQuery = applyFilters(totalPhysicalItemsQuery);
-    const totalPhysicalItems = await totalPhysicalItemsQuery.count('* as count').first();
+    const totalPhysicalItems = await totalPhysicalItemsQuery
+      .select(
+        db.raw('COUNT(*) as count'),
+        db.raw('SUM(CASE WHEN physical_items.cost IS NOT NULL THEN physical_items.cost ELSE 0 END) as total_cost'),
+        db.raw('COUNT(CASE WHEN physical_items.cost IS NOT NULL THEN 1 END) as items_with_cost')
+      )
+      .first();
+
+    const costPublicRow = !isAdmin
+      ? await db('settings').where({ key: 'cost_public' }).first()
+      : null;
+    const canSeeCost = isAdmin || costPublicRow?.value === 'true';
     
     // Get total movies with filters applied
     // We need to join with physical_items to apply filters, then count distinct media
@@ -554,11 +566,15 @@ router.get('/', async (req: Request, res: Response) => {
       .filter(([_, count]) => count > 0)
       .reduce((acc, [format, count]) => ({ ...acc, [format]: count }), {});
     
+    const totalCostNum = Math.round((Number(totalPhysicalItems?.total_cost) || 0) * 100) / 100;
+    const itemsWithCostNum = parseInt(totalPhysicalItems?.items_with_cost as string, 10) || 0;
+
     res.json({
       totalPhysicalItems: parseInt(totalPhysicalItems?.count as string) || 0,
       totalMovies: parseInt(totalMovies?.count as string) || 0,
       totalTVSeasons: parseInt(totalTVSeasons?.count as string) || 0,
-      formatCounts: activeFormats
+      formatCounts: activeFormats,
+      ...(canSeeCost ? { totalCost: totalCostNum, itemsWithCost: itemsWithCostNum } : {}),
     });
   } catch (error) {
     console.error('Error fetching statistics:', error);
@@ -909,8 +925,14 @@ async function resolvePersonProfiles(names: string[]): Promise<Map<string, strin
  * Single-request payload designed to respect the read-only server rate limiter
  * and never expose private item notes.
  */
-router.get('/dashboard', async (_req: Request, res: Response) => {
+router.get('/dashboard', async (req: Request, res: Response) => {
   try {
+    const isAdmin = isRequestAdmin(req);
+    const costPublicRow = !isAdmin
+      ? await db('settings').where({ key: 'cost_public' }).first()
+      : null;
+    const canSeeCost = isAdmin || costPublicRow?.value === 'true';
+
     // 1. Load physical items (only public/statistical columns — never private notes or archived items)
     const physicalItems = await db('physical_items')
       .where(function() {
@@ -922,6 +944,7 @@ router.get('/dashboard', async (_req: Request, res: Response) => {
         'physical_format',
         'edition_notes',
         'purchase_date',
+        'cost',
         'store_links',
         'sort_series_id',
         'primary_series_id',
@@ -1481,29 +1504,85 @@ router.get('/dashboard', async (_req: Request, res: Response) => {
       )
       .slice(0, 10);
 
-    // 7. Acquisition & Growth Timeline
-    const yearMap = new Map<string, { purchasedCount: number; addedCount: number }>();
-    const monthMap = new Map<string, { purchasedCount: number; addedCount: number }>();
-    const storeCounts = new Map<string, Set<number>>();
+    // 7. Acquisition, Spending & Growth Timeline
+    const yearMap = new Map<
+      string,
+      { purchasedCount: number; addedCount: number; purchasedSpend: number; addedSpend: number }
+    >();
+    const monthMap = new Map<
+      string,
+      { purchasedCount: number; addedCount: number; purchasedSpend: number; addedSpend: number }
+    >();
+    const storeCounts = new Map<string, { itemIds: Set<number>; totalSpend: number; pricedItemIds: Set<number> }>();
+    const formatSpendMap = new Map<string, { itemCount: number; totalSpend: number }>();
     let itemsWithPurchaseDate = 0;
+    let itemsWithCost = 0;
+    let totalSpentCents = 0;
+    let titlesInPricedItemsCount = 0;
+    let highestCostItem: { id: number; name: string; cost: number; purchaseDate: string | null } | null = null;
+    let lowestCostItem: { id: number; name: string; cost: number; purchaseDate: string | null } | null = null;
 
     for (const item of physicalItems) {
+      const itemCost = normalizeCost(item.cost);
+      const hasCost = itemCost !== null;
+      if (hasCost) {
+        itemsWithCost += 1;
+        totalSpentCents += Math.round(itemCost * 100);
+        titlesInPricedItemsCount += mediaIdsByItemId.get(item.id)?.size || 1;
+
+        if (!highestCostItem || itemCost > highestCostItem.cost) {
+          highestCostItem = {
+            id: item.id,
+            name: item.name,
+            cost: itemCost,
+            purchaseDate: item.purchase_date || null,
+          };
+        }
+        if (itemCost > 0 && (!lowestCostItem || itemCost < lowestCostItem.cost)) {
+          lowestCostItem = {
+            id: item.id,
+            name: item.name,
+            cost: itemCost,
+            purchaseDate: item.purchase_date || null,
+          };
+        }
+
+        const itemFormats = Array.from(new Set(parseJsonArray<string>(item.physical_format)));
+        for (const fmt of itemFormats) {
+          if (!CANONICAL_FORMATS.includes(fmt)) continue;
+          if (!formatSpendMap.has(fmt)) {
+            formatSpendMap.set(fmt, { itemCount: 0, totalSpend: 0 });
+          }
+          const fEntry = formatSpendMap.get(fmt)!;
+          fEntry.itemCount += 1;
+          fEntry.totalSpend = Math.round((fEntry.totalSpend + itemCost) * 100) / 100;
+        }
+      }
+
       if (item.purchase_date && typeof item.purchase_date === 'string') {
         const trimmed = item.purchase_date.trim();
         if (/^\d{4}/.test(trimmed)) {
           itemsWithPurchaseDate += 1;
           const year = trimmed.substring(0, 4);
           if (!yearMap.has(year)) {
-            yearMap.set(year, { purchasedCount: 0, addedCount: 0 });
+            yearMap.set(year, { purchasedCount: 0, addedCount: 0, purchasedSpend: 0, addedSpend: 0 });
           }
-          yearMap.get(year)!.purchasedCount += 1;
+          const yEntry = yearMap.get(year)!;
+          yEntry.purchasedCount += 1;
+          if (hasCost) {
+            yEntry.purchasedSpend = Math.round((yEntry.purchasedSpend + itemCost) * 100) / 100;
+          }
 
           if (/^\d{4}-\d{2}/.test(trimmed)) {
             const month = trimmed.substring(0, 7);
             if (!monthMap.has(month)) {
-              monthMap.set(month, { purchasedCount: 0, addedCount: 0 });
+              monthMap.set(month, { purchasedCount: 0, addedCount: 0, purchasedSpend: 0, addedSpend: 0 });
             }
-            monthMap.get(month)!.purchasedCount += 1;
+            const mEntry = monthMap.get(month)!;
+            mEntry.purchasedCount += 1;
+            if (hasCost) {
+              mEntry.purchasedSpend = Math.round((mEntry.purchasedSpend + itemCost) * 100) / 100;
+            }
           }
         }
       }
@@ -1513,16 +1592,24 @@ router.get('/dashboard', async (_req: Request, res: Response) => {
         if (/^\d{4}/.test(trimmed)) {
           const year = trimmed.substring(0, 4);
           if (!yearMap.has(year)) {
-            yearMap.set(year, { purchasedCount: 0, addedCount: 0 });
+            yearMap.set(year, { purchasedCount: 0, addedCount: 0, purchasedSpend: 0, addedSpend: 0 });
           }
-          yearMap.get(year)!.addedCount += 1;
+          const yEntry = yearMap.get(year)!;
+          yEntry.addedCount += 1;
+          if (hasCost) {
+            yEntry.addedSpend = Math.round((yEntry.addedSpend + itemCost) * 100) / 100;
+          }
 
           if (/^\d{4}-\d{2}/.test(trimmed)) {
             const month = trimmed.substring(0, 7);
             if (!monthMap.has(month)) {
-              monthMap.set(month, { purchasedCount: 0, addedCount: 0 });
+              monthMap.set(month, { purchasedCount: 0, addedCount: 0, purchasedSpend: 0, addedSpend: 0 });
             }
-            monthMap.get(month)!.addedCount += 1;
+            const mEntry = monthMap.get(month)!;
+            mEntry.addedCount += 1;
+            if (hasCost) {
+              mEntry.addedSpend = Math.round((mEntry.addedSpend + itemCost) * 100) / 100;
+            }
           }
         }
       }
@@ -1532,9 +1619,14 @@ router.get('/dashboard', async (_req: Request, res: Response) => {
         const storeName = normalizeStoreName(link);
         if (storeName) {
           if (!storeCounts.has(storeName)) {
-            storeCounts.set(storeName, new Set());
+            storeCounts.set(storeName, { itemIds: new Set(), totalSpend: 0, pricedItemIds: new Set() });
           }
-          storeCounts.get(storeName)!.add(item.id);
+          const sEntry = storeCounts.get(storeName)!;
+          sEntry.itemIds.add(item.id);
+          if (hasCost && !sEntry.pricedItemIds.has(item.id)) {
+            sEntry.pricedItemIds.add(item.id);
+            sEntry.totalSpend = Math.round((sEntry.totalSpend + itemCost) * 100) / 100;
+          }
         }
       }
     }
@@ -1545,6 +1637,12 @@ router.get('/dashboard', async (_req: Request, res: Response) => {
         period,
         purchasedCount: counts.purchasedCount,
         addedCount: counts.addedCount,
+        ...(canSeeCost
+          ? {
+              purchasedSpend: counts.purchasedSpend,
+              addedSpend: counts.addedSpend,
+            }
+          : {}),
       }));
 
     const acquisitionsByMonth = Array.from(monthMap.entries())
@@ -1554,15 +1652,52 @@ router.get('/dashboard', async (_req: Request, res: Response) => {
         period,
         purchasedCount: counts.purchasedCount,
         addedCount: counts.addedCount,
+        ...(canSeeCost
+          ? {
+              purchasedSpend: counts.purchasedSpend,
+              addedSpend: counts.addedSpend,
+            }
+          : {}),
       }));
 
     const topStores = Array.from(storeCounts.entries())
-      .map(([store, itemSet]) => ({
+      .map(([store, sEntry]) => ({
         store,
-        count: itemSet.size,
+        count: sEntry.itemIds.size,
+        ...(canSeeCost && sEntry.pricedItemIds.size > 0
+          ? { totalSpend: sEntry.totalSpend }
+          : {}),
       }))
       .sort((a, b) => b.count - a.count || a.store.localeCompare(b.store))
       .slice(0, 10);
+
+    const totalSpent = totalSpentCents / 100;
+    const spendingByFormat = CANONICAL_FORMATS.filter((f) => formatSpendMap.has(f)).map((format) => {
+      const fEntry = formatSpendMap.get(format)!;
+      return {
+        format,
+        itemCount: fEntry.itemCount,
+        totalSpend: fEntry.totalSpend,
+        averageSpend:
+          fEntry.itemCount > 0 ? Math.round((fEntry.totalSpend / fEntry.itemCount) * 100) / 100 : 0,
+      };
+    });
+
+    const spendingStats = canSeeCost
+      ? {
+          totalSpent,
+          itemsWithCost,
+          averageCostPerItem:
+            itemsWithCost > 0 ? Math.round((totalSpent / itemsWithCost) * 100) / 100 : 0,
+          averageCostPerTitle:
+            titlesInPricedItemsCount > 0
+              ? Math.round((totalSpent / titlesInPricedItemsCount) * 100) / 100
+              : 0,
+          highestCostItem,
+          lowestCostItem,
+          byFormat: spendingByFormat,
+        }
+      : undefined;
 
     res.json({
       overview: {
@@ -1608,6 +1743,7 @@ router.get('/dashboard', async (_req: Request, res: Response) => {
         byYear: acquisitionsByYear,
         byMonth: acquisitionsByMonth,
         topStores,
+        ...(spendingStats ? { spending: spendingStats } : {}),
       },
     });
   } catch (error) {

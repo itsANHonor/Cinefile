@@ -66,3 +66,24 @@ export function extractAsinFromStoreLinks(
   }
   return null;
 }
+
+/**
+ * Normalize a monetary cost value (number or string like "29.99" or "$29.99").
+ * Returns a non-negative number rounded to 2 decimal places, or null if empty/invalid.
+ */
+export function normalizeCost(raw: unknown): number | null {
+  if (raw === null || raw === undefined || raw === '') return null;
+  if (typeof raw === 'number') {
+    if (!Number.isFinite(raw) || raw < 0) return null;
+    return Math.round(raw * 100) / 100;
+  }
+  if (typeof raw === 'string') {
+    const cleaned = raw.replace(/[$,\s]/g, '').trim();
+    if (!cleaned) return null;
+    const parsed = Number(cleaned);
+    if (!Number.isFinite(parsed) || parsed < 0) return null;
+    return Math.round(parsed * 100) / 100;
+  }
+  return null;
+}
+

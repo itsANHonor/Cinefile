@@ -72,6 +72,7 @@ const AdminPage: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [showAddForm, setShowAddForm] = useState(false);
   const [isPublic, setIsPublic] = useState(false);
+  const [isCostPublic, setIsCostPublic] = useState(false);
   const [defaultTheme, setDefaultTheme] = useState<'light' | 'dark' | 'system'>('light');
   const [defaultSortBy, setDefaultSortBy] = useState<SortField>('created_at');
   const [defaultSortOrder, setDefaultSortOrder] = useState<SortOrder>('desc');
@@ -119,6 +120,7 @@ const AdminPage: React.FC = () => {
     try {
       const settings = await apiService.getSettings();
       setIsPublic(settings.collection_public === 'true');
+      setIsCostPublic(settings.cost_public === 'true');
       setDefaultTheme((settings.default_theme as 'light' | 'dark' | 'system') || 'light');
       setDefaultSortBy((settings.default_sort_by as SortField) || 'created_at');
       setDefaultSortOrder((settings.default_sort_order as SortOrder) || 'desc');
@@ -181,6 +183,26 @@ const AdminPage: React.FC = () => {
     } catch (error) {
       console.error('Failed to update visibility:', error);
       toast({ message: 'Failed to update collection visibility. Please try again.', type: 'error' });
+    } finally {
+      setIsSavingSettings(false);
+    }
+  };
+
+  const handleToggleCostPublic = async () => {
+    const nextCostPublic = !isCostPublic;
+    setIsSavingSettings(true);
+    try {
+      await apiService.updateSetting('cost_public', nextCostPublic.toString());
+      setIsCostPublic(nextCostPublic);
+      toast({
+        message: nextCostPublic
+          ? 'Item costs and spending statistics are now visible publicly.'
+          : 'Item costs and spending statistics are now hidden from public visitors.',
+        type: 'success',
+      });
+    } catch (error) {
+      console.error('Failed to update cost visibility:', error);
+      toast({ message: 'Failed to update cost visibility. Please try again.', type: 'error' });
     } finally {
       setIsSavingSettings(false);
     }
@@ -793,6 +815,48 @@ const AdminPage: React.FC = () => {
                   <span
                     className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
                       isPublic ? 'translate-x-6' : 'translate-x-1'
+                    }`}
+                  />
+                </button>
+              </div>
+            )}
+
+            {/* Public Cost & Spending Visibility */}
+            {!isDesktop && (
+              <div className="border-t border-subtle pt-5 flex items-center justify-between gap-4">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium text-content">
+                      Show item costs &amp; spending statistics publicly
+                    </span>
+                    <span
+                      className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${
+                        isCostPublic
+                          ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300'
+                          : 'bg-surface-sunken border border-subtle text-content-muted'
+                      }`}
+                    >
+                      {isCostPublic ? 'Visible' : 'Admin Only'}
+                    </span>
+                  </div>
+                  <p className="text-xs sm:text-sm text-content-muted">
+                    When disabled, item purchase costs and collection spending analytics are only visible when signed in as Admin.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={isCostPublic}
+                  aria-label="Show item costs & spending statistics publicly"
+                  onClick={handleToggleCostPublic}
+                  disabled={isSavingSettings}
+                  className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface ${
+                    isCostPublic ? 'bg-primary-600' : 'bg-gray-300 dark:bg-gray-600'
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                      isCostPublic ? 'translate-x-6' : 'translate-x-1'
                     }`}
                   />
                 </button>

@@ -4,6 +4,8 @@ import { SortableContext, horizontalListSortingStrategy, useSortable } from '@dn
 import { CSS } from '@dnd-kit/utilities';
 import { Shelf, ShelfPlacement, STANDARD_UNIT_MM } from '../../types';
 import { IconButton } from '../ui/IconButton';
+import { getCoverFrame, getFramedImageStyle } from '../../lib/imageFrame';
+import FramedImage from '../FramedImage';
 
 const DEFAULT_SPINE_BG = 'rgba(30, 64, 175, 0.65)';
 const DEFAULT_SPINE_SOLID = '#1e40af';
@@ -83,6 +85,7 @@ const SortableShelfItem: React.FC<{
   const thickness = (item as any).thickness_units || 1;
   const spineWidth = Math.max(32, thickness * 40);
   const coverUrl = (item as any).custom_image_url || (item as any).cover_art_url;
+  const coverFrame = (item as any).custom_image_url ? getCoverFrame(item as any) : undefined;
   const customSpineColor = (item as any).spine_color as string | undefined;
   const spineColor = customSpineColor || DEFAULT_SPINE_SOLID;
   const spineAccent = (item as any).spine_color_accent || (customSpineColor ? getContrastColor(customSpineColor) : '#f0f0f0');
@@ -130,6 +133,7 @@ const SortableShelfItem: React.FC<{
             src={coverUrl}
             alt={item.name}
             className="absolute inset-0 w-full h-full object-cover"
+            style={getFramedImageStyle(coverFrame, { forceCover: true })}
             draggable={false}
           />
         )}
@@ -170,8 +174,9 @@ const SortableShelfItem: React.FC<{
             bottom: '-4px',
           }}
         >
-          <div className="w-full h-full rounded-md shadow-2xl overflow-hidden border-2 border-white/80 dark:border-gray-600">
-            <img
+          <div className="relative w-full h-full rounded-md shadow-2xl overflow-hidden border-2 border-white/80 dark:border-gray-600 bg-neutral-900">
+            <FramedImage
+              frame={coverFrame}
               src={coverUrl}
               alt={item.name}
               className="w-full h-full object-cover"

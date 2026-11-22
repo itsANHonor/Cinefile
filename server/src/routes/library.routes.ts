@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { db } from '../database';
 import { authMiddleware } from '../middleware/auth.middleware';
 import { STANDARD_UNIT_MM } from '../constants';
+import { parseCustomImagesFromRow } from '../utils/custom-images.util';
 
 const router = Router();
 
@@ -41,6 +42,7 @@ async function getFullLibrary() {
           'physical_items.sort_name as physical_item_sort_name',
           'physical_items.thickness_units as physical_item_thickness_units',
           'physical_items.custom_image_url as physical_item_custom_image_url',
+          'physical_items.custom_images as physical_item_custom_images',
           'physical_items.physical_format as physical_item_physical_format',
           'physical_items.spine_color as physical_item_spine_color',
           'physical_items.spine_color_accent as physical_item_spine_color_accent'
@@ -85,6 +87,10 @@ async function getFullLibrary() {
         sort_name: p.physical_item_sort_name,
         thickness_units: p.physical_item_thickness_units || 1,
         custom_image_url: p.physical_item_custom_image_url,
+        custom_images: parseCustomImagesFromRow(
+          p.physical_item_custom_images,
+          p.physical_item_custom_image_url
+        ),
         physical_format: p.physical_item_physical_format
           ? (typeof p.physical_item_physical_format === 'string'
               ? JSON.parse(p.physical_item_physical_format)
