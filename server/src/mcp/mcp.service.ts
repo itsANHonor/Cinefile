@@ -20,6 +20,11 @@ import {
   normalizeCost,
 } from '../utils/identifiers.util';
 import { parseCustomImagesFromRow } from '../utils/custom-images.util';
+import {
+  recordItemAddedEvent,
+  removeEventsForPhysicalItem,
+  syncItemUpdatedEventFields,
+} from '../services/collection-events.service';
 
 export const CANONICAL_FORMATS = [
   '4K UHD',
@@ -2232,6 +2237,12 @@ export async function addPhysicalItem(input: AddPhysicalItemInput) {
 
   const createdItem: any = await getItemDetails({ physical_item_id: createdId });
 
+  await recordItemAddedEvent({
+    physicalItemId: createdId,
+    name: createdItem.name,
+    purchaseDate: createdItem.purchase_date || null,
+  });
+
   // Fire-and-forget spine color extraction
   const coverUrl = createdItem.custom_image_url || createdItem.media?.[0]?.cover_art_url;
   if (coverUrl) {
@@ -2355,6 +2366,20 @@ export async function updatePhysicalItem(input: UpdatePhysicalItemInput) {
     await db('shelf_placements').where('physical_item_id', input.physical_item_id).delete();
   }
 
+  await syncItemUpdatedEventFields({
+    physicalItemId: input.physical_item_id,
+    name: input.name,
+    purchaseDate: input.purchase_date,
+    wasArchived: Boolean(existing.archived),
+    isArchived: nextArchived,
+    archiveReason:
+      input.archived !== undefined || input.archive_reason !== undefined
+        ? nextArchived
+          ? nextReasonTrimmed
+          : null
+        : undefined,
+  });
+
   if (input.media_primary_series_id !== undefined && input.media_primary_series_id !== null) {
     const s = await db('series').where('id', input.media_primary_series_id).first();
     if (!s) throw new Error(`Series ${input.media_primary_series_id} not found`);
@@ -2397,6 +2422,7 @@ export async function deletePhysicalItem(
     .select('media_id');
   const linkedMediaIds = linkedMediaRows.map((r: any) => r.media_id);
 
+  await removeEventsForPhysicalItem(physicalItemId);
   await db('physical_items').where('id', physicalItemId).delete();
 
   let deletedOrphanMediaCount = 0;

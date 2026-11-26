@@ -1,4 +1,4 @@
-import { PhysicalItem, Series } from '../types';
+import { Media, PhysicalItem, Series } from '../types';
 
 export interface SeriesRun {
   series: Series;
@@ -16,14 +16,40 @@ export interface RowSeriesSegment {
   continuesToNextRow: boolean;
 }
 
-export interface GridRowGroup {
+export interface GridRowGroup<T = PhysicalItem> {
   rowIndex: number;
   items: Array<{
-    item: PhysicalItem;
+    item: T;
     index: number;
     activeSeries: Series | null;
   }>;
   segments: RowSeriesSegment[];
+}
+
+export function getMediaSeriesList(media: Media): Series[] {
+  const map = new Map<number, Series>();
+  for (const s of media.series ?? []) {
+    if (s && typeof s.id === 'number' && !map.has(s.id)) {
+      map.set(s.id, s);
+    }
+  }
+  const list = Array.from(map.values());
+  if (list.length <= 1) return list;
+
+  if (media.primary_series_id != null) {
+    const idx = list.findIndex((s) => s.id === media.primary_series_id);
+    if (idx > 0) {
+      const [preferred] = list.splice(idx, 1);
+      list.unshift(preferred);
+    }
+  }
+
+  return list;
+}
+
+export function getPrimaryMediaSeries(media: Media): Series | null {
+  const list = getMediaSeriesList(media);
+  return list[0] ?? null;
 }
 
 export function getItemSeriesList(physicalItem: PhysicalItem): Series[] {
@@ -60,15 +86,16 @@ export function getPrimaryItemSeries(physicalItem: PhysicalItem): Series | null 
   return list[0] ?? null;
 }
 
-export function computeGridRowsWithSeries(
-  items: PhysicalItem[],
+function computeGenericGridRowsWithSeries<T>(
+  items: T[],
   columns: number,
+  getPrimarySeries: (item: T) => Series | null,
   options: { showSingleItemSeries?: boolean } = {}
-): GridRowGroup[] {
+): GridRowGroup<T>[] {
   const safeCols = Math.max(1, columns);
   const minRunLength = options.showSingleItemSeries ? 1 : 2;
 
-  const itemPrimarySeries = items.map((item) => getPrimaryItemSeries(item));
+  const itemPrimarySeries = items.map((item) => getPrimarySeries(item));
   const activeRunByIndex = new Map<number, SeriesRun>();
 
   let i = 0;
@@ -103,13 +130,13 @@ export function computeGridRowsWithSeries(
     i = j + 1;
   }
 
-  const rows: GridRowGroup[] = [];
+  const rows: GridRowGroup<T>[] = [];
   const totalRows = Math.ceil(items.length / safeCols);
 
   for (let rowIndex = 0; rowIndex < totalRows; rowIndex += 1) {
     const rowStart = rowIndex * safeCols;
     const rowEnd = Math.min(items.length, rowStart + safeCols) - 1;
-    const rowItems: GridRowGroup['items'] = [];
+    const rowItems: GridRowGroup<T>['items'] = [];
     const segments: RowSeriesSegment[] = [];
 
     let colIdx = rowStart;
@@ -158,4 +185,20 @@ export function computeGridRowsWithSeries(
   }
 
   return rows;
+}
+
+export function computeGridRowsWithSeries(
+  items: PhysicalItem[],
+  columns: number,
+  options: { showSingleItemSeries?: boolean } = {}
+): GridRowGroup<PhysicalItem>[] {
+  return computeGenericGridRowsWithSeries(items, columns, getPrimaryItemSeries, options);
+}
+
+export function computeMediaGridRowsWithSeries<T extends Media>(
+  items: T[],
+  columns: number,
+  options: { showSingleItemSeries?: boolean } = {}
+): GridRowGroup<T>[] {
+  return computeGenericGridRowsWithSeries(items, columns, getPrimaryMediaSeries, options);
 }

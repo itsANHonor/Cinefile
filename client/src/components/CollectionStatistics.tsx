@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { CollectionStatistics as Stats } from '../types';
+import { CollectionViewMode } from '../hooks/useCollectionParams';
 import { PHYSICAL_FORMATS, formatBadgeClasses } from '../lib/formats';
 import { Skeleton } from './ui/Skeleton';
 import { Sheet } from './ui/Sheet';
@@ -9,6 +10,7 @@ import { Button } from './ui/Button';
 interface CollectionStatisticsProps {
   statistics: Stats | null;
   isLoading: boolean;
+  activeView?: CollectionViewMode;
 }
 
 const formatCount = (value: number) => value.toLocaleString();
@@ -20,7 +22,11 @@ const formatCurrency = (value: number) =>
  * full per-format breakdown in a Sheet. Keeps posters above the fold while
  * leaving the detailed numbers one tap away.
  */
-const CollectionStatistics: React.FC<CollectionStatisticsProps> = ({ statistics, isLoading }) => {
+const CollectionStatistics: React.FC<CollectionStatisticsProps> = ({
+  statistics,
+  isLoading,
+  activeView,
+}) => {
   const [isBreakdownOpen, setIsBreakdownOpen] = useState(false);
 
   // Reserve the same vertical space while loading initial stats so the layout does not jump.
@@ -35,20 +41,41 @@ const CollectionStatistics: React.FC<CollectionStatisticsProps> = ({ statistics,
 
   const activeFormats = PHYSICAL_FORMATS.filter((format) => statistics.formatCounts[format] > 0);
 
-  const summaryParts = [
-    `${formatCount(statistics.totalPhysicalItems)} items`,
-    `${formatCount(statistics.totalMovies)} movies`,
+  const summarySegments: Array<{ text: string; emphasized: boolean }> = [
+    {
+      text: `${formatCount(statistics.totalPhysicalItems)} items`,
+      emphasized: activeView === 'grid' || activeView === 'shelf',
+    },
+    {
+      text: `${formatCount(statistics.totalMovies)} movies`,
+      emphasized: activeView === 'movies',
+    },
   ];
   if (statistics.totalTVSeasons > 0) {
-    summaryParts.push(`${formatCount(statistics.totalTVSeasons)} TV seasons`);
+    summarySegments.push({
+      text: `${formatCount(statistics.totalTVSeasons)} TV seasons`,
+      emphasized: activeView === 'movies',
+    });
   }
   if (statistics.itemsWithCost && statistics.itemsWithCost > 0 && statistics.totalCost != null) {
-    summaryParts.push(`${formatCurrency(statistics.totalCost)} spent`);
+    summarySegments.push({
+      text: `${formatCurrency(statistics.totalCost)} spent`,
+      emphasized: false,
+    });
   }
 
   return (
     <div className="flex h-10 flex-wrap items-center gap-x-3 gap-y-1">
-      <p className="text-sm text-content-muted">{summaryParts.join(' · ')}</p>
+      <p className="text-sm text-content-muted">
+        {summarySegments.map((seg, idx) => (
+          <React.Fragment key={seg.text}>
+            {idx > 0 && <span aria-hidden="true"> · </span>}
+            <span className={seg.emphasized ? 'font-semibold text-content' : undefined}>
+              {seg.text}
+            </span>
+          </React.Fragment>
+        ))}
+      </p>
       {activeFormats.length > 0 && (
         <Button
           variant="ghost"

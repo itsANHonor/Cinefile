@@ -17,6 +17,7 @@ import {
   hasDirectorFilter,
 } from '../utils/person-filter.util';
 import { normalizeCost } from '../utils/identifiers.util';
+import { STANDARD_UNIT_MM } from '../constants';
 
 const router = Router();
 
@@ -31,8 +32,6 @@ const CANONICAL_FORMATS = [
   'LaserDisc',
   'VHS',
 ];
-
-const STANDARD_UNIT_MM = 12.5;
 
 router.get('/', async (req: Request, res: Response) => {
   try {

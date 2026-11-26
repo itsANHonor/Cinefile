@@ -44,7 +44,7 @@ describe('PhysicalLibraryPage Add Shelf / Bulk Add', () => {
     vi.spyOn(apiService, 'getUnassignedItems').mockResolvedValue([]);
   });
 
-  it('switches between Single Shelf and Bulk Add modes and submits bulk shelf creation with group-prefixed preview', async () => {
+  it('switches between Single Shelf and Bulk Add modes, omits preset chips, and allows freely typing count and width', async () => {
     const user = userEvent.setup();
     const bulkCreateSpy = vi.spyOn(apiService, 'bulkCreateShelves').mockResolvedValue([]);
 
@@ -64,13 +64,30 @@ describe('PhysicalLibraryPage Add Shelf / Bulk Add', () => {
     expect(screen.getByRole('dialog', { name: /Bulk Add Shelves/i })).toBeInTheDocument();
     expect(screen.queryByLabelText(/Display Name/i)).not.toBeInTheDocument();
 
+    // Preset chips for shelf count and width should not be rendered
+    for (const preset of ['3', '5', '6', '8', '10', '10 cases', '20 cases', '30 cases', '50 cases']) {
+      expect(screen.queryByRole('button', { name: preset })).not.toBeInTheDocument();
+    }
+
     // Default count is 5, starting at Shelf 2 since Shelf 1 already exists
     expect(screen.getByText(/Living Room - Shelf 2/i)).toBeInTheDocument();
     expect(screen.getByText(/Living Room - Shelf 6/i)).toBeInTheDocument();
 
-    // Select preset count of 3 and preset width of 30 cases
-    await user.click(screen.getByRole('button', { name: '3' }));
-    await user.click(screen.getByRole('button', { name: '30 cases' }));
+    // Clear and freely type count of 2, then increment to 3
+    const countInput = screen.getByLabelText(/Number of Shelves/i);
+    await user.clear(countInput);
+    expect(countInput).toHaveValue('');
+    await user.type(countInput, '2');
+    expect(countInput).toHaveValue('2');
+    await user.click(screen.getByRole('button', { name: /Increase shelf count/i }));
+    expect(countInput).toHaveValue('3');
+
+    // Clear and freely type width of 30 cases
+    const widthInput = screen.getByLabelText(/^Shelf Width$/i);
+    await user.clear(widthInput);
+    expect(widthInput).toHaveValue('');
+    await user.type(widthInput, '30');
+    expect(widthInput).toHaveValue('30');
 
     expect(screen.getByText(/90 total units/i)).toBeInTheDocument();
     expect(screen.getByText(/Living Room - Shelf 4/i)).toBeInTheDocument();
@@ -80,6 +97,65 @@ describe('PhysicalLibraryPage Add Shelf / Bulk Add', () => {
     expect(bulkCreateSpy).toHaveBeenCalledWith(10, {
       count: 3,
       capacity_units: 30,
+      width_source: 'cases',
+    });
+  });
+
+  it('supports entering manual shelf width in inches and centimeters during bulk add', async () => {
+    const user = userEvent.setup();
+    const bulkCreateSpy = vi.spyOn(apiService, 'bulkCreateShelves').mockResolvedValue([]);
+
+    renderWithProviders(<PhysicalLibraryPage />, { initialRoute: '/library' });
+
+    await user.click(await screen.findByRole('button', { name: /Add shelf to Living Room/i }));
+    await user.click(screen.getByRole('radio', { name: /Bulk Add/i }));
+
+    // Enter 4 shelves with 30 inches manual width (30 * 25.4 = 762mm -> 50 Blu-ray cases each)
+    const countInput = screen.getByLabelText(/Number of Shelves/i);
+    await user.clear(countInput);
+    await user.type(countInput, '4');
+
+    await user.click(screen.getByRole('radio', { name: /^Inches$/i }));
+    const widthInput = screen.getByLabelText(/^Shelf Width$/i);
+    await user.clear(widthInput);
+    await user.type(widthInput, '30');
+
+    expect(screen.getByText(/Fits 50 cases/i)).toBeInTheDocument();
+    expect(screen.getByText(/200 total units \(3048mm\)/i)).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /Create 4 Shelves/i }));
+
+    expect(bulkCreateSpy).toHaveBeenCalledWith(10, {
+      count: 4,
+      capacity_units: 50,
+      width_source: 'manual',
+      width_mm: 762,
+    });
+
+    // Re-open and test manual width in centimeters (76.5cm = 765mm -> 51 Blu-ray cases each)
+    bulkCreateSpy.mockClear();
+    await user.click(await screen.findByRole('button', { name: /Add shelf to Living Room/i }));
+    await user.click(screen.getByRole('radio', { name: /Bulk Add/i }));
+
+    const countInputCm = screen.getByLabelText(/Number of Shelves/i);
+    await user.clear(countInputCm);
+    await user.type(countInputCm, '2');
+
+    await user.click(screen.getByRole('radio', { name: /^cm$/i }));
+    const widthInputCm = screen.getByLabelText(/^Shelf Width$/i);
+    await user.clear(widthInputCm);
+    await user.type(widthInputCm, '76.5');
+
+    expect(screen.getByText(/Fits 51 cases/i)).toBeInTheDocument();
+    expect(screen.getByText(/102 total units \(1530mm\)/i)).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /Create 2 Shelves/i }));
+
+    expect(bulkCreateSpy).toHaveBeenCalledWith(10, {
+      count: 2,
+      capacity_units: 51,
+      width_source: 'manual',
+      width_mm: 765,
     });
   });
 

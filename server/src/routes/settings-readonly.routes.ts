@@ -3,6 +3,16 @@ import { db } from '../database';
 
 const router = Router();
 
+const SAFE_SETTINGS = [
+  'collection_public',
+  'cost_public',
+  'history_public',
+  'site_title',
+  'collection_title',
+  'default_theme',
+  'letterboxd_username',
+];
+
 /**
  * GET /api/settings
  * Get all settings (only safe/public settings)
@@ -10,14 +20,11 @@ const router = Router();
 router.get('/', async (req: Request, res: Response) => {
   try {
     const settings = await db('settings').select('*');
-    
-    // Only expose safe settings that are meant for public viewing
-    const safeSettings = ['collection_public', 'cost_public', 'site_title', 'collection_title', 'default_theme', 'letterboxd_username'];
-    
+
     // Convert to key-value object, filtering to only safe settings
     const settingsObj: Record<string, string> = {};
     settings.forEach((setting) => {
-      if (safeSettings.includes(setting.key)) {
+      if (SAFE_SETTINGS.includes(setting.key)) {
         settingsObj[setting.key] = setting.value;
       }
     });
@@ -36,10 +43,9 @@ router.get('/', async (req: Request, res: Response) => {
 router.get('/:key', async (req: Request, res: Response) => {
   try {
     const { key } = req.params;
-    
+
     // Only allow access to safe settings
-    const safeSettings = ['collection_public', 'cost_public', 'site_title', 'collection_title', 'default_theme', 'letterboxd_username'];
-    if (!safeSettings.includes(key)) {
+    if (!SAFE_SETTINGS.includes(key)) {
       return res.status(404).json({ error: 'Setting not found' });
     }
     

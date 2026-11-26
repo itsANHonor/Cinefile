@@ -10,6 +10,7 @@ import { ToastProvider } from './context/ToastContext';
 import AboutPage from './pages/AboutPage';
 import AdminPage from './pages/AdminPage';
 import CollectionPage from './pages/CollectionPage';
+import HistoryPage from './pages/HistoryPage';
 import PeopleExplorerPage from './pages/PeopleExplorerPage';
 import StatisticsPage from './pages/StatisticsPage';
 import Navigation from './components/Navigation';
@@ -54,6 +55,7 @@ const AppContent: React.FC = () => {
           <Routes>
             <Route path="/" element={<CollectionPage />} />
             <Route path="/library" element={<Navigate to="/?view=shelf" replace />} />
+            <Route path="/history" element={<HistoryPage />} />
             <Route path="/statistics" element={<StatisticsPage />} />
             <Route path="/statistics/directors" element={<PeopleExplorerPage role="directors" />} />
             <Route path="/statistics/actors" element={<PeopleExplorerPage role="actors" />} />

@@ -1,6 +1,7 @@
 import axios, { AxiosInstance } from 'axios';
 import {
   Media,
+  CollectionMedia,
   CreateMediaDto,
   UpdateMediaDto,
   PhysicalItem,
@@ -31,11 +32,22 @@ import {
   BulkCreateShelvesDto,
   UpdateShelfDto,
   ApplySortPreview,
+  ShelfOrganization,
+  ShelfOrganizationBlock,
+  OrganizationPreview,
+  ShelvingQueuePlan,
+  ShelfPhoto,
   LetterboxdStatusResponse,
   LetterboxdSyncSummary,
   LetterboxdCacheItem,
   CoverCandidate,
   CoverSearchResponse,
+  HistoryCategory,
+  HistoryFeedResponse,
+  BarcodeQuotaStatus,
+  BarcodeOwnedMatch,
+  BarcodeLookupJob,
+  TMDbCollectionSearchResult,
 } from '../types';
 
 class ApiService {
@@ -111,6 +123,50 @@ class ApiService {
       if (filters.media_type && filters.media_type !== 'all') params.media_type = filters.media_type;
     }
     const response = await this.api.get<{ items: Media[]; pagination: any }>('/media', { params });
+    return response.data;
+  }
+
+  async getCollectionMedia(
+    filterOptions?: FilterOptions
+  ): Promise<{ items: CollectionMedia[]; pagination: any }> {
+    const params: any = {};
+    if (filterOptions) {
+      if (filterOptions.format) {
+        params.format = Array.isArray(filterOptions.format)
+          ? filterOptions.format.join(',')
+          : filterOptions.format;
+      }
+      if (filterOptions.genres && filterOptions.genres.length > 0) {
+        params.genres = filterOptions.genres.join(',');
+      }
+      if (filterOptions.decades && filterOptions.decades.length > 0) {
+        params.decades = filterOptions.decades.join(',');
+      }
+      if (filterOptions.editions && filterOptions.editions.length > 0) {
+        params.editions = filterOptions.editions.join(',');
+      }
+      if (filterOptions.versions && filterOptions.versions.length > 0) {
+        params.versions = filterOptions.versions.join(',');
+      }
+      if (filterOptions.series && filterOptions.series.length > 0) {
+        params.series = filterOptions.series.join(',');
+      }
+      if (filterOptions.director) params.director = filterOptions.director;
+      if (filterOptions.actor) params.actor = filterOptions.actor;
+      if (filterOptions.media_type && filterOptions.media_type !== 'all') {
+        params.media_type = filterOptions.media_type;
+      }
+      if (filterOptions.archived) params.archived = 'true';
+      if (filterOptions.sort_by) params.sort_by = filterOptions.sort_by;
+      if (filterOptions.sort_order) params.sort_order = filterOptions.sort_order;
+      if (filterOptions.search) params.search = filterOptions.search;
+      if (filterOptions.page) params.page = filterOptions.page;
+      if (filterOptions.limit) params.limit = filterOptions.limit;
+    }
+    const response = await this.api.get<{ items: CollectionMedia[]; pagination: any }>(
+      '/media/collection',
+      { params }
+    );
     return response.data;
   }
 
@@ -650,6 +706,97 @@ class ApiService {
     return response.data;
   }
 
+  // Shelf Organization (Flow Blocks)
+  async getOrganization(): Promise<ShelfOrganization> {
+    const response = await this.api.get<ShelfOrganization>('/library/organization');
+    return response.data;
+  }
+
+  async saveOrganization(blocks: ShelfOrganizationBlock[], headroomUnits?: number): Promise<ShelfOrganization> {
+    const response = await this.api.put<ShelfOrganization>('/library/organization', {
+      blocks,
+      headroom_units: headroomUnits,
+    });
+    return response.data;
+  }
+
+  async previewOrganization(blocks: ShelfOrganizationBlock[], headroomUnits?: number): Promise<OrganizationPreview> {
+    const response = await this.api.post<OrganizationPreview>('/library/organization/preview', {
+      blocks,
+      headroom_units: headroomUnits,
+    });
+    return response.data;
+  }
+
+  async applyOrganization(blocks: ShelfOrganizationBlock[], headroomUnits?: number): Promise<{ library: PhysicalLibrary; preview: OrganizationPreview }> {
+    const response = await this.api.post<{ library: PhysicalLibrary; preview: OrganizationPreview }>(
+      '/library/organization/apply',
+      { blocks, headroom_units: headroomUnits }
+    );
+    return response.data;
+  }
+
+  // Shelving Queue (Minimal-Ripple Assistant)
+  async planShelvingQueue(itemIds: number[], boundaryMode?: 'share' | 'shift'): Promise<ShelvingQueuePlan> {
+    const response = await this.api.post<ShelvingQueuePlan>('/library/shelving-queue/plan', {
+      item_ids: itemIds,
+      boundary_mode: boundaryMode,
+    });
+    return response.data;
+  }
+
+  async applyShelvingQueue(itemIds: number[], boundaryMode?: 'share' | 'shift'): Promise<PhysicalLibrary> {
+    const response = await this.api.post<PhysicalLibrary>('/library/shelving-queue/apply', {
+      item_ids: itemIds,
+      boundary_mode: boundaryMode,
+    });
+    return response.data;
+  }
+
+  // Placement pinning
+  async setPlacementPinned(placementId: number, isPinned: boolean): Promise<ShelfPlacement> {
+    const response = await this.api.put<ShelfPlacement>(`/library/placements/${placementId}/pin`, {
+      is_pinned: isPinned,
+    });
+    return response.data;
+  }
+
+  // Shelf Photos (Real-Shelf Gallery)
+  async getShelfPhotos(groupId?: number): Promise<ShelfPhoto[]> {
+    const params: any = {};
+    if (groupId !== undefined) params.group_id = groupId;
+    const response = await this.api.get<ShelfPhoto[]>('/library/photos', { params });
+    return response.data;
+  }
+
+  async uploadShelfPhoto(file: File, data: { group_id?: number | null; caption?: string }): Promise<ShelfPhoto> {
+    const formData = new FormData();
+    formData.append('image', file);
+    if (data.group_id !== undefined && data.group_id !== null) {
+      formData.append('group_id', String(data.group_id));
+    }
+    if (data.caption) {
+      formData.append('caption', data.caption);
+    }
+    const response = await this.api.post<ShelfPhoto>('/library/photos', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return response.data;
+  }
+
+  async updateShelfPhoto(id: number, data: { caption?: string | null; group_id?: number | null; shelf_id?: number | null; frame?: any; sort_order?: number }): Promise<ShelfPhoto> {
+    const response = await this.api.put<ShelfPhoto>(`/library/photos/${id}`, data);
+    return response.data;
+  }
+
+  async reorderShelfPhotos(order: Array<{ id: number; sort_order: number }>): Promise<void> {
+    await this.api.put('/library/photos/reorder', { order });
+  }
+
+  async deleteShelfPhoto(id: number): Promise<void> {
+    await this.api.delete(`/library/photos/${id}`);
+  }
+
   // Spine Colors
   async updateSpineColors(physicalItemId: number, data: {
     spine_color?: string | null;
@@ -728,6 +875,104 @@ class ApiService {
 
   async clearLetterboxdData(): Promise<{ status: LetterboxdStatusResponse }> {
     const response = await this.api.delete<{ status: LetterboxdStatusResponse }>('/letterboxd/data');
+    return response.data;
+  }
+
+  // =============================================
+  // Collection History / Timeline methods
+  // =============================================
+
+  async getHistory(params?: {
+    category?: HistoryCategory;
+    date_basis?: 'added' | 'purchased';
+    search?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<HistoryFeedResponse> {
+    const queryParams: Record<string, string | number> = {};
+    if (params?.category && params.category !== 'all') {
+      queryParams.category = params.category;
+    }
+    if (params?.date_basis) {
+      queryParams.date_basis = params.date_basis;
+    }
+    if (params?.search && params.search.trim()) {
+      queryParams.search = params.search.trim();
+    }
+    if (params?.limit !== undefined) {
+      queryParams.limit = params.limit;
+    }
+    if (params?.offset !== undefined) {
+      queryParams.offset = params.offset;
+    }
+    const response = await this.api.get<HistoryFeedResponse>('/history', {
+      params: queryParams,
+    });
+    return response.data;
+  }
+
+  async deleteHistoryEvent(id: number): Promise<{ deletedCount: number; message: string }> {
+    const response = await this.api.delete<{ deletedCount: number; message: string }>(
+      `/history/${id}`
+    );
+    return response.data;
+  }
+
+  async deleteHistoryEvents(ids: number[]): Promise<{ deletedCount: number; message: string }> {
+    const response = await this.api.post<{ deletedCount: number; message: string }>(
+      '/history/delete',
+      { ids }
+    );
+    return response.data;
+  }
+
+  // =============================================
+  // Barcode Scanning & Lookup methods
+  // =============================================
+
+  async searchCollections(
+    query: string,
+    page: number = 1
+  ): Promise<{ page: number; results: TMDbCollectionSearchResult[]; total_pages: number; total_results: number }> {
+    const response = await this.api.get('/search/collections', {
+      params: { q: query, page },
+    });
+    return response.data;
+  }
+
+  async getBarcodeQuota(): Promise<BarcodeQuotaStatus> {
+    const response = await this.api.get<BarcodeQuotaStatus>('/barcodes/quota');
+    return response.data;
+  }
+
+  async checkOwnedBarcodes(barcodes: string[]): Promise<Record<string, BarcodeOwnedMatch[]>> {
+    const response = await this.api.post<{ owned: Record<string, BarcodeOwnedMatch[]> }>(
+      '/barcodes/check-owned',
+      { barcodes }
+    );
+    return response.data.owned;
+  }
+
+  async startBarcodeLookupJob(
+    barcodes: string[],
+    options?: { forceRefresh?: boolean }
+  ): Promise<BarcodeLookupJob> {
+    const response = await this.api.post<BarcodeLookupJob>('/barcodes/lookup-jobs', {
+      barcodes,
+      forceRefresh: options?.forceRefresh ?? false,
+    });
+    return response.data;
+  }
+
+  async getBarcodeLookupJob(jobId: string): Promise<BarcodeLookupJob> {
+    const response = await this.api.get<BarcodeLookupJob>(`/barcodes/lookup-jobs/${jobId}`);
+    return response.data;
+  }
+
+  async cancelBarcodeLookupJob(jobId: string): Promise<{ cancelled: boolean }> {
+    const response = await this.api.post<{ cancelled: boolean }>(
+      `/barcodes/lookup-jobs/${jobId}/cancel`
+    );
     return response.data;
   }
 }

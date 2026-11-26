@@ -361,6 +361,42 @@ class TMDbService {
   }
 
   /**
+   * Search for TMDb movie collections (franchises / box sets) by name
+   */
+  async searchCollections(query: string, page: number = 1): Promise<{
+    page: number;
+    results: Array<{
+      id: number;
+      name: string;
+      overview: string;
+      poster_path: string | null;
+      backdrop_path: string | null;
+    }>;
+    total_pages: number;
+    total_results: number;
+  }> {
+    const apiKey = await this.requireApiKey();
+    this.log(`Searching collections: "${query}" (page ${page})`);
+    try {
+      const response = await this.makeRequest(() =>
+        axios.get(`${TMDB_BASE_URL}/search/collection`, {
+          params: {
+            api_key: apiKey,
+            query,
+            page,
+            include_adult: false,
+          },
+        })
+      );
+      this.log(`Found ${response.data.results.length} collection results for "${query}"`);
+      return response.data;
+    } catch (error) {
+      this.log(`Collection search error for "${query}": ${error}`, 'error');
+      throw new Error('Failed to search collections on TMDb');
+    }
+  }
+
+  /**
    * Get collection details including all movies
    */
   async getCollectionDetails(collectionId: number): Promise<any> {

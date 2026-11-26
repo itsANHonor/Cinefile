@@ -15,7 +15,7 @@ const VALID_SORT_FIELDS: SortField[] = [
 const VALID_ORDERS: SortOrder[] = ['asc', 'desc'];
 const VALID_TYPES: Array<'all' | 'movie' | 'tv_season'> = ['all', 'movie', 'tv_season'];
 
-export type CollectionViewMode = 'grid' | 'shelf';
+export type CollectionViewMode = 'grid' | 'movies' | 'shelf';
 
 export interface CollectionParams {
   q: string;
@@ -114,7 +114,8 @@ export function useCollectionParams(options: UseCollectionParamsOptions = {}) {
   const series = useMemo(() => parseGenres(rawSeries), [rawSeries]);
 
   const params = useMemo<CollectionParams>(() => {
-    const view: CollectionViewMode = rawView === 'shelf' ? 'shelf' : 'grid';
+    const view: CollectionViewMode =
+      rawView === 'shelf' ? 'shelf' : rawView === 'movies' ? 'movies' : 'grid';
     return {
       q: rawQ,
       formats,
@@ -229,7 +230,7 @@ export function useCollectionParams(options: UseCollectionParamsOptions = {}) {
 
       if ('view' in updates) {
         const view = updates.view ?? 'grid';
-        if (view === 'shelf') next.set('view', 'shelf');
+        if (view === 'shelf' || view === 'movies') next.set('view', view);
         else next.delete('view');
       }
 
@@ -242,8 +243,9 @@ export function useCollectionParams(options: UseCollectionParamsOptions = {}) {
 
   const clearAll = useCallback(() => {
     const next = new URLSearchParams();
-    if (searchParams.get('view') === 'shelf') {
-      next.set('view', 'shelf');
+    const currentView = searchParams.get('view');
+    if (currentView === 'shelf' || currentView === 'movies') {
+      next.set('view', currentView);
     }
     setSearchParams(next, { replace: false });
   }, [searchParams, setSearchParams]);

@@ -1,6 +1,14 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import { PhysicalItem, PhysicalFormat, SortField, SortOrder, CollectionStatistics as Stats } from '../types';
+import {
+  CollectionMedia,
+  Media,
+  PhysicalItem,
+  PhysicalFormat,
+  SortField,
+  SortOrder,
+  CollectionStatistics as Stats,
+} from '../types';
 import { apiService } from '../services/api.service';
 import { useAuth } from '../context/AuthContext';
 import { useServerMode } from '../context/ServerModeContext';
@@ -9,9 +17,13 @@ import { useCollectionParams } from '../hooks/useCollectionParams';
 import { useInfiniteScroll } from '../hooks/useInfiniteScroll';
 import { useToast } from '../context/ToastContext';
 import MediaGrid from '../components/MediaGrid';
+import MovieGrid from '../components/MovieGrid';
 import CollectionToolbar from '../components/CollectionToolbar';
 import MediaDetailModal from '../components/MediaDetailModal';
+import MovieDetailModal from '../components/MovieDetailModal';
+import MediaEditModal from '../components/MediaEditModal';
 import MediaForm from '../components/MediaForm';
+import BarcodeScanModal from '../components/BarcodeScanModal';
 import CollectionStatistics from '../components/CollectionStatistics';
 import FormatBadgeToggle from '../components/FormatBadgeToggle';
 import CollectionShowcaseModal from '../components/CollectionShowcaseModal';
@@ -22,6 +34,18 @@ import { SEGMENTED_TRACK_CLASSES, segmentedItemClasses } from '../components/ui/
 
 const SESSION_SORT_BY_KEY = 'collection_sort_by';
 const SESSION_SORT_ORDER_KEY = 'collection_sort_order';
+
+function collectionMediaToShowcaseItem(movie: CollectionMedia): PhysicalItem {
+  return {
+    id: movie.id,
+    name: movie.title,
+    physical_format: movie.owned_formats ?? [],
+    edition_notes: movie.owned_editions?.length ? movie.owned_editions.join(', ') : undefined,
+    thickness_units: 1,
+    shelf_placement: movie.physical_items?.[0]?.shelf_placement ?? undefined,
+    media: [movie],
+  };
+}
 
 const CollectionPage: React.FC = () => {
   const { isAuthenticated, isLoading: isAuthLoading } = useAuth();
@@ -38,10 +62,28 @@ const CollectionPage: React.FC = () => {
   const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
   const [announcement, setAnnouncement] = useState('');
   const [selectedItem, setSelectedItem] = useState<PhysicalItem | null>(null);
+  const [selectedItemInitialMediaId, setSelectedItemInitialMediaId] = useState<number | undefined>(undefined);
+  const [returnToMovie, setReturnToMovie] = useState<CollectionMedia | null>(null);
+  const [selectedMovie, setSelectedMovie] = useState<CollectionMedia | null>(null);
+  const [editingMovie, setEditingMovie] = useState<Media | null>(null);
+  const [showMovieEditModal, setShowMovieEditModal] = useState(false);
+  const [loadingPhysicalItemId, setLoadingPhysicalItemId] = useState<number | null>(null);
   const [isInitialized, setIsInitialized] = useState(false);
   const [collectionTitle, setCollectionTitle] = useState('Media Collection');
-  const [showShelfApplySort, setShowShelfApplySort] = useState(false);
-  const [showShelfAddGroup, setShowShelfAddGroup] = useState(false);
+
+  // Movies view state
+  const [movies, setMovies] = useState<CollectionMedia[]>([]);
+  const [moviesIsLoading, setMoviesIsLoading] = useState(true);
+  const [moviesIsInitialLoad, setMoviesIsInitialLoad] = useState(true);
+  const [moviesLoadError, setMoviesLoadError] = useState<string | null>(null);
+  const [moviesLoadMoreError, setMoviesLoadMoreError] = useState<string | null>(null);
+  const [moviesCurrentPage, setMoviesCurrentPage] = useState(1);
+  const [moviesHasMore, setMoviesHasMore] = useState(true);
+  const [moviesIsLoadingMore, setMoviesIsLoadingMore] = useState(false);
+  const [moviesTotalCount, setMoviesTotalCount] = useState(0);
+  const moviesRequestIdRef = useRef(0);
+  const itemsRequestIdRef = useRef(0);
+
   const [shelfRefreshKey, setShelfRefreshKey] = useState(0);
   const [isShowcaseOpen, setIsShowcaseOpen] = useState(false);
   const { toast } = useToast();
@@ -73,6 +115,7 @@ const CollectionPage: React.FC = () => {
   // Admin edit state
   const [showEditForm, setShowEditForm] = useState(false);
   const [editingItem, setEditingItem] = useState<PhysicalItem | null>(null);
+  const [showBarcodeScanner, setShowBarcodeScanner] = useState(false);
   
   // Statistics state
   const [statistics, setStatistics] = useState<Stats | null>(null);
@@ -143,13 +186,19 @@ const CollectionPage: React.FC = () => {
   }, [searchInput]);
 
   useEffect(() => {
-    if (isInitialized) {
+    if (!isInitialized) return;
+    if (params.view === 'movies') {
+      setMoviesLoadError(null);
+      setMoviesLoadMoreError(null);
+      loadInitialMovies();
+    } else {
       setLoadError(null);
       setLoadMoreError(null);
       loadInitialData();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
+    params.view,
     params.q,
     params.formats,
     params.genres,
@@ -224,6 +273,7 @@ const CollectionPage: React.FC = () => {
   }, [params.formats, params.genres, params.decades, params.editions, params.versions, params.series, params.director, params.actor, params.type, params.q, effectiveArchived, isInitialized]);
 
   const loadInitialData = async () => {
+    const requestId = ++itemsRequestIdRef.current;
     setIsLoading(true);
     setLoadError(null);
     setIsPrivateCollection(false);
@@ -248,6 +298,7 @@ const CollectionPage: React.FC = () => {
         page: 1,
         limit: 50,
       });
+      if (requestId !== itemsRequestIdRef.current) return;
       setPhysicalItems(response.items);
       setMatchingIds(response.matchingIds ?? response.items.map((item) => item.id));
       setCurrentPage(1);
@@ -255,6 +306,7 @@ const CollectionPage: React.FC = () => {
       setTotalCount(response.pagination.total);
       setAnnouncement(`Showing ${response.pagination.total} results`);
     } catch (error: any) {
+      if (requestId !== itemsRequestIdRef.current) return;
       if (error?.response?.status === 403 && error?.response?.data?.collection_public === false) {
         setIsPrivateCollection(true);
         setPhysicalItems([]);
@@ -266,10 +318,127 @@ const CollectionPage: React.FC = () => {
         console.error('Failed to load collection:', error);
       }
     } finally {
-      setIsLoading(false);
-      setIsInitialLoad(false);
+      if (requestId === itemsRequestIdRef.current) {
+        setIsLoading(false);
+        setIsInitialLoad(false);
+      }
     }
   };
+
+  const loadInitialMovies = async () => {
+    const requestId = ++moviesRequestIdRef.current;
+    setMoviesIsLoading(true);
+    setMoviesLoadError(null);
+    setIsPrivateCollection(false);
+    try {
+      const formatValue: PhysicalFormat | PhysicalFormat[] | undefined =
+        params.formats.length === 0 ? undefined : params.formats;
+
+      const response = await apiService.getCollectionMedia({
+        format: formatValue,
+        genres: params.genres.length > 0 ? params.genres : undefined,
+        decades: params.decades.length > 0 ? params.decades : undefined,
+        editions: params.editions.length > 0 ? params.editions : undefined,
+        versions: params.versions.length > 0 ? params.versions : undefined,
+        series: params.series.length > 0 ? params.series : undefined,
+        director: params.director || undefined,
+        actor: params.actor || undefined,
+        media_type: params.type !== 'all' ? params.type : undefined,
+        archived: canEdit && params.archived ? true : undefined,
+        sort_by: params.sortBy,
+        sort_order: params.sortOrder,
+        search: params.q || undefined,
+        page: 1,
+        limit: 50,
+      });
+      if (requestId !== moviesRequestIdRef.current) return;
+      setMovies(response.items);
+      setMoviesCurrentPage(1);
+      setMoviesHasMore(response.pagination.hasNext);
+      setMoviesTotalCount(response.pagination.total);
+      setAnnouncement(`Showing ${response.pagination.total} titles`);
+    } catch (error: any) {
+      if (requestId !== moviesRequestIdRef.current) return;
+      if (error?.response?.status === 403 && error?.response?.data?.collection_public === false) {
+        setIsPrivateCollection(true);
+        setMovies([]);
+        setMoviesTotalCount(0);
+      } else {
+        const message = 'Failed to load movies. Please try again.';
+        setMoviesLoadError(message);
+        toast({ message, type: 'error', persistent: true });
+        console.error('Failed to load collection movies:', error);
+      }
+    } finally {
+      if (requestId === moviesRequestIdRef.current) {
+        setMoviesIsLoading(false);
+        setMoviesIsInitialLoad(false);
+      }
+    }
+  };
+
+  const loadMoreMovies = useCallback(async () => {
+    if (moviesIsLoadingMore || !moviesHasMore) return;
+
+    const requestId = moviesRequestIdRef.current;
+    setMoviesIsLoadingMore(true);
+    setMoviesLoadMoreError(null);
+    try {
+      const nextPage = moviesCurrentPage + 1;
+      const formatValue: PhysicalFormat | PhysicalFormat[] | undefined =
+        params.formats.length === 0 ? undefined : params.formats;
+
+      const response = await apiService.getCollectionMedia({
+        format: formatValue,
+        genres: params.genres.length > 0 ? params.genres : undefined,
+        decades: params.decades.length > 0 ? params.decades : undefined,
+        editions: params.editions.length > 0 ? params.editions : undefined,
+        versions: params.versions.length > 0 ? params.versions : undefined,
+        series: params.series.length > 0 ? params.series : undefined,
+        director: params.director || undefined,
+        actor: params.actor || undefined,
+        media_type: params.type !== 'all' ? params.type : undefined,
+        archived: canEdit && params.archived ? true : undefined,
+        sort_by: params.sortBy,
+        sort_order: params.sortOrder,
+        search: params.q || undefined,
+        page: nextPage,
+        limit: 50,
+      });
+      if (requestId !== moviesRequestIdRef.current) return;
+
+      setMovies((prev) => [...prev, ...response.items]);
+      setMoviesCurrentPage(nextPage);
+      setMoviesHasMore(response.pagination.hasNext);
+    } catch (error) {
+      if (requestId !== moviesRequestIdRef.current) return;
+      const message = 'Failed to load more titles. Please try again.';
+      setMoviesLoadMoreError(message);
+      console.error('Failed to load more collection movies:', error);
+    } finally {
+      if (requestId === moviesRequestIdRef.current) {
+        setMoviesIsLoadingMore(false);
+      }
+    }
+  }, [
+    moviesIsLoadingMore,
+    moviesHasMore,
+    moviesCurrentPage,
+    params.formats,
+    params.genres,
+    params.decades,
+    params.editions,
+    params.versions,
+    params.series,
+    params.director,
+    params.actor,
+    params.type,
+    params.archived,
+    canEdit,
+    params.sortBy,
+    params.sortOrder,
+    params.q,
+  ]);
 
   const loadMoreItems = useCallback(async () => {
     if (isLoadingMore || !hasMore) return;
@@ -395,6 +564,71 @@ const CollectionPage: React.FC = () => {
     params.q,
   ]);
 
+  const fetchRemainingShowcaseMovies = useCallback(async (): Promise<PhysicalItem[]> => {
+    if (!moviesHasMore && movies.length >= moviesTotalCount) {
+      return [];
+    }
+    const formatValue: PhysicalFormat | PhysicalFormat[] | undefined =
+      params.formats.length === 0 ? undefined : params.formats;
+
+    const batchLimit = 100;
+    const totalPages = Math.ceil(moviesTotalCount / batchLimit);
+    const pages: number[] = [];
+    for (let p = 1; p <= totalPages; p++) {
+      pages.push(p);
+    }
+
+    const responses = await Promise.all(
+      pages.map((page) =>
+        apiService.getCollectionMedia({
+          format: formatValue,
+          genres: params.genres.length > 0 ? params.genres : undefined,
+          decades: params.decades.length > 0 ? params.decades : undefined,
+          editions: params.editions.length > 0 ? params.editions : undefined,
+          versions: params.versions.length > 0 ? params.versions : undefined,
+          series: params.series.length > 0 ? params.series : undefined,
+          director: params.director || undefined,
+          actor: params.actor || undefined,
+          media_type: params.type !== 'all' ? params.type : undefined,
+          archived: canEdit && params.archived ? true : undefined,
+          sort_by: params.sortBy,
+          sort_order: params.sortOrder,
+          search: params.q || undefined,
+          page,
+          limit: batchLimit,
+        })
+      )
+    );
+
+    return responses.flatMap((r) => r.items.map(collectionMediaToShowcaseItem));
+  }, [
+    moviesHasMore,
+    movies.length,
+    moviesTotalCount,
+    params.formats,
+    params.genres,
+    params.decades,
+    params.editions,
+    params.versions,
+    params.series,
+    params.director,
+    params.actor,
+    params.type,
+    canEdit,
+    params.archived,
+    params.sortBy,
+    params.sortOrder,
+    params.q,
+  ]);
+
+  const showcaseItems = useMemo(
+    () =>
+      params.view === 'movies'
+        ? movies.map(collectionMediaToShowcaseItem)
+        : physicalItems,
+    [params.view, movies, physicalItems]
+  );
+
   // Available genres, decades, edition tags, and series come from server-side facets
   const availableGenres = React.useMemo(() => facets?.genres ?? [], [facets]);
   const availableDecades = React.useMemo(
@@ -421,7 +655,7 @@ const CollectionPage: React.FC = () => {
       await apiService.deletePhysicalItem(itemId);
       resetFacetsCache();
       // Reload data to refresh the list
-      await loadInitialData();
+      await (params.view === 'movies' ? loadInitialMovies() : loadInitialData());
       refreshStatistics(); // Refresh statistics
       setShelfRefreshKey((k) => k + 1);
     } catch (error) {
@@ -441,7 +675,7 @@ const CollectionPage: React.FC = () => {
         message: archived ? 'Item archived.' : 'Item returned to collection.',
         type: 'success',
       });
-      await loadInitialData();
+      await (params.view === 'movies' ? loadInitialMovies() : loadInitialData());
       refreshStatistics();
       setShelfRefreshKey((k) => k + 1);
     } catch (error) {
@@ -493,16 +727,101 @@ const CollectionPage: React.FC = () => {
     }
   };
 
+  const reloadActiveView = () => {
+    if (params.view === 'movies') {
+      loadInitialMovies();
+    } else {
+      loadInitialData();
+    }
+  };
+
   const handleEditSuccess = () => {
     setShowEditForm(false);
     setEditingItem(null);
-    loadInitialData(); // Reload data to show changes
-    refreshStatistics(); // Refresh statistics
+    resetFacetsCache();
+    reloadActiveView();
+    refreshStatistics();
     setShelfRefreshKey((k) => k + 1);
+  };
+
+  const handleEditMovie = (movie: CollectionMedia) => {
+    setEditingMovie(movie);
+    setShowMovieEditModal(true);
+  };
+
+  const handleSaveMovie = (updatedMedia: Media) => {
+    setShowMovieEditModal(false);
+    setEditingMovie(null);
+    setMovies((prev) =>
+      prev.map((m) => (m.id === updatedMedia.id ? { ...m, ...updatedMedia } : m))
+    );
+    setSelectedMovie((prev) =>
+      prev && prev.id === updatedMedia.id ? { ...prev, ...updatedMedia } : prev
+    );
+    resetFacetsCache();
+    loadInitialMovies();
+    refreshStatistics();
+  };
+
+  const handleViewPhysicalItemFromMovie = async (physicalItemId: number, mediaId: number) => {
+    const originMovie = selectedMovie;
+    setLoadingPhysicalItemId(physicalItemId);
+    try {
+      const fullItem = await apiService.getPhysicalItemById(physicalItemId);
+      setSelectedMovie(null);
+      setReturnToMovie(originMovie);
+      setSelectedItemInitialMediaId(mediaId);
+      setSelectedItem(fullItem);
+    } catch (error) {
+      console.error('Failed to load physical item details:', error);
+      toast({ message: 'Failed to load release details. Please try again.', type: 'error' });
+    } finally {
+      setLoadingPhysicalItemId(null);
+    }
+  };
+
+  const handleEditPhysicalItemFromMovie = async (physicalItemId: number) => {
+    setLoadingPhysicalItemId(physicalItemId);
+    try {
+      const fullItem = await apiService.getPhysicalItemById(physicalItemId);
+      setSelectedMovie(null);
+      setEditingItem(fullItem);
+      setShowEditForm(true);
+    } catch (error) {
+      console.error('Failed to load physical item for editing:', error);
+      toast({ message: 'Failed to load release for editing. Please try again.', type: 'error' });
+    } finally {
+      setLoadingPhysicalItemId(null);
+    }
+  };
+
+  const handleFilterByDirector = (director: string) => {
+    setSelectedMovie(null);
+    setParams({ director });
+  };
+
+  const handleFilterBySeries = (seriesId: number) => {
+    setSelectedMovie(null);
+    setParams({ series: [seriesId] });
+  };
+
+  const handleFilterByGenre = (genreId: number) => {
+    setSelectedMovie(null);
+    setParams({ genres: [genreId] });
   };
 
   const sentinelRef = useInfiniteScroll(loadMoreItems, {
     enabled: params.view === 'grid' && !isLoading && !isLoadingMore && hasMore && !loadMoreError,
+    rootMargin: '600px',
+  });
+
+  const moviesSentinelRef = useInfiniteScroll(loadMoreMovies, {
+    enabled:
+      params.view === 'movies' &&
+      !moviesIsLoading &&
+      !moviesIsLoadingMore &&
+      moviesHasMore &&
+      !moviesLoadMoreError,
     rootMargin: '600px',
   });
 
@@ -528,17 +847,7 @@ const CollectionPage: React.FC = () => {
   const isEmptyCollection =
     !isPrivateCollection &&
     totalCount === 0 &&
-    !params.q &&
-    params.formats.length === 0 &&
-    params.genres.length === 0 &&
-    params.decades.length === 0 &&
-    params.editions.length === 0 &&
-    params.versions.length === 0 &&
-    params.series.length === 0 &&
-    !params.director &&
-    !params.actor &&
-    params.type === 'all' &&
-    !params.archived &&
+    !hasActiveFilters &&
     !isLoading;
   const isNoResults =
     !isPrivateCollection &&
@@ -546,6 +855,20 @@ const CollectionPage: React.FC = () => {
     !isLoading &&
     !loadError &&
     !isEmptyCollection;
+
+  const showMovieSkeletons =
+    movies.length === 0 && (moviesIsLoading || moviesIsInitialLoad) && !isPrivateCollection;
+  const isEmptyMoviesCollection =
+    !isPrivateCollection &&
+    moviesTotalCount === 0 &&
+    !hasActiveFilters &&
+    !moviesIsLoading;
+  const isNoMovieResults =
+    !isPrivateCollection &&
+    movies.length === 0 &&
+    !moviesIsLoading &&
+    !moviesLoadError &&
+    !isEmptyMoviesCollection;
 
   if (isPrivateCollection && !canEdit) {
     return (
@@ -593,22 +916,10 @@ const CollectionPage: React.FC = () => {
         availableEditions={availableEditions}
         availableVersions={availableVersions}
         availableSeries={availableSeries}
-        resultCount={totalCount}
-        isLoading={isLoading}
-        showArchivedFilter={canEdit && params.view === 'grid'}
+        resultCount={params.view === 'movies' ? moviesTotalCount : totalCount}
+        isLoading={params.view === 'movies' ? moviesIsLoading : isLoading}
+        showArchivedFilter={canEdit && (params.view === 'grid' || params.view === 'movies')}
         viewMode={params.view}
-        shelfActions={
-          canEdit ? (
-            <div className="flex items-center gap-2 flex-shrink-0">
-              <Button onClick={() => setShowShelfApplySort(true)} variant="secondary" size="sm">
-                Apply Sort
-              </Button>
-              <Button onClick={() => setShowShelfAddGroup(true)} size="sm">
-                Add Group
-              </Button>
-            </div>
-          ) : undefined
-        }
       />
 
       {/* Header */}
@@ -625,6 +936,7 @@ const CollectionPage: React.FC = () => {
               type="button"
               aria-pressed={params.view === 'grid'}
               onClick={() => setParams({ view: 'grid' })}
+              title="Browse physical items and box sets"
               className={segmentedItemClasses(params.view === 'grid')}
             >
               <svg
@@ -640,12 +952,33 @@ const CollectionPage: React.FC = () => {
                 <rect x="3" y="14" width="7" height="7" rx="1.5" />
                 <rect x="14" y="14" width="7" height="7" rx="1.5" />
               </svg>
-              <span>Grid</span>
+              <span>Items</span>
+            </button>
+            <button
+              type="button"
+              aria-pressed={params.view === 'movies'}
+              onClick={() => setParams({ view: 'movies' })}
+              title="Browse individual movies and titles"
+              className={segmentedItemClasses(params.view === 'movies')}
+            >
+              <svg
+                className="h-4 w-4 shrink-0"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2}
+                viewBox="0 0 24 24"
+                aria-hidden="true"
+              >
+                <rect x="3" y="4" width="18" height="16" rx="2" />
+                <path strokeLinecap="round" d="M7 4v16M17 4v16M3 8h4M17 8h4M3 12h18M3 16h4M17 16h4" />
+              </svg>
+              <span>Movies</span>
             </button>
             <button
               type="button"
               aria-pressed={params.view === 'shelf'}
               onClick={() => setParams({ view: 'shelf' })}
+              title="Browse physical shelves"
               className={segmentedItemClasses(params.view === 'shelf')}
             >
               <svg
@@ -664,7 +997,11 @@ const CollectionPage: React.FC = () => {
           <button
             type="button"
             onClick={() => setIsShowcaseOpen(true)}
-            disabled={isLoading || physicalItems.length === 0}
+            disabled={
+              params.view === 'movies'
+                ? moviesIsLoading || movies.length === 0
+                : isLoading || physicalItems.length === 0
+            }
             aria-label="Open collection showcase"
             title="Launch full-screen collection showcase"
             className="group inline-flex h-10 items-center gap-1.5 rounded-[--radius-control] border border-subtle bg-surface-raised px-3 py-1.5 text-sm font-medium text-content shadow-sm transition-colors hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:cursor-not-allowed disabled:opacity-50"
@@ -680,34 +1017,63 @@ const CollectionPage: React.FC = () => {
             <span>Showcase</span>
           </button>
           {canEdit && (
-            <button
-              type="button"
-              onClick={handleAddItem}
-              className="hidden sm:inline-flex h-10 items-center gap-1.5 rounded-[--radius-control] bg-primary-600 px-3.5 py-1.5 text-sm font-semibold text-white shadow-sm transition-colors duration-200 hover:bg-primary-700 active:bg-primary-800 dark:ring-1 dark:ring-inset dark:ring-primary-400/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
-            >
-              <svg
-                className="h-4 w-4 shrink-0"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-                aria-hidden="true"
+            <>
+              <button
+                type="button"
+                onClick={() => setShowBarcodeScanner(true)}
+                aria-label="Scan barcodes"
+                title="Scan barcodes from photos, camera, or USB scanner"
+                className="inline-flex h-10 items-center gap-1.5 rounded-[--radius-control] border border-subtle bg-surface-raised px-3 py-1.5 text-sm font-medium text-content shadow-sm transition-colors hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
               >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2.2}
-                  d="M12 5v14m-7-7h14"
-                />
-              </svg>
-              <span>Add item</span>
-            </button>
+                <svg
+                  className="h-4 w-4 shrink-0 text-content-muted"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                  aria-hidden="true"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M3 5v14M7 5v14M11 5v14M15 5v14M17 5v14M21 5v14"
+                  />
+                </svg>
+                <span>Scan</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleAddItem}
+                className="hidden sm:inline-flex h-10 items-center gap-1.5 rounded-[--radius-control] bg-primary-600 px-3.5 py-1.5 text-sm font-semibold text-white shadow-sm transition-colors duration-200 hover:bg-primary-700 active:bg-primary-800 dark:ring-1 dark:ring-inset dark:ring-primary-400/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+              >
+                <svg
+                  className="h-4 w-4 shrink-0"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                  aria-hidden="true"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2.2}
+                    d="M12 5v14m-7-7h14"
+                  />
+                </svg>
+                <span>Add item</span>
+              </button>
+            </>
           )}
         </div>
       </header>
 
       {/* Collection summary — one line, full breakdown opens in a sheet */}
       <section aria-label="Collection statistics" className="mb-4">
-        <CollectionStatistics statistics={statistics} isLoading={isLoadingStats} />
+        <CollectionStatistics
+          statistics={statistics}
+          isLoading={isLoadingStats}
+          activeView={params.view}
+        />
       </section>
 
       {params.view === 'shelf' ? (
@@ -716,15 +1082,108 @@ const CollectionPage: React.FC = () => {
             embedded
             refreshKey={shelfRefreshKey}
             matchingItemIds={matchingItemIds}
-            showApplySortModal={showShelfApplySort}
-            onCloseApplySortModal={() => setShowShelfApplySort(false)}
-            showAddGroupModal={showShelfAddGroup}
-            onCloseAddGroupModal={() => setShowShelfAddGroup(false)}
             onDataChange={() => {
               loadInitialData();
               refreshStatistics();
             }}
           />
+        </section>
+      ) : params.view === 'movies' ? (
+        /* Movies Grid or Empty State */
+        <section aria-label="Movies results" className="relative min-h-[12rem]">
+          {moviesLoadError && (
+            <EmptyState
+              title="Couldn’t load movies"
+              description={moviesLoadError}
+              action={
+                <Button onClick={() => loadInitialMovies()} variant="secondary">
+                  Try again
+                </Button>
+              }
+              icon={
+                <svg className="h-8 w-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M12 4a8 8 0 100 16 8 8 0 000-16z" />
+                </svg>
+              }
+            />
+          )}
+
+          {!moviesLoadError && isEmptyMoviesCollection && (
+            <EmptyState
+              title="No movies found"
+              description="Start building your collection by adding your first movie or TV show."
+              action={
+                canEdit ? (
+                  <Button onClick={handleAddItem}>
+                    Add your first item
+                  </Button>
+                ) : undefined
+              }
+              icon={
+                <svg className="h-8 w-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <rect width="18" height="18" x="3" y="3" rx="2" />
+                  <path d="M7 3v18" />
+                  <path d="M3 12h18" />
+                </svg>
+              }
+            />
+          )}
+
+          {!moviesLoadError && isNoMovieResults && (
+            <EmptyState
+              title="No titles found"
+              description={
+                params.q
+                  ? `No titles match "${params.q}". Try adjusting your search or filters.`
+                  : params.formats.length > 0
+                    ? 'No titles match the selected filter. Try changing your filter settings.'
+                    : 'No titles found. Try adjusting your search or filters.'
+              }
+              action={
+                <Button onClick={handleClearFilters} variant="secondary">
+                  Clear filters & search
+                </Button>
+              }
+              icon={
+                <svg className="h-8 w-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+              }
+            />
+          )}
+
+          {!moviesLoadError && (movies.length > 0 || showMovieSkeletons) && (
+            <>
+              <MovieGrid
+                movies={movies}
+                onMovieClick={setSelectedMovie}
+                isEditMode={canEdit}
+                isAuthenticated={canEdit}
+                onEditMovie={canEdit ? handleEditMovie : undefined}
+                isArchivedView={effectiveArchived}
+                skeletonCount={showMovieSkeletons ? 8 : 0}
+                isLoadingMore={moviesIsLoadingMore && !moviesLoadMoreError}
+                sortBy={params.sortBy}
+              />
+
+              <div ref={moviesSentinelRef} className="h-px" aria-hidden="true" />
+
+              {moviesLoadMoreError && (
+                <div className="mt-6 flex flex-col items-center gap-3 rounded-[--radius-card] border border-subtle bg-surface-raised p-4 text-center">
+                  <p className="text-sm text-content">{moviesLoadMoreError}</p>
+                  <Button onClick={() => loadMoreMovies()} variant="secondary" size="sm">
+                    Try again
+                  </Button>
+                </div>
+              )}
+
+              {moviesIsLoadingMore && !moviesLoadMoreError && (
+                <div role="status" aria-live="polite" className="sr-only">
+                  Loading more titles…
+                </div>
+              )}
+            </>
+          )}
         </section>
       ) : (
         /* Media Grid or Empty State */
@@ -825,29 +1284,64 @@ const CollectionPage: React.FC = () => {
         </section>
       )}
 
-      {/* Detail Modal */}
+      {/* Physical Item Detail Modal */}
       <MediaDetailModal
         physicalItem={selectedItem}
         isOpen={!!selectedItem}
-        onClose={() => setSelectedItem(null)}
+        initialMediaId={selectedItemInitialMediaId}
+        backLabel={returnToMovie ? returnToMovie.title : undefined}
+        onBack={
+          returnToMovie
+            ? () => {
+                const backMovie = returnToMovie;
+                setSelectedItem(null);
+                setSelectedItemInitialMediaId(undefined);
+                setReturnToMovie(null);
+                setSelectedMovie(backMovie);
+              }
+            : undefined
+        }
+        onClose={() => {
+          setSelectedItem(null);
+          setSelectedItemInitialMediaId(undefined);
+          setReturnToMovie(null);
+        }}
         onEdit={
           canEdit
             ? (item) => {
                 setSelectedItem(null);
+                setSelectedItemInitialMediaId(undefined);
+                setReturnToMovie(null);
                 handleEditItem(item);
               }
             : undefined
         }
       />
 
+      {/* Movie Detail Modal */}
+      <MovieDetailModal
+        media={selectedMovie}
+        isOpen={!!selectedMovie}
+        onClose={() => setSelectedMovie(null)}
+        onEditMovie={canEdit ? handleEditMovie : undefined}
+        onViewPhysicalItem={handleViewPhysicalItemFromMovie}
+        onEditPhysicalItem={canEdit ? handleEditPhysicalItemFromMovie : undefined}
+        onFilterByDirector={handleFilterByDirector}
+        onFilterBySeries={handleFilterBySeries}
+        onFilterByGenre={handleFilterByGenre}
+        loadingPhysicalItemId={loadingPhysicalItemId}
+      />
+
       {/* Showcase Slideshow Modal */}
       <CollectionShowcaseModal
         isOpen={isShowcaseOpen}
         onClose={() => setIsShowcaseOpen(false)}
-        items={physicalItems}
-        totalCount={totalCount}
+        items={showcaseItems}
+        totalCount={params.view === 'movies' ? moviesTotalCount : totalCount}
         collectionTitle={collectionTitle}
-        fetchRemainingItems={fetchRemainingShowcaseItems}
+        fetchRemainingItems={
+          params.view === 'movies' ? fetchRemainingShowcaseMovies : fetchRemainingShowcaseItems
+        }
       />
 
       {canEdit && (
@@ -876,16 +1370,37 @@ const CollectionPage: React.FC = () => {
 
       {/* Edit Form Modal - only show if can edit */}
       {canEdit && (
-        <MediaForm
-          isOpen={showEditForm}
-          onClose={() => {
-            setShowEditForm(false);
-            setEditingItem(null);
-          }}
-          onSuccess={handleEditSuccess}
-          editItem={editingItem}
-          onDelete={handleDeleteItem}
-        />
+        <>
+          <MediaForm
+            isOpen={showEditForm}
+            onClose={() => {
+              setShowEditForm(false);
+              setEditingItem(null);
+            }}
+            onSuccess={handleEditSuccess}
+            editItem={editingItem}
+            onDelete={handleDeleteItem}
+          />
+          <BarcodeScanModal
+            isOpen={showBarcodeScanner}
+            onClose={() => setShowBarcodeScanner(false)}
+            onSuccess={() => {
+              resetFacetsCache();
+              reloadActiveView();
+              refreshStatistics();
+              setShelfRefreshKey((k) => k + 1);
+            }}
+          />
+          <MediaEditModal
+            media={editingMovie}
+            isOpen={showMovieEditModal}
+            onClose={() => {
+              setShowMovieEditModal(false);
+              setEditingMovie(null);
+            }}
+            onSave={handleSaveMovie}
+          />
+        </>
       )}
     </main>
   );

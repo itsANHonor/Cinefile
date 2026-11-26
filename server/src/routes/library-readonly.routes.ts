@@ -78,6 +78,7 @@ async function getFullLibrary() {
       shelf_id: p.shelf_id,
       physical_item_id: p.physical_item_id,
       position: p.position,
+      is_pinned: Boolean(p.is_pinned),
       physical_item: {
         id: p.physical_item_id,
         name: p.physical_item_name,
@@ -117,10 +118,24 @@ async function getFullLibrary() {
     });
   });
 
+  // Photo counts per group for gallery badges
+  const photoCounts = groupIds.length > 0
+    ? await db('shelf_photos')
+        .whereIn('group_id', groupIds)
+        .select('group_id')
+        .count('id as count')
+        .groupBy('group_id')
+    : [];
+  const photoCountMap = new Map<number, number>();
+  photoCounts.forEach((row: any) => {
+    photoCountMap.set(row.group_id, Number(row.count));
+  });
+
   return {
     ...library,
     groups: groups.map((g: any) => ({
       ...g,
+      photo_count: photoCountMap.get(g.id) || 0,
       shelves: shelvesByGroup.get(g.id) || [],
     })),
   };
@@ -168,6 +183,40 @@ router.get('/groups/:groupId/shelves', async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Error fetching shelves:', error);
     res.status(500).json({ error: 'Failed to fetch shelves' });
+  }
+});
+
+// GET /api/library/photos - real-shelf photo gallery (read-only)
+router.get('/photos', async (req: Request, res: Response) => {
+  try {
+    const library = await db('physical_library').first();
+    if (!library) {
+      return res.status(404).json({ error: 'Physical library not found' });
+    }
+    let query = db('shelf_photos')
+      .leftJoin('shelf_groups', 'shelf_photos.group_id', 'shelf_groups.id')
+      .where('shelf_photos.library_id', library.id)
+      .select('shelf_photos.*', 'shelf_groups.display_name as group_display_name')
+      .orderBy('shelf_photos.sort_order', 'asc')
+      .orderBy('shelf_photos.id', 'asc');
+    const groupId = req.query.group_id !== undefined ? Number(req.query.group_id) : undefined;
+    if (groupId !== undefined && Number.isInteger(groupId)) {
+      query = query.where('shelf_photos.group_id', groupId);
+    }
+    const rows = await query;
+    res.json(rows.map((r: any) => ({
+      ...r,
+      frame: (() => {
+        try {
+          return r.frame ? JSON.parse(r.frame) : null;
+        } catch {
+          return null;
+        }
+      })(),
+    })));
+  } catch (error) {
+    console.error('Error fetching shelf photos:', error);
+    res.status(500).json({ error: 'Failed to fetch shelf photos' });
   }
 });
 

@@ -13,6 +13,7 @@ import settingsReadOnlyRoutes from './routes/settings-readonly.routes';
 import seriesReadOnlyRoutes from './routes/series-readonly.routes';
 import importExportReadOnlyRoutes from './routes/import-export-readonly.routes';
 import statisticsRoutes from './routes/statistics.routes';
+import historyReadOnlyRoutes from './routes/history-readonly.routes';
 import libraryReadOnlyRoutes from './routes/library-readonly.routes';
 import letterboxdReadOnlyRoutes from './routes/letterboxd-readonly.routes';
 
@@ -103,6 +104,7 @@ app.use('/api/media', requirePublicCollectionOrAuth, mediaReadOnlyRoutes);
 app.use('/api/physical-items', requirePublicCollectionOrAuth, physicalItemsReadOnlyRoutes);
 app.use('/api/series', requirePublicCollectionOrAuth, seriesReadOnlyRoutes);
 app.use('/api/statistics', requirePublicCollectionOrAuth, statisticsRoutes);
+app.use('/api/history', requirePublicCollectionOrAuth, historyReadOnlyRoutes);
 app.use('/api/library', requirePublicCollectionOrAuth, libraryReadOnlyRoutes);
 app.use('/api/letterboxd', requirePublicCollectionOrAuth, letterboxdReadOnlyRoutes);
 

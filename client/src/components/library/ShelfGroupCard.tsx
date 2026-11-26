@@ -18,6 +18,8 @@ interface ShelfGroupCardProps {
   onRemovePlacement?: (placementId: number) => void;
   onItemClick?: (physicalItemId: number) => void;
   onSpineColorEdit?: (physicalItemId: number) => void;
+  onTogglePin?: (placementId: number, isPinned: boolean) => void;
+  onOpenPhotos?: () => void;
 }
 
 /** Grip/drag handle icon */
@@ -44,6 +46,8 @@ const ShelfGroupCard: React.FC<ShelfGroupCardProps> = ({
   onRemovePlacement,
   onItemClick,
   onSpineColorEdit,
+  onTogglePin,
+  onOpenPhotos,
 }) => {
   const [isCollapsed, setIsCollapsed] = useState(false);
 
@@ -138,6 +142,27 @@ const ShelfGroupCard: React.FC<ShelfGroupCardProps> = ({
             <span>{totalItems} {totalItems === 1 ? 'item' : 'items'}</span>
             <span className="text-gray-300 dark:text-gray-600">|</span>
             <span>{totalUsed}/{totalCapacity} units</span>
+            {(group.photo_count ?? 0) > 0 && (
+              <>
+                <span className="text-gray-300 dark:text-gray-600">|</span>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onOpenPhotos?.();
+                  }}
+                  className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-1.5 py-0.5 font-medium text-gray-600 transition-colors hover:bg-primary-100 hover:text-primary-700 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-primary-900/40 dark:hover:text-primary-300"
+                  title={`View ${group.photo_count} shelf photo${group.photo_count === 1 ? '' : 's'}`}
+                  aria-label={`View ${group.photo_count} shelf photos for ${group.display_name}`}
+                >
+                  <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+                  </svg>
+                  {group.photo_count}
+                </button>
+              </>
+            )}
             {groupMatchCount !== null && (
               <>
                 <span className="text-gray-300 dark:text-gray-600">|</span>
@@ -224,6 +249,7 @@ const ShelfGroupCard: React.FC<ShelfGroupCardProps> = ({
                   onRemovePlacement={onRemovePlacement}
                   onItemClick={onItemClick}
                   onSpineColorEdit={onSpineColorEdit}
+                  onTogglePin={onTogglePin}
                 />
               ))}
             </SortableContext>

@@ -41,7 +41,8 @@ function configureDesktopEnvironment(): void {
 }
 
 function configureDesktopRequestAuth(port: number): void {
-  const localOriginPrefix = `http://127.0.0.1:${port}/`;
+  const allowedOrigin = `http://127.0.0.1:${port}`;
+  const localOriginPrefix = `${allowedOrigin}/`;
   session.defaultSession.webRequest.onBeforeSendHeaders(
     { urls: [`http://127.0.0.1:${port}/*`] },
     (details, callback) => {
@@ -51,6 +52,26 @@ function configureDesktopRequestAuth(port: number): void {
       callback({ requestHeaders: details.requestHeaders });
     },
   );
+
+  // Allow camera access strictly for the embedded local Cinefile origin (for live barcode scanning)
+  session.defaultSession.setPermissionCheckHandler((_webContents, permission, requestingOrigin) => {
+    if (permission === 'media' && requestingOrigin === allowedOrigin) {
+      return true;
+    }
+    return false;
+  });
+
+  session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {
+    const currentUrl = webContents.getURL();
+    if (
+      permission === 'media' &&
+      (currentUrl === allowedOrigin || currentUrl.startsWith(localOriginPrefix))
+    ) {
+      callback(true);
+      return;
+    }
+    callback(false);
+  });
 }
 
 async function createWindow(port: number): Promise<void> {

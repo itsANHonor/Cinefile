@@ -2,11 +2,12 @@ import { Router, Request, Response } from 'express';
 import { db } from '../database';
 import { authMiddleware, isRequestAdmin } from '../middleware/auth.middleware';
 import { tmdbService } from '../services/tmdb.service';
+import { barcodeLookupService } from '../services/barcode-lookup.service';
 import { normalizeLetterboxdUsername } from '../services/letterboxd.service';
 
 const router = Router();
 
-const SENSITIVE_SETTING_KEYS = new Set(['tmdb_api_key']);
+const SENSITIVE_SETTING_KEYS = new Set(['tmdb_api_key', 'upcitemdb_user_key']);
 const ADMIN_ONLY_SETTING_KEYS = new Set([
   'letterboxd_auto_sync',
   'letterboxd_sync_interval_hours',
@@ -14,12 +15,14 @@ const ADMIN_ONLY_SETTING_KEYS = new Set([
 const ALLOWED_SETTING_KEYS = new Set([
   'collection_public',
   'cost_public',
+  'history_public',
   'site_title',
   'collection_title',
   'default_theme',
   'default_sort_by',
   'default_sort_order',
   'tmdb_api_key',
+  'upcitemdb_user_key',
   'letterboxd_username',
   'letterboxd_auto_sync',
   'letterboxd_sync_interval_hours',
@@ -36,10 +39,15 @@ async function buildSettingsResponse(isAdmin: boolean): Promise<Record<string, s
   const settings = await db('settings').select('*');
   const settingsObj: Record<string, string> = {};
   let dbTmdbKey = '';
+  let dbUpcKey = '';
 
   settings.forEach((setting) => {
     if (setting.key === 'tmdb_api_key') {
       dbTmdbKey = setting.value?.trim() || '';
+      return;
+    }
+    if (setting.key === 'upcitemdb_user_key') {
+      dbUpcKey = setting.value?.trim() || '';
       return;
     }
     if (!SENSITIVE_SETTING_KEYS.has(setting.key) && ALLOWED_SETTING_KEYS.has(setting.key)) {
@@ -54,9 +62,15 @@ async function buildSettingsResponse(isAdmin: boolean): Promise<Record<string, s
   const activeKey = dbTmdbKey || envTmdbKey;
   settingsObj.tmdb_configured = activeKey ? 'true' : 'false';
 
+  const envUpcKey = process.env.UPCITEMDB_USER_KEY?.trim() || '';
+  const activeUpcKey = dbUpcKey || envUpcKey;
+
   if (isAdmin) {
     settingsObj.tmdb_key_source = dbTmdbKey ? 'database' : envTmdbKey ? 'env' : 'none';
     settingsObj.tmdb_api_key_masked = maskApiKey(activeKey);
+    settingsObj.upcitemdb_configured = activeUpcKey ? 'true' : 'false';
+    settingsObj.upcitemdb_key_source = dbUpcKey ? 'database' : envUpcKey ? 'env' : 'none';
+    settingsObj.upcitemdb_user_key_masked = maskApiKey(activeUpcKey);
   }
 
   return settingsObj;
@@ -123,7 +137,7 @@ router.put('/:key', authMiddleware, async (req: Request, res: Response) => {
     }
 
     const normalizedValue =
-      key === 'tmdb_api_key'
+      key === 'tmdb_api_key' || key === 'upcitemdb_user_key'
         ? String(value).trim()
         : key === 'letterboxd_username'
           ? normalizeLetterboxdUsername(String(value))
@@ -159,6 +173,17 @@ router.put('/:key', authMiddleware, async (req: Request, res: Response) => {
       });
     }
 
+    if (key === 'upcitemdb_user_key') {
+      barcodeLookupService.invalidateApiKeyCache();
+      const settingsObj = await buildSettingsResponse(true);
+      return res.json({
+        key: 'upcitemdb_user_key',
+        value: settingsObj.upcitemdb_user_key_masked,
+        upcitemdb_configured: settingsObj.upcitemdb_configured,
+        upcitemdb_key_source: settingsObj.upcitemdb_key_source,
+      });
+    }
+
     const updatedSetting = await db('settings').where({ key }).first();
     res.json({ key: updatedSetting.key, value: updatedSetting.value });
   } catch (error) {
@@ -188,7 +213,7 @@ router.post('/', authMiddleware, async (req: Request, res: Response) => {
     // Update each setting
     for (const [key, value] of Object.entries(settings)) {
       const normalizedValue =
-      key === 'tmdb_api_key'
+      key === 'tmdb_api_key' || key === 'upcitemdb_user_key'
         ? String(value).trim()
         : key === 'letterboxd_username'
           ? normalizeLetterboxdUsername(String(value))
@@ -211,6 +236,9 @@ router.post('/', authMiddleware, async (req: Request, res: Response) => {
 
       if (key === 'tmdb_api_key') {
         tmdbService.invalidateApiKeyCache();
+      }
+      if (key === 'upcitemdb_user_key') {
+        barcodeLookupService.invalidateApiKeyCache();
       }
     }
 

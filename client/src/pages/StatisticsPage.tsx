@@ -243,9 +243,8 @@ const StatisticsPage: React.FC = () => {
   if (isLoading) {
     return (
       <div className="container mx-auto px-4 py-6 sm:py-8" aria-busy="true">
-        <div className="mb-6">
-          <Skeleton className="h-8 w-56 rounded-[--radius-control] mb-2" />
-          <Skeleton className="h-4 w-80 rounded-[--radius-control]" />
+        <div className="mb-6 border-b border-subtle pb-3">
+          <Skeleton className="h-10 w-80 rounded-[--radius-control]" />
         </div>
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5 mb-6">
           {Array.from({ length: 5 }).map((_, i) => (
@@ -375,212 +374,210 @@ const StatisticsPage: React.FC = () => {
 
   return (
     <div className="container mx-auto px-4 py-6 sm:py-8 space-y-6">
-      {/* Page Header */}
-      <header className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-content sm:text-3xl">Collection Statistics</h1>
-          <p className="mt-1 text-sm text-content-muted">
-            Select any format, decade, genre, director, or cast member to filter your collection.
-          </p>
+      {/* Top-Level Tab Navigation */}
+      <div className="flex flex-col gap-3 border-b border-subtle pb-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="overflow-x-auto">
+          <SegmentedControl
+            name="Statistics category tabs"
+            value={activeTab}
+            onChange={(val) => handleTabChange(val as StatisticsTab)}
+            className="w-full sm:w-auto"
+            options={[
+              { value: 'collection', label: 'Collection Statistics' },
+              { value: 'content', label: 'Content Insights' },
+              { value: 'physical', label: 'Physical Statistics' },
+            ]}
+          />
         </div>
-        <Button asChild variant="secondary" size="sm">
+        <Button asChild variant="secondary" size="sm" className="self-start sm:self-auto">
           <Link to="/">Browse Collection</Link>
         </Button>
-      </header>
-
-      {/* Pinned KPI Summary Cards */}
-      <div
-        aria-label="Collection summary metrics"
-        className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5"
-      >
-        <Link
-          to="/"
-          className="flex flex-col items-center justify-center rounded-[--radius-card] bg-primary-50 p-4 text-center border border-transparent hover:border-primary-400 transition-colors dark:bg-primary-900/20"
-        >
-          <span className="text-2xl sm:text-3xl font-bold text-primary-600 dark:text-primary-400">
-            {formatCount(overview.totalPhysicalItems)}
-          </span>
-          <span className="mt-1 text-sm font-medium text-primary-700 dark:text-primary-300">
-            Physical Items
-          </span>
-        </Link>
-
-        <Link
-          to="/?type=movie"
-          className="flex flex-col items-center justify-center rounded-[--radius-card] bg-primary-50 p-4 text-center border border-transparent hover:border-primary-400 transition-colors dark:bg-primary-900/20"
-        >
-          <span className="text-2xl sm:text-3xl font-bold text-primary-600 dark:text-primary-400">
-            {formatCount(overview.totalMovies)}
-          </span>
-          <span className="mt-1 text-sm font-medium text-primary-700 dark:text-primary-300">
-            Movies
-          </span>
-        </Link>
-
-        <Link
-          to="/?type=tv_season"
-          className="flex flex-col items-center justify-center rounded-[--radius-card] bg-purple-50 p-4 text-center border border-transparent hover:border-purple-400 transition-colors dark:bg-purple-900/20"
-        >
-          <span className="text-2xl sm:text-3xl font-bold text-purple-600 dark:text-purple-400">
-            {formatCount(overview.totalTVSeasons)}
-          </span>
-          <span className="mt-1 text-sm font-medium text-purple-700 dark:text-purple-300">
-            TV Seasons
-          </span>
-          {overview.totalTVShows > 0 && (
-            <span className="mt-0.5 text-xs text-purple-600/80 dark:text-purple-300/80">
-              {formatCount(overview.totalTVShows)} show{overview.totalTVShows === 1 ? '' : 's'}
-              {overview.totalEpisodes > 0 ? ` · ${formatCount(overview.totalEpisodes)} eps` : ''}
-            </span>
-          )}
-        </Link>
-
-        <div className="flex flex-col items-center justify-center rounded-[--radius-card] bg-surface-raised border border-subtle p-4 text-center shadow-[--shadow-card]">
-          <span className="text-2xl sm:text-3xl font-bold text-content">
-            {formatCount(overview.multiTitleItemsCount)}
-          </span>
-          <span className="mt-1 text-sm font-medium text-content-muted">
-            Multi-Title Sets
-          </span>
-        </div>
-
-        <div className="flex flex-col items-center justify-center rounded-[--radius-card] bg-surface-raised border border-subtle p-4 text-center shadow-[--shadow-card] col-span-2 sm:col-span-1">
-          <span className="text-2xl sm:text-3xl font-bold text-content">
-            {formatCount(overview.totalSeries)}
-          </span>
-          <span className="mt-1 text-sm font-medium text-content-muted">
-            Active Series
-          </span>
-        </div>
-      </div>
-
-      {/* Spending & Cost Analytics Summary (shown when cost visibility is enabled and items have recorded cost) */}
-      {acquisitions.spending && acquisitions.spending.itemsWithCost > 0 && (
-        <section
-          aria-label="Collection spending analytics"
-          data-testid="spending-analytics-section"
-          className="card space-y-5"
-        >
-          <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <h2 className="text-base font-semibold text-content">Collection Spending &amp; Value</h2>
-              <p className="text-xs text-content-muted">
-                Tracked across {formatCount(acquisitions.spending.itemsWithCost)} of{' '}
-                {formatCount(overview.totalPhysicalItems)} physical{' '}
-                {overview.totalPhysicalItems === 1 ? 'item' : 'items'}
-              </p>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <div className="rounded-[--radius-control] bg-emerald-50/80 dark:bg-emerald-950/30 border border-emerald-200/70 dark:border-emerald-800/50 p-4">
-              <span className="block text-xs font-medium uppercase tracking-wide text-emerald-800 dark:text-emerald-300">
-                Total Spent
-              </span>
-              <span className="mt-1 block text-xl sm:text-2xl font-bold text-emerald-700 dark:text-emerald-300">
-                {formatCurrency(acquisitions.spending.totalSpent)}
-              </span>
-              <span className="text-xs text-emerald-700/80 dark:text-emerald-400/80">
-                {formatCount(acquisitions.spending.itemsWithCost)} priced{' '}
-                {acquisitions.spending.itemsWithCost === 1 ? 'item' : 'items'}
-              </span>
-            </div>
-
-            <div className="rounded-[--radius-control] bg-surface-sunken p-4">
-              <span className="block text-xs font-medium uppercase tracking-wide text-content-muted">
-                Avg Cost / Item
-              </span>
-              <span className="mt-1 block text-xl sm:text-2xl font-bold text-content">
-                {formatCurrency(acquisitions.spending.averageCostPerItem)}
-              </span>
-              <span className="text-xs text-content-muted">
-                {formatCurrency(acquisitions.spending.averageCostPerTitle)} per title
-              </span>
-            </div>
-
-            {acquisitions.spending.highestCostItem && (
-              <div className="rounded-[--radius-control] bg-surface-sunken p-4">
-                <span className="block text-xs font-medium uppercase tracking-wide text-content-muted">
-                  Highest Cost Item
-                </span>
-                <span
-                  className="mt-1 block truncate text-sm font-semibold text-content"
-                  title={acquisitions.spending.highestCostItem.name}
-                >
-                  {acquisitions.spending.highestCostItem.name}
-                </span>
-                <span className="text-xs font-semibold text-primary-600 dark:text-primary-400">
-                  {formatCurrency(acquisitions.spending.highestCostItem.cost)}
-                </span>
-              </div>
-            )}
-
-            {acquisitions.spending.lowestCostItem && (
-              <div className="rounded-[--radius-control] bg-surface-sunken p-4">
-                <span className="block text-xs font-medium uppercase tracking-wide text-content-muted">
-                  Lowest Cost Item
-                </span>
-                <span
-                  className="mt-1 block truncate text-sm font-semibold text-content"
-                  title={acquisitions.spending.lowestCostItem.name}
-                >
-                  {acquisitions.spending.lowestCostItem.name}
-                </span>
-                <span className="text-xs font-semibold text-primary-600 dark:text-primary-400">
-                  {formatCurrency(acquisitions.spending.lowestCostItem.cost)}
-                </span>
-              </div>
-            )}
-          </div>
-
-          {acquisitions.spending.byFormat.length > 0 && (
-            <div className="border-t border-subtle pt-4">
-              <h3 className="mb-2.5 text-xs font-semibold uppercase tracking-wider text-content-muted">
-                Spend by Format
-              </h3>
-              <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 md:grid-cols-4">
-                {acquisitions.spending.byFormat.map((fs) => (
-                  <div
-                    key={fs.format}
-                    className="flex items-center justify-between gap-2 rounded-[--radius-control] border border-subtle bg-surface p-2.5 text-xs"
-                  >
-                    <div className="min-w-0">
-                      <span className="block font-semibold text-content truncate">{fs.format}</span>
-                      <span className="text-[11px] text-content-muted">
-                        Avg {formatCurrency(fs.averageSpend)}
-                      </span>
-                    </div>
-                    <span className="font-bold text-content whitespace-nowrap">
-                      {formatCurrency(fs.totalSpend)}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </section>
-      )}
-
-      {/* Tab Navigation */}
-      <div className="border-b border-subtle pb-3 overflow-x-auto">
-        <SegmentedControl
-          name="Statistics category tabs"
-          value={activeTab}
-          onChange={(val) => handleTabChange(val as StatisticsTab)}
-          className="w-full sm:w-auto"
-          options={[
-            { value: 'collection', label: 'Collection Statistics' },
-            { value: 'content', label: 'Content Insights' },
-            { value: 'physical', label: 'Physical Statistics' },
-          ]}
-        />
       </div>
 
       {/* =========================================================
-          TAB 1: COLLECTION STATISTICS (Formats, Editions, Acquisitions)
+          TAB 1: COLLECTION STATISTICS (Overview, Spending, Formats, Editions, Acquisitions)
       ========================================================= */}
       {activeTab === 'collection' && (
         <div className="space-y-6 animate-in" role="region" aria-label="Collection Statistics">
+          <header>
+            <h2 className="text-xl font-bold text-content sm:text-2xl">Collection Statistics</h2>
+            <p className="mt-1 text-sm text-content-muted">
+              Select any format or edition tag to filter your collection.
+            </p>
+          </header>
+
+          {/* Overview KPI Summary Cards */}
+          <div
+            aria-label="Collection summary metrics"
+            className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5"
+          >
+            <Link
+              to="/"
+              className="flex flex-col items-center justify-center rounded-[--radius-card] bg-primary-50 p-4 text-center border border-transparent hover:border-primary-400 transition-colors dark:bg-primary-900/20"
+            >
+              <span className="text-2xl sm:text-3xl font-bold text-primary-600 dark:text-primary-400">
+                {formatCount(overview.totalPhysicalItems)}
+              </span>
+              <span className="mt-1 text-sm font-medium text-primary-700 dark:text-primary-300">
+                Physical Items
+              </span>
+            </Link>
+
+            <Link
+              to="/?type=movie"
+              className="flex flex-col items-center justify-center rounded-[--radius-card] bg-primary-50 p-4 text-center border border-transparent hover:border-primary-400 transition-colors dark:bg-primary-900/20"
+            >
+              <span className="text-2xl sm:text-3xl font-bold text-primary-600 dark:text-primary-400">
+                {formatCount(overview.totalMovies)}
+              </span>
+              <span className="mt-1 text-sm font-medium text-primary-700 dark:text-primary-300">
+                Movies
+              </span>
+            </Link>
+
+            <Link
+              to="/?type=tv_season"
+              className="flex flex-col items-center justify-center rounded-[--radius-card] bg-purple-50 p-4 text-center border border-transparent hover:border-purple-400 transition-colors dark:bg-purple-900/20"
+            >
+              <span className="text-2xl sm:text-3xl font-bold text-purple-600 dark:text-purple-400">
+                {formatCount(overview.totalTVSeasons)}
+              </span>
+              <span className="mt-1 text-sm font-medium text-purple-700 dark:text-purple-300">
+                TV Seasons
+              </span>
+              {overview.totalTVShows > 0 && (
+                <span className="mt-0.5 text-xs text-purple-600/80 dark:text-purple-300/80">
+                  {formatCount(overview.totalTVShows)} show{overview.totalTVShows === 1 ? '' : 's'}
+                  {overview.totalEpisodes > 0 ? ` · ${formatCount(overview.totalEpisodes)} eps` : ''}
+                </span>
+              )}
+            </Link>
+
+            <div className="flex flex-col items-center justify-center rounded-[--radius-card] bg-surface-raised border border-subtle p-4 text-center shadow-[--shadow-card]">
+              <span className="text-2xl sm:text-3xl font-bold text-content">
+                {formatCount(overview.multiTitleItemsCount)}
+              </span>
+              <span className="mt-1 text-sm font-medium text-content-muted">
+                Multi-Title Sets
+              </span>
+            </div>
+
+            <div className="flex flex-col items-center justify-center rounded-[--radius-card] bg-surface-raised border border-subtle p-4 text-center shadow-[--shadow-card] col-span-2 sm:col-span-1">
+              <span className="text-2xl sm:text-3xl font-bold text-content">
+                {formatCount(overview.totalSeries)}
+              </span>
+              <span className="mt-1 text-sm font-medium text-content-muted">
+                Active Series
+              </span>
+            </div>
+          </div>
+
+          {/* Spending & Cost Analytics Summary (shown when cost visibility is enabled and items have recorded cost) */}
+          {acquisitions.spending && acquisitions.spending.itemsWithCost > 0 && (
+            <section
+              aria-label="Collection spending analytics"
+              data-testid="spending-analytics-section"
+              className="card space-y-5"
+            >
+              <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <h2 className="text-base font-semibold text-content">Collection Spending &amp; Value</h2>
+                  <p className="text-xs text-content-muted">
+                    Tracked across {formatCount(acquisitions.spending.itemsWithCost)} of{' '}
+                    {formatCount(overview.totalPhysicalItems)} physical{' '}
+                    {overview.totalPhysicalItems === 1 ? 'item' : 'items'}
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                <div className="rounded-[--radius-control] bg-emerald-50/80 dark:bg-emerald-950/30 border border-emerald-200/70 dark:border-emerald-800/50 p-4">
+                  <span className="block text-xs font-medium uppercase tracking-wide text-emerald-800 dark:text-emerald-300">
+                    Total Spent
+                  </span>
+                  <span className="mt-1 block text-xl sm:text-2xl font-bold text-emerald-700 dark:text-emerald-300">
+                    {formatCurrency(acquisitions.spending.totalSpent)}
+                  </span>
+                  <span className="text-xs text-emerald-700/80 dark:text-emerald-400/80">
+                    {formatCount(acquisitions.spending.itemsWithCost)} priced{' '}
+                    {acquisitions.spending.itemsWithCost === 1 ? 'item' : 'items'}
+                  </span>
+                </div>
+
+                <div className="rounded-[--radius-control] bg-surface-sunken p-4">
+                  <span className="block text-xs font-medium uppercase tracking-wide text-content-muted">
+                    Avg Cost / Item
+                  </span>
+                  <span className="mt-1 block text-xl sm:text-2xl font-bold text-content">
+                    {formatCurrency(acquisitions.spending.averageCostPerItem)}
+                  </span>
+                  <span className="text-xs text-content-muted">
+                    {formatCurrency(acquisitions.spending.averageCostPerTitle)} per title
+                  </span>
+                </div>
+
+                {acquisitions.spending.highestCostItem && (
+                  <div className="rounded-[--radius-control] bg-surface-sunken p-4">
+                    <span className="block text-xs font-medium uppercase tracking-wide text-content-muted">
+                      Highest Cost Item
+                    </span>
+                    <span
+                      className="mt-1 block truncate text-sm font-semibold text-content"
+                      title={acquisitions.spending.highestCostItem.name}
+                    >
+                      {acquisitions.spending.highestCostItem.name}
+                    </span>
+                    <span className="text-xs font-semibold text-primary-600 dark:text-primary-400">
+                      {formatCurrency(acquisitions.spending.highestCostItem.cost)}
+                    </span>
+                  </div>
+                )}
+
+                {acquisitions.spending.lowestCostItem && (
+                  <div className="rounded-[--radius-control] bg-surface-sunken p-4">
+                    <span className="block text-xs font-medium uppercase tracking-wide text-content-muted">
+                      Lowest Cost Item
+                    </span>
+                    <span
+                      className="mt-1 block truncate text-sm font-semibold text-content"
+                      title={acquisitions.spending.lowestCostItem.name}
+                    >
+                      {acquisitions.spending.lowestCostItem.name}
+                    </span>
+                    <span className="text-xs font-semibold text-primary-600 dark:text-primary-400">
+                      {formatCurrency(acquisitions.spending.lowestCostItem.cost)}
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              {acquisitions.spending.byFormat.length > 0 && (
+                <div className="border-t border-subtle pt-4">
+                  <h3 className="mb-2.5 text-xs font-semibold uppercase tracking-wider text-content-muted">
+                    Spend by Format
+                  </h3>
+                  <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 md:grid-cols-4">
+                    {acquisitions.spending.byFormat.map((fs) => (
+                      <div
+                        key={fs.format}
+                        className="flex items-center justify-between gap-2 rounded-[--radius-control] border border-subtle bg-surface p-2.5 text-xs"
+                      >
+                        <div className="min-w-0">
+                          <span className="block font-semibold text-content truncate">{fs.format}</span>
+                          <span className="text-[11px] text-content-muted">
+                            Avg {formatCurrency(fs.averageSpend)}
+                          </span>
+                        </div>
+                        <span className="font-bold text-content whitespace-nowrap">
+                          {formatCurrency(fs.totalSpend)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </section>
+          )}
           {/* Format Breakdown Card */}
           <div className="card space-y-5">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">

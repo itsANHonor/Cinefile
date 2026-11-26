@@ -173,3 +173,34 @@ it('parses and updates view parameter and preserves shelf view on clearAll', asy
     expect(window.location.search).toBe('');
   });
 });
+
+it('parses and updates view=movies and preserves movies view on clearAll', async () => {
+  const { result } = renderHook(() => useCollectionParams(), {
+    wrapper: wrapperForRoute('/?q=blade&format=4K%20UHD&view=movies'),
+  });
+
+  expect(result.current.params.view).toBe('movies');
+  expect(result.current.params.q).toBe('blade');
+  expect(result.current.params.formats).toEqual(['4K UHD']);
+
+  act(() => {
+    result.current.clearAll();
+  });
+
+  await waitFor(() => {
+    expect(result.current.params).toMatchObject({
+      q: '',
+      formats: [],
+      view: 'movies',
+    });
+  });
+
+  act(() => {
+    result.current.setParams({ view: 'grid' });
+  });
+
+  await waitFor(() => {
+    expect(result.current.params.view).toBe('grid');
+    expect(window.location.search).toBe('');
+  });
+});

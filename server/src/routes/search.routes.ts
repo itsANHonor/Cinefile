@@ -366,6 +366,27 @@ router.get('/movies/:id/collections', async (req: Request, res: Response) => {
 });
 
 /**
+ * GET /api/search/collections
+ * Search for TMDb movie collections by query
+ */
+router.get('/collections', async (req: Request, res: Response) => {
+  try {
+    const { q, page = '1' } = req.query;
+
+    if (!q || typeof q !== 'string' || !q.trim()) {
+      return res.status(400).json({ error: 'Query parameter "q" is required' });
+    }
+
+    const pageNum = parseInt(page as string, 10) || 1;
+    const results = await tmdbService.searchCollections(q.trim(), pageNum);
+    res.json(results);
+  } catch (error) {
+    console.error('Error searching collections:', error);
+    res.status(500).json({ error: 'Failed to search collections' });
+  }
+});
+
+/**
  * GET /api/search/collections/:id
  * Get collection details including all movies
  */

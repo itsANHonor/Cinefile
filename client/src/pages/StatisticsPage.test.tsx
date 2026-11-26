@@ -143,7 +143,7 @@ describe('StatisticsPage', () => {
     vi.restoreAllMocks();
   });
 
-  it('renders pinned KPIs and switches across Collection Statistics, Content Insights, and Physical Statistics tabs', async () => {
+  it('uses tabs as the top-level organizer and collapses summary KPIs and spending under Collection Statistics', async () => {
     const user = userEvent.setup();
     vi.spyOn(apiService, 'getDashboardStatistics').mockResolvedValue(sampleDashboard);
 
@@ -153,7 +153,8 @@ describe('StatisticsPage', () => {
       await screen.findByRole('heading', { name: 'Collection Statistics' })
     ).toBeInTheDocument();
 
-    // Pinned Overview KPIs
+    // Overview KPIs inside Collection Statistics tab
+    expect(screen.getByLabelText('Collection summary metrics')).toBeInTheDocument();
     expect(screen.getByText('42')).toBeInTheDocument();
     expect(screen.getByText('38')).toBeInTheDocument();
     expect(screen.getByText(/2 shows · 54 eps/i)).toBeInTheDocument();
@@ -169,8 +170,12 @@ describe('StatisticsPage', () => {
     );
     expect(screen.getByText('Criterion')).toBeInTheDocument();
 
-    // Switch to Content Insights tab
+    // Switch to Content Insights tab — Collection Statistics KPIs collapse away
     await user.click(screen.getByRole('radio', { name: /Content Insights/i }));
+    expect(screen.queryByLabelText('Collection summary metrics')).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('heading', { name: 'Collection Statistics' })
+    ).not.toBeInTheDocument();
 
     // Elevated Director & Cast spotlight cards with photos, fallback initials, and owned titles preview
     expect(screen.getByRole('link', { name: /Explore All Directors/i })).toHaveAttribute(
@@ -214,8 +219,9 @@ describe('StatisticsPage', () => {
       '/?series=1'
     );
 
-    // Switch to Physical Statistics tab
+    // Switch to Physical Statistics tab — Collection Statistics KPIs remain collapsed
     await user.click(screen.getByRole('radio', { name: /Physical Statistics/i }));
+    expect(screen.queryByLabelText('Collection summary metrics')).not.toBeInTheDocument();
 
     expect(screen.getByText('70% full')).toBeInTheDocument();
     expect(screen.getByText('Top Shelf')).toBeInTheDocument();
@@ -305,5 +311,10 @@ describe('StatisticsPage', () => {
     // Timeline and retailer rows include spend amounts
     expect(screen.getByText(/9 items · \$299\.49/i)).toBeInTheDocument();
     expect(screen.getByText(/8 items · \$239\.92/i)).toBeInTheDocument();
+
+    // Switching away from Collection Statistics hides Collection Spending & Value
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('radio', { name: /Content Insights/i }));
+    expect(screen.queryByTestId('spending-analytics-section')).not.toBeInTheDocument();
   });
 });

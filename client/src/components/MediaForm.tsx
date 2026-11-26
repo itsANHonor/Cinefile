@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { PhysicalItem, CustomImage, ImageFrame, TMDbMovie, Media, UnifiedSearchResult, Series, ManualMovieData, CoverCandidate } from '../types';
+import { PhysicalItem, CustomImage, ImageFrame, TMDbMovie, Media, UnifiedSearchResult, Series, ManualMovieData, CoverCandidate, STANDARD_UNIT_MM } from '../types';
 import { FRAME_MAX_ZOOM, FRAME_MIN_ZOOM, normalizeFrameForWrite, normalizeImageFrame } from '../lib/imageFrame';
 import FramedImage from './FramedImage';
 import { apiService } from '../services/api.service';
@@ -1791,7 +1791,7 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
                         +
                       </button>
                       <span className="text-xs text-gray-500 dark:text-gray-400 ml-1">
-                        = {(formData.thickness_units * 12.5).toFixed(1)}mm
+                        = {(formData.thickness_units * STANDARD_UNIT_MM).toFixed(1)}mm
                       </span>
                     </div>
                     <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">

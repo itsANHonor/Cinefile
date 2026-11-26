@@ -44,6 +44,7 @@ interface ShelfViewProps {
   onRemovePlacement?: (placementId: number) => void;
   onItemClick?: (physicalItemId: number) => void;
   onSpineColorEdit?: (physicalItemId: number) => void;
+  onTogglePin?: (placementId: number, isPinned: boolean) => void;
 }
 
 // Calibre-style spine item
@@ -55,7 +56,8 @@ const SortableShelfItem: React.FC<{
   onRemove?: (placementId: number) => void;
   onClick?: (physicalItemId: number) => void;
   onSpineColorEdit?: (physicalItemId: number) => void;
-}> = ({ placement, isEditMode, isDimmed = false, isHighlighted = false, onRemove, onClick, onSpineColorEdit }) => {
+  onTogglePin?: (placementId: number, isPinned: boolean) => void;
+}> = ({ placement, isEditMode, isDimmed = false, isHighlighted = false, onRemove, onClick, onSpineColorEdit, onTogglePin }) => {
   const [isHovered, setIsHovered] = useState(false);
 
   const {
@@ -217,6 +219,30 @@ const SortableShelfItem: React.FC<{
         </div>
       )}
 
+      {/* Pin toggle — pinned items stay in place during organization */}
+      {isEditMode && onTogglePin && (
+        <IconButton
+          size="sm"
+          variant="ghost"
+          aria-label={placement.is_pinned ? `Unpin ${item.name}` : `Pin ${item.name} in place`}
+          aria-pressed={placement.is_pinned}
+          onClick={(e) => {
+            e.stopPropagation();
+            onTogglePin(placement.id, !placement.is_pinned);
+          }}
+          className={`absolute -top-2 -left-2 z-40 h-6 w-6 rounded-full p-0 shadow-md transition-opacity ${
+            placement.is_pinned
+              ? 'bg-amber-100 text-amber-600 opacity-100 hover:bg-amber-200 dark:bg-amber-900/60 dark:text-amber-400 dark:hover:bg-amber-800'
+              : 'bg-surface text-content-muted opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 hover:text-amber-600 dark:hover:text-amber-400'
+          }`}
+          title={placement.is_pinned ? 'Pinned — click to unpin' : 'Pin in place during reorganization'}
+        >
+          <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill={placement.is_pinned ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth={2} aria-hidden="true">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M15 4.5l-3 3-4.5 1.5L9 10.5 4 15.5 8.5 20 13.5 15l1.5 1.5L16.5 12l3-3m-4.5-4.5L19.5 9" />
+          </svg>
+        </IconButton>
+      )}
+
       {/* Remove button */}
       {isEditMode && onRemove && (
         <IconButton
@@ -250,6 +276,7 @@ const GripIcon: React.FC<{ className?: string }> = ({ className }) => (
 );
 
 const ShelfView: React.FC<ShelfViewProps> = ({
+  onTogglePin,
   shelf,
   isEditMode,
   matchingItemIds,
@@ -464,6 +491,7 @@ const ShelfView: React.FC<ShelfViewProps> = ({
                         onRemove={onRemovePlacement}
                         onClick={onItemClick}
                         onSpineColorEdit={onSpineColorEdit}
+                        onTogglePin={onTogglePin}
                       />
                     </React.Fragment>
                   );

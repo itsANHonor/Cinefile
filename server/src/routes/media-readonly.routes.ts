@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { db } from '../database';
+import { queryCollectionMedia } from '../services/media-collection.service';
 
 const router = Router();
 
@@ -134,6 +135,24 @@ router.get('/', async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Error fetching media:', error);
     res.status(500).json({ error: 'Failed to fetch media items' });
+  }
+});
+
+/**
+ * GET /api/media/collection
+ * Get unique media items owned in the collection (linked to active physical items),
+ * with full filter/sort parity and attached physical item ownership details.
+ */
+router.get('/collection', async (req: Request, res: Response) => {
+  try {
+    const result = await queryCollectionMedia({
+      queryParams: req.query,
+      isAdmin: false,
+    });
+    res.json(result);
+  } catch (error) {
+    console.error('Error fetching collection media:', error);
+    res.status(500).json({ error: 'Failed to fetch collection media' });
   }
 });
 

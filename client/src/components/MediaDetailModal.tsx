@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { PhysicalItem, CustomImage } from '../types';
+import { PhysicalItem, CustomImage, STANDARD_UNIT_MM } from '../types';
 import { lockBodyScroll } from './ui/Sheet';
 import { Button } from './ui/Button';
 import { VisuallyHidden } from './ui/VisuallyHidden';
@@ -22,6 +22,9 @@ interface MediaDetailModalProps {
   isOpen: boolean;
   onClose: () => void;
   onEdit?: (physicalItem: PhysicalItem) => void;
+  initialMediaId?: number;
+  backLabel?: string;
+  onBack?: () => void;
 }
 
 const focusableSelector = [
@@ -61,6 +64,9 @@ const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
   isOpen,
   onClose,
   onEdit,
+  initialMediaId,
+  backLabel,
+  onBack,
 }) => {
   const [activeMediaIndex, setActiveMediaIndex] = useState(0);
   const [activePhotoIndex, setActivePhotoIndex] = useState(0);
@@ -69,10 +75,14 @@ const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
   const previouslyFocused = useRef<Element | null>(null);
 
   useEffect(() => {
-    setActiveMediaIndex(0);
+    const initialIndex =
+      initialMediaId != null && physicalItem?.media
+        ? physicalItem.media.findIndex((m) => m.id === initialMediaId)
+        : -1;
+    setActiveMediaIndex(initialIndex >= 0 ? initialIndex : 0);
     setActivePhotoIndex(0);
     setShowCustomArt(true);
-  }, [physicalItem?.id, isOpen]);
+  }, [physicalItem?.id, initialMediaId, isOpen]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -415,7 +425,19 @@ const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
         <div className="flex max-h-[88dvh] flex-col justify-between overflow-y-auto lg:overflow-hidden">
           {/* Top Header */}
           <div className="flex items-center justify-between gap-4 border-b border-subtle px-6 py-4">
-            <div className="min-w-0">
+            <div className="flex min-w-0 items-center gap-2">
+              {onBack && (
+                <button
+                  type="button"
+                  onClick={onBack}
+                  className="inline-flex shrink-0 items-center gap-1 rounded-[--radius-control] px-2 py-1 text-xs font-semibold text-primary-600 transition-colors hover:bg-primary-50 dark:text-primary-400 dark:hover:bg-primary-950/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                  </svg>
+                  <span className="max-w-[140px] truncate">{backLabel || 'Back'}</span>
+                </button>
+              )}
               <h2 id="sheet-title" className="truncate text-sm font-semibold text-content-muted">
                 {physicalItem.name}
               </h2>
@@ -811,7 +833,7 @@ const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
                     </h3>
                     <p className="text-xs font-medium text-content">
                       {physicalItem.thickness_units} standard cases (
-                      {(physicalItem.thickness_units * 12.5).toFixed(1)}mm)
+                      {(physicalItem.thickness_units * STANDARD_UNIT_MM).toFixed(1)}mm)
                     </p>
                   </div>
                 )}

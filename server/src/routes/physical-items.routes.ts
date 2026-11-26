@@ -24,6 +24,12 @@ import {
 } from '../utils/custom-images.util';
 import { extractSpineColors } from '../services/color.service';
 import { letterboxdService } from '../services/letterboxd.service';
+import {
+  recordBulkItemsAddedEvents,
+  recordItemAddedEvent,
+  removeEventsForPhysicalItem,
+  syncItemUpdatedEventFields,
+} from '../services/collection-events.service';
 
 const router = Router();
 
@@ -1354,6 +1360,14 @@ router.post('/', authMiddleware, async (req: Request, res: Response) => {
     // Reconcile any Letterboxd cache entries for newly created media
     letterboxdService.reconcileMediaWithCache().catch(() => { /* silently ignore */ });
 
+    await recordItemAddedEvent({
+      physicalItemId: result.id,
+      name: result.name,
+      purchaseDate: result.purchase_date || null,
+      archived: Boolean(result.archived),
+      archiveReason: result.archive_reason || null,
+    });
+
     res.status(201).json(result);
   } catch (error: any) {
     console.error('Error creating physical item:', error);
@@ -1560,6 +1574,20 @@ router.put('/:id', authMiddleware, async (req: Request, res: Response) => {
       await db('shelf_placements').where('physical_item_id', id).delete();
     }
 
+    await syncItemUpdatedEventFields({
+      physicalItemId: Number(id),
+      name: name !== undefined ? name : undefined,
+      purchaseDate: purchase_date !== undefined ? purchase_date : undefined,
+      wasArchived: Boolean(existingItem.archived),
+      isArchived: nextArchived,
+      archiveReason:
+        archived !== undefined || archive_reason !== undefined
+          ? nextArchived
+            ? nextReasonTrimmed
+            : null
+          : undefined,
+    });
+
     // Fetch updated physical item with media
     const updatedItem = await db('physical_items').where('id', id).first();
     const linkedMedia = await db('physical_item_media')
@@ -1630,6 +1658,8 @@ router.delete('/:id', authMiddleware, async (req: Request, res: Response) => {
     if (!existingItem) {
       return res.status(404).json({ error: 'Physical item not found' });
     }
+
+    await removeEventsForPhysicalItem(Number(id));
 
     // Delete physical item (CASCADE will delete links automatically)
     await db('physical_items').where('id', id).delete();
@@ -1896,39 +1926,10 @@ router.post('/bulk', authMiddleware, async (req: Request, res: Response) => {
             throw new Error('At least one physical format is required');
           }
 
-          // Create or get media entry
-          let mediaId: number;
-          
-          if (item.media.id) {
-            mediaId = item.media.id;
-          } else {
-            if (!item.media.title) {
-              throw new Error('Media title is required');
-            }
-
-            const mediaData: any = {
-              title: item.media.title,
-              original_title: item.media.original_title || null,
-              original_language: item.media.original_language || null,
-              tmdb_id: item.media.tmdb_id,
-              synopsis: item.media.synopsis,
-              cover_art_url: item.media.cover_art_url,
-              release_date: item.media.release_date,
-              director: item.media.director,
-              cast: item.media.cast ? JSON.stringify(item.media.cast) : null,
-              media_type: item.media.media_type || 'movie',
-              tv_show_tmdb_id: item.media.tv_show_tmdb_id || null,
-              tv_show_name: item.media.tv_show_name || null,
-              season_number: item.media.season_number != null ? item.media.season_number : null,
-              episode_count: item.media.episode_count != null ? item.media.episode_count : null,
-            };
-
-            if (item.media.genres) {
-              mediaData.genres = typeof item.media.genres === 'string' ? item.media.genres : JSON.stringify(item.media.genres);
-            }
-
-            const [newMediaId] = await trx('media').insert(mediaData);
-            mediaId = newMediaId;
+          // Support both a single media object (legacy BulkAddForm) and an array of media entries (box sets / multi-season TV)
+          const mediaEntries: any[] = Array.isArray(item.media) ? item.media : [item.media];
+          if (mediaEntries.length === 0) {
+            throw new Error('At least one media entry is required');
           }
 
           const existingEditionRows = await trx('physical_items')
@@ -1958,18 +1959,91 @@ router.post('/bulk', authMiddleware, async (req: Request, res: Response) => {
 
           const [physicalItemId] = await trx('physical_items').insert(physicalItemData);
 
-          // Link physical item to media with formats
+          // Link physical item to each media entry with formats
           const existingVersionRows = await trx('physical_item_media')
             .whereNotNull('version_notes')
             .select('version_notes');
           const canonicalVersionMap = buildCanonicalVersionTagMap(existingVersionRows);
-          await trx('physical_item_media').insert({
-            physical_item_id: physicalItemId,
-            media_id: mediaId,
-            disc_number: item.media.disc_number,
-            formats: JSON.stringify(formatArray),
-            version_notes: normalizeVersionNotes(item.media.version_notes, canonicalVersionMap),
-          });
+
+          for (const mediaEntry of mediaEntries) {
+            let mediaId: number;
+
+            if (mediaEntry.id) {
+              mediaId = mediaEntry.id;
+            } else {
+              if (!mediaEntry.title) {
+                throw new Error('Media title is required');
+              }
+
+              const mediaType = mediaEntry.media_type || 'movie';
+              let existingMedia: any = null;
+              if (mediaType === 'tv_season' && mediaEntry.tv_show_tmdb_id && mediaEntry.season_number != null) {
+                existingMedia = await trx('media')
+                  .where({
+                    media_type: 'tv_season',
+                    tv_show_tmdb_id: mediaEntry.tv_show_tmdb_id,
+                    season_number: mediaEntry.season_number,
+                  })
+                  .first();
+              } else if (mediaType === 'movie' && mediaEntry.tmdb_id) {
+                existingMedia = await trx('media')
+                  .where({
+                    media_type: 'movie',
+                    tmdb_id: mediaEntry.tmdb_id,
+                  })
+                  .first();
+              }
+
+              if (existingMedia) {
+                mediaId = existingMedia.id;
+              } else {
+                const mediaData: any = {
+                  title: mediaEntry.title,
+                  original_title: mediaEntry.original_title || null,
+                  original_language: mediaEntry.original_language || null,
+                  tmdb_id: mediaEntry.tmdb_id,
+                  synopsis: mediaEntry.synopsis,
+                  cover_art_url: mediaEntry.cover_art_url,
+                  release_date: mediaEntry.release_date,
+                  director: mediaEntry.director,
+                  cast: mediaEntry.cast ? JSON.stringify(mediaEntry.cast) : null,
+                  media_type: mediaType,
+                  tv_show_tmdb_id: mediaEntry.tv_show_tmdb_id || null,
+                  tv_show_name: mediaEntry.tv_show_name || null,
+                  season_number: mediaEntry.season_number != null ? mediaEntry.season_number : null,
+                  episode_count: mediaEntry.episode_count != null ? mediaEntry.episode_count : null,
+                };
+
+                if (mediaEntry.genres) {
+                  mediaData.genres =
+                    typeof mediaEntry.genres === 'string'
+                      ? mediaEntry.genres
+                      : JSON.stringify(mediaEntry.genres);
+                }
+
+                const [newMediaId] = await trx('media').insert(mediaData);
+                mediaId = newMediaId;
+              }
+            }
+
+            const entryFormats =
+              Array.isArray(mediaEntry.formats) && mediaEntry.formats.length > 0
+                ? mediaEntry.formats
+                : formatArray;
+            for (const f of entryFormats) {
+              if (!validFormats.includes(f)) {
+                throw new Error(`Invalid physical format: ${f}`);
+              }
+            }
+
+            await trx('physical_item_media').insert({
+              physical_item_id: physicalItemId,
+              media_id: mediaId,
+              disc_number: mediaEntry.disc_number,
+              formats: JSON.stringify(entryFormats),
+              version_notes: normalizeVersionNotes(mediaEntry.version_notes, canonicalVersionMap),
+            });
+          }
 
           // Fetch created item with media
           const createdItem = await trx('physical_items').where('id', physicalItemId).first();
@@ -2011,6 +2085,16 @@ router.post('/bulk', authMiddleware, async (req: Request, res: Response) => {
     });
 
     letterboxdService.reconcileMediaWithCache().catch(() => { /* silently ignore */ });
+
+    if (successful.length > 0) {
+      await recordBulkItemsAddedEvents(
+        successful.map((entry: any) => ({
+          physicalItemId: entry.physicalItem.id,
+          name: entry.physicalItem.name,
+          purchaseDate: entry.physicalItem.purchase_date || null,
+        }))
+      );
+    }
 
     res.status(201).json({
       successful,

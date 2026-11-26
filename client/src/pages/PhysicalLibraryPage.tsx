@@ -23,17 +23,65 @@ import { useConfirm } from '../context/ConfirmContext';
 import { useToast } from '../context/ToastContext';
 import ShelfGroupCard from '../components/library/ShelfGroupCard';
 import UnassignedItemsPanel from '../components/library/UnassignedItemsPanel';
-import ApplySortModal from '../components/library/ApplySortModal';
+import OrganizeShelvesModal from '../components/library/OrganizeShelvesModal';
+import ShelfAdminPanel from '../components/library/ShelfAdminPanel';
+import ShelvingQueueModal from '../components/library/ShelvingQueueModal';
+import ShelfPhotoGalleryModal from '../components/library/ShelfPhotoGalleryModal';
 import SpineColorPicker from '../components/library/SpineColorPicker';
 import MediaDetailModal from '../components/MediaDetailModal';
 import MediaForm from '../components/MediaForm';
 import { ItemDragOverlay, ShelfDragOverlay, GroupDragOverlay } from '../components/library/DragOverlayItem';
 import { Button } from '../components/ui/Button';
-import { Chip } from '../components/ui/Chip';
 import { EmptyState } from '../components/ui/EmptyState';
 import { SegmentedControl } from '../components/ui/SegmentedControl';
 import { Skeleton } from '../components/ui/Skeleton';
 import { Sheet } from '../components/ui/Sheet';
+
+type ShelfWidthUnit = 'cases' | 'in' | 'cm';
+
+const MM_PER_INCH = 25.4;
+const MM_PER_CM = 10;
+
+function formatDimensionValue(value: number, maxDecimals: number = 2): string {
+  const factor = 10 ** maxDecimals;
+  const rounded = Math.round(value * factor) / factor;
+  return String(rounded);
+}
+
+function resolveShelfWidth(
+  rawInput: string,
+  unit: ShelfWidthUnit,
+  exactWidthMmOverride: number | null
+): { valid: boolean; capacityUnits: number; widthMm: number } {
+  const trimmed = rawInput.trim();
+  if (!trimmed || trimmed === '.') {
+    return { valid: false, capacityUnits: 0, widthMm: 0 };
+  }
+
+  if (unit === 'cases') {
+    const parsed = parseInt(trimmed, 10);
+    if (!Number.isFinite(parsed) || parsed < 1) {
+      return { valid: false, capacityUnits: 0, widthMm: 0 };
+    }
+    const widthMm =
+      exactWidthMmOverride !== null
+        ? exactWidthMmOverride
+        : Math.round(parsed * STANDARD_UNIT_MM * 100) / 100;
+    return { valid: true, capacityUnits: parsed, widthMm };
+  }
+
+  const parsed = parseFloat(trimmed);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return { valid: false, capacityUnits: 0, widthMm: 0 };
+  }
+
+  const computedMm =
+    exactWidthMmOverride !== null
+      ? exactWidthMmOverride
+      : Math.round(parsed * (unit === 'in' ? MM_PER_INCH : MM_PER_CM) * 100) / 100;
+  const capacityUnits = Math.max(1, Math.floor((computedMm + 1e-9) / STANDARD_UNIT_MM));
+  return { valid: true, capacityUnits, widthMm: computedMm };
+}
 
 /** Move an element in an array from one index to another, returning a new array. */
 function arrayMove<T>(arr: T[], from: number, to: number): T[] {
@@ -121,10 +169,6 @@ export interface PhysicalLibraryPageProps {
   embedded?: boolean;
   refreshKey?: number;
   matchingItemIds?: Set<number> | null;
-  showApplySortModal?: boolean;
-  onCloseApplySortModal?: () => void;
-  showAddGroupModal?: boolean;
-  onCloseAddGroupModal?: () => void;
   onDataChange?: () => void;
 }
 
@@ -132,10 +176,6 @@ const PhysicalLibraryPage: React.FC<PhysicalLibraryPageProps> = ({
   embedded = false,
   refreshKey,
   matchingItemIds = null,
-  showApplySortModal,
-  onCloseApplySortModal,
-  showAddGroupModal,
-  onCloseAddGroupModal,
   onDataChange,
 }) => {
   const { isAuthenticated } = useAuth();
@@ -151,9 +191,14 @@ const PhysicalLibraryPage: React.FC<PhysicalLibraryPageProps> = ({
   // Panel state
   const [isUnassignedOpen, setIsUnassignedOpen] = useState(false);
   const [unassignedRefreshKey, setUnassignedRefreshKey] = useState(0);
+  const [unassignedItems, setUnassignedItems] = useState<PhysicalItem[]>([]);
+  const [photoCount, setPhotoCount] = useState(0);
 
   // Modal state
-  const [showApplySort, setShowApplySort] = useState(false);
+  const [showOrganize, setShowOrganize] = useState(false);
+  const [showQueue, setShowQueue] = useState(false);
+  const [showPhotos, setShowPhotos] = useState(false);
+  const [photosInitialGroup, setPhotosInitialGroup] = useState<number | null>(null);
   const [showAddGroup, setShowAddGroup] = useState(false);
   const [showAddShelf, setShowAddShelf] = useState<number | null>(null); // group id
   const [editingGroup, setEditingGroup] = useState<ShelfGroup | null>(null);
@@ -162,10 +207,83 @@ const PhysicalLibraryPage: React.FC<PhysicalLibraryPageProps> = ({
   // Form state for inline modals
   const [formName, setFormName] = useState('');
   const [formDisplayName, setFormDisplayName] = useState('');
-  const [formCapacity, setFormCapacity] = useState(10);
+  const [shelfWidthUnit, setShelfWidthUnit] = useState<ShelfWidthUnit>('cases');
+  const [shelfWidthInput, setShelfWidthInput] = useState('10');
+  const [exactWidthMm, setExactWidthMm] = useState<number | null>(null);
   const [addShelfMode, setAddShelfMode] = useState<'single' | 'bulk'>('single');
-  const [bulkShelfCount, setBulkShelfCount] = useState(5);
+  const [bulkShelfCountInput, setBulkShelfCountInput] = useState('5');
   const [isSubmittingShelves, setIsSubmittingShelves] = useState(false);
+
+  const resolvedShelfWidth = resolveShelfWidth(shelfWidthInput, shelfWidthUnit, exactWidthMm);
+  const parsedBulkShelfCount = (() => {
+    const trimmed = bulkShelfCountInput.trim();
+    if (!trimmed) return null;
+    const n = parseInt(trimmed, 10);
+    return Number.isFinite(n) ? n : null;
+  })();
+
+  const resetShelfWidthState = () => {
+    setShelfWidthUnit('cases');
+    setShelfWidthInput('10');
+    setExactWidthMm(null);
+  };
+
+  const handleShelfWidthUnitChange = (nextUnit: ShelfWidthUnit) => {
+    if (nextUnit === shelfWidthUnit) return;
+    const current = resolveShelfWidth(shelfWidthInput, shelfWidthUnit, exactWidthMm);
+    setShelfWidthUnit(nextUnit);
+    if (!current.valid) {
+      setExactWidthMm(null);
+      return;
+    }
+    const isExactCasesMultiple =
+      Math.abs(current.widthMm - current.capacityUnits * STANDARD_UNIT_MM) < 0.05;
+    setExactWidthMm(nextUnit === 'cases' && isExactCasesMultiple ? null : current.widthMm);
+    if (nextUnit === 'cases') {
+      setShelfWidthInput(String(current.capacityUnits));
+    } else if (nextUnit === 'in') {
+      setShelfWidthInput(formatDimensionValue(current.widthMm / MM_PER_INCH, 2));
+    } else {
+      setShelfWidthInput(formatDimensionValue(current.widthMm / MM_PER_CM, 2));
+    }
+  };
+
+  const handleShelfWidthInputChange = (rawValue: string) => {
+    setExactWidthMm(null);
+    if (shelfWidthUnit === 'cases') {
+      const digits = rawValue.replace(/[^\d]/g, '');
+      if (digits === '') {
+        setShelfWidthInput('');
+        return;
+      }
+      setShelfWidthInput(String(parseInt(digits, 10)));
+      return;
+    }
+
+    let cleaned = rawValue.replace(/[^0-9.]/g, '');
+    const dotIndex = cleaned.indexOf('.');
+    if (dotIndex !== -1) {
+      cleaned = cleaned.slice(0, dotIndex + 1) + cleaned.slice(dotIndex + 1).replace(/\./g, '');
+    }
+    setShelfWidthInput(cleaned);
+  };
+
+  const stepShelfWidth = (delta: 1 | -1) => {
+    setExactWidthMm(null);
+    if (shelfWidthUnit === 'cases') {
+      const current = parseInt(shelfWidthInput, 10);
+      const next = Number.isFinite(current) ? Math.max(1, current + delta) : 1;
+      setShelfWidthInput(String(next));
+      return;
+    }
+
+    const minVal = shelfWidthUnit === 'in' ? 0.5 : 1;
+    const current = parseFloat(shelfWidthInput);
+    const next = Number.isFinite(current)
+      ? Math.max(minVal, Math.round((current + delta) * 100) / 100)
+      : 1;
+    setShelfWidthInput(formatDimensionValue(next, 2));
+  };
 
   // Library name editing
   const [isEditingLibraryName, setIsEditingLibraryName] = useState(false);
@@ -237,6 +355,46 @@ const PhysicalLibraryPage: React.FC<PhysicalLibraryPageProps> = ({
       setUnassignedRefreshKey((k) => k + 1);
     }
   }, [loadLibrary, refreshKey]);
+
+  // Fetch unassigned items for the "To Shelve" banner
+  useEffect(() => {
+    if (!canEdit) {
+      setUnassignedItems([]);
+      return;
+    }
+    let cancelled = false;
+    apiService
+      .getUnassignedItems()
+      .then((items) => {
+        if (!cancelled) setUnassignedItems(items);
+      })
+      .catch(() => {
+        if (!cancelled) setUnassignedItems([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [canEdit, unassignedRefreshKey, library]);
+
+  // Fetch photo count for the gallery button (works in public read-only too)
+  useEffect(() => {
+    if (!canEdit && !isReadOnly) {
+      setPhotoCount(0);
+      return;
+    }
+    let cancelled = false;
+    apiService
+      .getShelfPhotos()
+      .then((photos) => {
+        if (!cancelled) setPhotoCount(photos.length);
+      })
+      .catch(() => {
+        if (!cancelled) setPhotoCount(0);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [canEdit, isReadOnly, library, showPhotos]);
 
   // =============================================
   // Drag handlers
@@ -504,20 +662,30 @@ const PhysicalLibraryPage: React.FC<PhysicalLibraryPageProps> = ({
   };
 
   const handleAddShelf = async () => {
-    if (showAddShelf === null || !formName.trim() || !formDisplayName.trim()) return;
+    if (
+      showAddShelf === null ||
+      !formName.trim() ||
+      !formDisplayName.trim() ||
+      !resolvedShelfWidth.valid
+    ) {
+      return;
+    }
     setIsSubmittingShelves(true);
     try {
+      const hasCustomWidth = shelfWidthUnit !== 'cases' || exactWidthMm !== null;
       await apiService.createShelf(showAddShelf, {
         name: formName.trim().toLowerCase().replace(/\s+/g, '_'),
         display_name: formDisplayName.trim(),
-        capacity_units: formCapacity,
+        capacity_units: resolvedShelfWidth.capacityUnits,
+        width_source: hasCustomWidth ? 'manual' : 'cases',
+        ...(hasCustomWidth ? { width_mm: resolvedShelfWidth.widthMm } : {}),
       });
       await loadLibrary();
       toast({ message: 'Shelf created.', type: 'success' });
       setShowAddShelf(null);
       setFormName('');
       setFormDisplayName('');
-      setFormCapacity(10);
+      resetShelfWidthState();
     } catch (err) {
       toast({ message: 'Failed to create shelf.', type: 'error' });
       console.error('Failed to create shelf:', err);
@@ -527,13 +695,24 @@ const PhysicalLibraryPage: React.FC<PhysicalLibraryPageProps> = ({
   };
 
   const handleBulkAddShelves = async () => {
-    if (showAddShelf === null || bulkShelfCount < 1 || formCapacity < 1) return;
+    if (
+      showAddShelf === null ||
+      parsedBulkShelfCount === null ||
+      parsedBulkShelfCount < 1 ||
+      parsedBulkShelfCount > 50 ||
+      !resolvedShelfWidth.valid
+    ) {
+      return;
+    }
     setIsSubmittingShelves(true);
     try {
-      const count = Math.min(50, Math.max(1, bulkShelfCount));
+      const count = Math.min(50, Math.max(1, parsedBulkShelfCount));
+      const hasCustomWidth = shelfWidthUnit !== 'cases' || exactWidthMm !== null;
       await apiService.bulkCreateShelves(showAddShelf, {
         count,
-        capacity_units: formCapacity,
+        capacity_units: resolvedShelfWidth.capacityUnits,
+        width_source: hasCustomWidth ? 'manual' : 'cases',
+        ...(hasCustomWidth ? { width_mm: resolvedShelfWidth.widthMm } : {}),
       });
       await loadLibrary();
       toast({
@@ -543,8 +722,8 @@ const PhysicalLibraryPage: React.FC<PhysicalLibraryPageProps> = ({
       setShowAddShelf(null);
       setFormName('');
       setFormDisplayName('');
-      setFormCapacity(10);
-      setBulkShelfCount(5);
+      resetShelfWidthState();
+      setBulkShelfCountInput('5');
     } catch (err) {
       toast({ message: 'Failed to create shelves.', type: 'error' });
       console.error('Failed to bulk create shelves:', err);
@@ -554,19 +733,24 @@ const PhysicalLibraryPage: React.FC<PhysicalLibraryPageProps> = ({
   };
 
   const handleEditShelf = async () => {
-    if (!editingShelf || !formDisplayName.trim()) return;
+    if (!editingShelf || !formDisplayName.trim() || !resolvedShelfWidth.valid) return;
     try {
+      const hasCustomWidth = shelfWidthUnit !== 'cases' || exactWidthMm !== null;
       await apiService.updateShelf(editingShelf.id, {
         display_name: formDisplayName.trim(),
         name: formName.trim().toLowerCase().replace(/\s+/g, '_'),
-        capacity_units: formCapacity,
+        capacity_units: resolvedShelfWidth.capacityUnits,
+        width_source: hasCustomWidth ? 'manual' : 'cases',
+        width_mm: hasCustomWidth
+          ? resolvedShelfWidth.widthMm
+          : resolvedShelfWidth.capacityUnits * STANDARD_UNIT_MM,
       });
       await loadLibrary();
       toast({ message: 'Shelf updated.', type: 'success' });
       setEditingShelf(null);
       setFormName('');
       setFormDisplayName('');
-      setFormCapacity(10);
+      resetShelfWidthState();
     } catch (err) {
       toast({ message: 'Failed to update shelf.', type: 'error' });
       console.error('Failed to update shelf:', err);
@@ -616,10 +800,50 @@ const PhysicalLibraryPage: React.FC<PhysicalLibraryPageProps> = ({
     }
   };
 
-  const handleApplySortConfirm = async () => {
+  const handleOrganizeApplied = async () => {
     await loadLibrary();
     setUnassignedRefreshKey((k) => k + 1);
+    onDataChange?.();
   };
+
+  const handleQueueApplied = async () => {
+    await loadLibrary();
+    setUnassignedRefreshKey((k) => k + 1);
+    onDataChange?.();
+  };
+
+  const handleTogglePin = async (placementId: number, isPinned: boolean) => {
+    try {
+      await apiService.setPlacementPinned(placementId, isPinned);
+      setLibrary((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          groups: prev.groups.map((group) => ({
+            ...group,
+            shelves: group.shelves.map((shelf) => ({
+              ...shelf,
+              placements: shelf.placements.map((p) =>
+                p.id === placementId ? { ...p, is_pinned: isPinned } : p
+              ),
+            })),
+          })),
+        };
+      });
+    } catch {
+      toast({ message: 'Failed to update pin.', type: 'error' });
+    }
+  };
+
+  const handleOpenGroupPhotos = (groupId: number | null) => {
+    setPhotosInitialGroup(groupId);
+    setShowPhotos(true);
+  };
+
+  const handleJumpToGroup = useCallback((groupId: number) => {
+    const element = document.getElementById(`shelf-group-${groupId}`);
+    element?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, []);
 
   // Open edit forms with pre-filled data
   const openEditGroup = (group: ShelfGroup) => {
@@ -631,16 +855,23 @@ const PhysicalLibraryPage: React.FC<PhysicalLibraryPageProps> = ({
   const openEditShelf = (shelf: Shelf) => {
     setFormName(shelf.name);
     setFormDisplayName(shelf.display_name);
-    setFormCapacity(shelf.capacity_units);
+    setShelfWidthUnit('cases');
+    setShelfWidthInput(String(shelf.capacity_units));
+    const defaultMm = shelf.capacity_units * STANDARD_UNIT_MM;
+    setExactWidthMm(
+      shelf.width_mm !== undefined && Math.abs(shelf.width_mm - defaultMm) > 0.05
+        ? shelf.width_mm
+        : null
+    );
     setEditingShelf(shelf);
   };
 
   const openAddShelf = (groupId: number) => {
     setFormName('');
     setFormDisplayName('');
-    setFormCapacity(10);
+    resetShelfWidthState();
     setAddShelfMode('single');
-    setBulkShelfCount(5);
+    setBulkShelfCountInput('5');
     setShowAddShelf(groupId);
   };
 
@@ -650,23 +881,9 @@ const PhysicalLibraryPage: React.FC<PhysicalLibraryPageProps> = ({
     setShowAddGroup(true);
   };
 
-  useEffect(() => {
-    if (showAddGroupModal) {
-      setFormName('');
-      setFormDisplayName('');
-    }
-  }, [showAddGroupModal]);
-
-  const isApplySortOpen = showApplySort || Boolean(showApplySortModal);
-  const closeApplySort = () => {
-    setShowApplySort(false);
-    onCloseApplySortModal?.();
-  };
-
-  const isAddGroupOpen = showAddGroup || Boolean(showAddGroupModal);
+  const isAddGroupOpen = showAddGroup;
   const closeAddGroup = () => {
     setShowAddGroup(false);
-    onCloseAddGroupModal?.();
   };
 
   // =============================================
@@ -767,18 +984,19 @@ const PhysicalLibraryPage: React.FC<PhysicalLibraryPageProps> = ({
               </div>
             </div>
 
-            {canEdit && !embedded && (
-              <div className="flex items-center gap-2">
-                <Button onClick={() => setShowApplySort(true)} variant="secondary" size="sm">
-                  Apply Sort
-                </Button>
-                <Button onClick={openAddGroup} size="sm">
-                  Add Group
-                </Button>
-              </div>
-            )}
           </div>
         </div>
+
+        {/* Single consolidated admin panel: queue callout + all shelf tools */}
+        <ShelfAdminPanel
+          canEdit={canEdit}
+          unassignedItems={unassignedItems}
+          photoCount={photoCount}
+          onPlanQueue={() => setShowQueue(true)}
+          onOrganize={() => setShowOrganize(true)}
+          onOpenPhotos={() => handleOpenGroupPhotos(null)}
+          onAddGroup={openAddGroup}
+        />
 
         {/* Groups */}
         {library.groups.length === 0 ? (
@@ -799,20 +1017,23 @@ const PhysicalLibraryPage: React.FC<PhysicalLibraryPageProps> = ({
           >
             <div className="space-y-4">
               {library.groups.map((group) => (
-                <ShelfGroupCard
-                  key={group.id}
-                  group={group}
-                  isEditMode={canEdit}
-                  matchingItemIds={matchingItemIds}
-                  onEditGroup={openEditGroup}
-                  onDeleteGroup={handleDeleteGroup}
-                  onAddShelf={openAddShelf}
-                  onEditShelf={openEditShelf}
-                  onDeleteShelf={handleDeleteShelf}
-                  onRemovePlacement={handleRemovePlacement}
-                  onItemClick={handleItemClick}
-                  onSpineColorEdit={(itemId) => setEditingSpineColorItemId(itemId)}
-                />
+                <div key={group.id} id={`shelf-group-${group.id}`}>
+                  <ShelfGroupCard
+                    group={group}
+                    isEditMode={canEdit}
+                    matchingItemIds={matchingItemIds}
+                    onEditGroup={openEditGroup}
+                    onDeleteGroup={handleDeleteGroup}
+                    onAddShelf={openAddShelf}
+                    onEditShelf={openEditShelf}
+                    onDeleteShelf={handleDeleteShelf}
+                    onRemovePlacement={handleRemovePlacement}
+                    onItemClick={handleItemClick}
+                    onSpineColorEdit={(itemId) => setEditingSpineColorItemId(itemId)}
+                    onTogglePin={handleTogglePin}
+                    onOpenPhotos={() => handleOpenGroupPhotos(group.id)}
+                  />
+                </div>
               ))}
             </div>
           </SortableContext>
@@ -842,11 +1063,32 @@ const PhysicalLibraryPage: React.FC<PhysicalLibraryPageProps> = ({
         />
       )}
 
-      {/* Apply Sort Modal */}
-      <ApplySortModal
-        isOpen={isApplySortOpen}
-        onClose={closeApplySort}
-        onConfirm={handleApplySortConfirm}
+      {/* Organize Rules Studio */}
+      {library && (
+        <OrganizeShelvesModal
+          isOpen={showOrganize}
+          groups={library.groups}
+          onClose={() => setShowOrganize(false)}
+          onApplied={handleOrganizeApplied}
+        />
+      )}
+
+      {/* Shelving Queue Assistant */}
+      <ShelvingQueueModal
+        isOpen={showQueue}
+        items={unassignedItems}
+        onClose={() => setShowQueue(false)}
+        onApplied={handleQueueApplied}
+      />
+
+      {/* Shelf Photo Gallery */}
+      <ShelfPhotoGalleryModal
+        isOpen={showPhotos}
+        library={library}
+        readOnly={!canEdit}
+        initialGroupId={photosInitialGroup}
+        onClose={() => setShowPhotos(false)}
+        onJumpToGroup={handleJumpToGroup}
       />
 
       {/* =============================================
@@ -912,17 +1154,132 @@ const PhysicalLibraryPage: React.FC<PhysicalLibraryPageProps> = ({
 
       {/* Add Shelf Modal */}
       {(() => {
+        const renderShelfWidthField = (
+          inputId: string,
+          options: { isBulk?: boolean; onEnter?: () => void } = {}
+        ) => {
+          const eachSuffix = options.isBulk ? ' each' : '';
+          let summaryBadge = `${STANDARD_UNIT_MM}mm (${(STANDARD_UNIT_MM / MM_PER_INCH).toFixed(2)}\u2033) per case`;
+          if (resolvedShelfWidth.valid) {
+            if (shelfWidthUnit === 'cases') {
+              summaryBadge = `${resolvedShelfWidth.widthMm.toFixed(1)}mm (${(
+                resolvedShelfWidth.widthMm / MM_PER_INCH
+              ).toFixed(1)}\u2033 \u00b7 ${(resolvedShelfWidth.widthMm / MM_PER_CM).toFixed(1)}cm)${eachSuffix}`;
+            } else if (shelfWidthUnit === 'in') {
+              summaryBadge = `Fits ${resolvedShelfWidth.capacityUnits} ${
+                resolvedShelfWidth.capacityUnits === 1 ? 'case' : 'cases'
+              } (${(resolvedShelfWidth.widthMm / MM_PER_CM).toFixed(1)}cm \u00b7 ${resolvedShelfWidth.widthMm.toFixed(
+                0
+              )}mm)${eachSuffix}`;
+            } else {
+              summaryBadge = `Fits ${resolvedShelfWidth.capacityUnits} ${
+                resolvedShelfWidth.capacityUnits === 1 ? 'case' : 'cases'
+              } (${(resolvedShelfWidth.widthMm / MM_PER_INCH).toFixed(1)}\u2033 \u00b7 ${resolvedShelfWidth.widthMm.toFixed(
+                0
+              )}mm)${eachSuffix}`;
+            }
+          }
+
+          const minStepperVal = shelfWidthUnit === 'in' ? 0.5 : 1;
+          const numericCurrent = parseFloat(shelfWidthInput);
+          const isAtMin =
+            Number.isFinite(numericCurrent) && numericCurrent <= minStepperVal;
+
+          return (
+            <div>
+              <div className="flex items-center justify-between gap-2 mb-1.5">
+                <label htmlFor={inputId} className="block text-sm font-medium text-content">
+                  Shelf Width
+                </label>
+                <span className="text-xs font-medium text-primary-600 dark:text-primary-400">
+                  {summaryBadge}
+                </span>
+              </div>
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="inline-flex items-center rounded-[--radius-control] border border-subtle bg-surface focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2 focus-within:ring-offset-surface">
+                  <button
+                    type="button"
+                    aria-label="Decrease shelf width"
+                    onClick={() => stepShelfWidth(-1)}
+                    disabled={isAtMin}
+                    className="px-3 py-2 text-content-muted hover:bg-surface-sunken hover:text-content disabled:opacity-40 disabled:cursor-not-allowed transition-colors rounded-l-[--radius-control]"
+                  >
+                    &minus;
+                  </button>
+                  <input
+                    id={inputId}
+                    type="text"
+                    inputMode={shelfWidthUnit === 'cases' ? 'numeric' : 'decimal'}
+                    placeholder={
+                      shelfWidthUnit === 'cases'
+                        ? '20'
+                        : shelfWidthUnit === 'in'
+                          ? '30'
+                          : '76'
+                    }
+                    value={shelfWidthInput}
+                    onChange={(e) => handleShelfWidthInputChange(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'ArrowUp') {
+                        e.preventDefault();
+                        stepShelfWidth(1);
+                      } else if (e.key === 'ArrowDown') {
+                        e.preventDefault();
+                        stepShelfWidth(-1);
+                      } else if (e.key === 'Enter' && options.onEnter) {
+                        e.preventDefault();
+                        options.onEnter();
+                      }
+                    }}
+                    className="w-20 bg-transparent py-2 text-center font-semibold text-content focus:outline-none focus-visible:[box-shadow:none]"
+                  />
+                  <button
+                    type="button"
+                    aria-label="Increase shelf width"
+                    onClick={() => stepShelfWidth(1)}
+                    className="px-3 py-2 text-content-muted hover:bg-surface-sunken hover:text-content transition-colors rounded-r-[--radius-control]"
+                  >
+                    +
+                  </button>
+                </div>
+
+                <SegmentedControl
+                  name="Shelf width unit"
+                  value={shelfWidthUnit}
+                  onChange={(val) => handleShelfWidthUnitChange(val as ShelfWidthUnit)}
+                  options={[
+                    { value: 'cases', label: 'Cases' },
+                    { value: 'in', label: 'Inches' },
+                    { value: 'cm', label: 'cm' },
+                  ]}
+                />
+              </div>
+              <p className="mt-1.5 text-xs text-content-muted">
+                {shelfWidthUnit === 'cases'
+                  ? `Standard Blu-ray cases (${STANDARD_UNIT_MM}mm / ${(STANDARD_UNIT_MM / MM_PER_INCH).toFixed(2)}\u2033 each), or switch to Inches / cm for a manual measurement.`
+                  : shelfWidthUnit === 'in'
+                    ? `Manual shelf width in inches. Case capacity is calculated at ${STANDARD_UNIT_MM}mm per standard Blu-ray case.`
+                    : `Manual shelf width in centimeters. Case capacity is calculated at ${STANDARD_UNIT_MM}mm per standard Blu-ray case.`}
+              </p>
+            </div>
+          );
+        };
+
         const activeAddGroup = showAddShelf !== null
           ? library.groups.find((g) => g.id === showAddShelf) ?? null
           : null;
+        const isBulkCountValid =
+          parsedBulkShelfCount !== null &&
+          parsedBulkShelfCount >= 1 &&
+          parsedBulkShelfCount <= 50;
+        const previewCount = isBulkCountValid ? parsedBulkShelfCount : 0;
         const existingNames = new Set(
           (activeAddGroup?.shelves ?? []).map((s) => s.display_name.toLowerCase())
         );
         const previewNames: string[] = [];
-        if (activeAddGroup) {
+        if (activeAddGroup && previewCount > 0) {
           let nextNum = activeAddGroup.shelves.length + 1;
-          const count = Math.min(50, Math.max(1, bulkShelfCount));
-          for (let i = 0; i < count; i++) {
+          for (let i = 0; i < previewCount; i++) {
             let candidate = `${activeAddGroup.display_name} - Shelf ${nextNum}`;
             while (existingNames.has(candidate.toLowerCase())) {
               nextNum++;
@@ -937,213 +1294,246 @@ const PhysicalLibraryPage: React.FC<PhysicalLibraryPageProps> = ({
         const lastPreviewName = previewNames[previewNames.length - 1] ?? firstPreviewName;
 
         return (
-          <Sheet
-            isOpen={showAddShelf !== null}
-            onClose={() => setShowAddShelf(null)}
-            title={addShelfMode === 'bulk' ? 'Bulk Add Shelves' : 'Add Shelf'}
-            description={
-              activeAddGroup
-                ? `Adding to ${activeAddGroup.display_name}`
-                : undefined
-            }
-            position="center"
-            size="md"
-          >
-            <div className="space-y-5">
-              <SegmentedControl
-                name="Add shelf mode"
-                value={addShelfMode}
-                onChange={(val) => setAddShelfMode(val as 'single' | 'bulk')}
-                className="w-full"
-                options={[
-                  { value: 'single', label: 'Single Shelf' },
-                  { value: 'bulk', label: 'Bulk Add' },
-                ]}
-              />
+          <>
+            <Sheet
+              isOpen={showAddShelf !== null}
+              onClose={() => setShowAddShelf(null)}
+              title={addShelfMode === 'bulk' ? 'Bulk Add Shelves' : 'Add Shelf'}
+              description={
+                activeAddGroup
+                  ? `Adding to ${activeAddGroup.display_name}`
+                  : undefined
+              }
+              position="center"
+              size="md"
+            >
+              <div className="space-y-5">
+                <SegmentedControl
+                  name="Add shelf mode"
+                  value={addShelfMode}
+                  onChange={(val) => setAddShelfMode(val as 'single' | 'bulk')}
+                  className="w-full"
+                  options={[
+                    { value: 'single', label: 'Single Shelf' },
+                    { value: 'bulk', label: 'Bulk Add' },
+                  ]}
+                />
 
-              {addShelfMode === 'single' ? (
-                <div className="space-y-4">
-                  <div>
-                    <label htmlFor="shelf-display-name" className="block text-sm font-medium text-content-muted mb-1">
-                      Display Name
-                    </label>
-                    <input
-                      id="shelf-display-name"
-                      type="text"
-                      value={formDisplayName}
-                      onChange={(e) => {
-                        setFormDisplayName(e.target.value);
-                        setFormName(e.target.value.toLowerCase().replace(/\s+/g, '_'));
-                      }}
-                      placeholder="e.g., Top Shelf"
-                      className="w-full rounded-[--radius-control] border border-subtle bg-surface px-3 py-2 text-content focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
-                      autoFocus
-                      onKeyDown={(e) => e.key === 'Enter' && handleAddShelf()}
-                    />
-                  </div>
-                  <div>
-                    <label htmlFor="shelf-capacity-single" className="block text-sm font-medium text-content-muted mb-1">
-                      Capacity (standard Blu-ray cases)
-                    </label>
-                    <div className="flex items-center gap-3">
-                      <input
-                        id="shelf-capacity-single"
-                        type="number"
-                        value={formCapacity}
-                        onChange={(e) => setFormCapacity(Math.max(1, parseInt(e.target.value) || 1))}
-                        min={1}
-                        className="w-24 rounded-[--radius-control] border border-subtle bg-surface px-3 py-2 text-content focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
-                      />
-                      <span className="text-sm text-content-muted">
-                        = {(formCapacity * STANDARD_UNIT_MM).toFixed(1)}mm
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                <div className="space-y-5">
-                  {/* Number of Shelves */}
-                  <div>
-                    <div className="flex items-center justify-between mb-1.5">
-                      <label htmlFor="bulk-shelf-count" className="block text-sm font-medium text-content">
-                        Number of Shelves
+                {addShelfMode === 'single' ? (
+                  <div className="space-y-4">
+                    <div>
+                      <label htmlFor="shelf-display-name" className="block text-sm font-medium text-content-muted mb-1">
+                        Display Name
                       </label>
-                      <span className="text-xs text-content-muted">Max 50 at once</span>
+                      <input
+                        id="shelf-display-name"
+                        type="text"
+                        value={formDisplayName}
+                        onChange={(e) => {
+                          setFormDisplayName(e.target.value);
+                          setFormName(e.target.value.toLowerCase().replace(/\s+/g, '_'));
+                        }}
+                        placeholder="e.g., Top Shelf"
+                        className="w-full rounded-[--radius-control] border border-subtle bg-surface px-3 py-2 text-content focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+                        autoFocus
+                        onKeyDown={(e) => e.key === 'Enter' && handleAddShelf()}
+                      />
                     </div>
-                    <div className="flex flex-wrap items-center gap-3">
-                      <div className="inline-flex items-center rounded-[--radius-control] border border-subtle bg-surface">
+                    {renderShelfWidthField('shelf-capacity-single', {
+                      onEnter: handleAddShelf,
+                    })}
+                  </div>
+                ) : (
+                  <div className="space-y-5">
+                    {/* Number of Shelves */}
+                    <div>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <label htmlFor="bulk-shelf-count" className="block text-sm font-medium text-content">
+                          Number of Shelves
+                        </label>
+                        <span className="text-xs text-content-muted">Max 50 at once</span>
+                      </div>
+                      <div className="inline-flex items-center rounded-[--radius-control] border border-subtle bg-surface focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2 focus-within:ring-offset-surface">
                         <button
                           type="button"
                           aria-label="Decrease shelf count"
-                          onClick={() => setBulkShelfCount((c) => Math.max(1, c - 1))}
-                          disabled={bulkShelfCount <= 1}
-                          className="px-3 py-2 text-content-muted hover:bg-surface-sunken hover:text-content disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                          onClick={() => {
+                            const next =
+                              parsedBulkShelfCount !== null
+                                ? Math.max(1, parsedBulkShelfCount - 1)
+                                : 1;
+                            setBulkShelfCountInput(String(next));
+                          }}
+                          disabled={parsedBulkShelfCount !== null && parsedBulkShelfCount <= 1}
+                          className="px-3 py-2 text-content-muted hover:bg-surface-sunken hover:text-content disabled:opacity-40 disabled:cursor-not-allowed transition-colors rounded-l-[--radius-control]"
                         >
                           &minus;
                         </button>
                         <input
                           id="bulk-shelf-count"
-                          type="number"
-                          min={1}
-                          max={50}
-                          value={bulkShelfCount}
-                          onChange={(e) =>
-                            setBulkShelfCount(Math.min(50, Math.max(1, parseInt(e.target.value) || 1)))
-                          }
-                          className="w-16 bg-transparent py-2 text-center font-semibold text-content focus:outline-none"
+                          type="text"
+                          inputMode="numeric"
+                          placeholder="5"
+                          value={bulkShelfCountInput}
+                          onChange={(e) => {
+                            const digits = e.target.value.replace(/[^\d]/g, '');
+                            if (digits === '') {
+                              setBulkShelfCountInput('');
+                              return;
+                            }
+                            const n = parseInt(digits, 10);
+                            setBulkShelfCountInput(String(Math.min(50, n)));
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'ArrowUp') {
+                              e.preventDefault();
+                              const next =
+                                parsedBulkShelfCount !== null
+                                  ? Math.min(50, parsedBulkShelfCount + 1)
+                                  : 1;
+                              setBulkShelfCountInput(String(next));
+                            } else if (e.key === 'ArrowDown') {
+                              e.preventDefault();
+                              const next =
+                                parsedBulkShelfCount !== null
+                                  ? Math.max(1, parsedBulkShelfCount - 1)
+                                  : 1;
+                              setBulkShelfCountInput(String(next));
+                            } else if (e.key === 'Enter') {
+                              e.preventDefault();
+                              handleBulkAddShelves();
+                            }
+                          }}
+                          className="w-20 bg-transparent py-2 text-center font-semibold text-content focus:outline-none focus-visible:[box-shadow:none]"
                         />
                         <button
                           type="button"
                           aria-label="Increase shelf count"
-                          onClick={() => setBulkShelfCount((c) => Math.min(50, c + 1))}
-                          disabled={bulkShelfCount >= 50}
-                          className="px-3 py-2 text-content-muted hover:bg-surface-sunken hover:text-content disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                          onClick={() => {
+                            const next =
+                              parsedBulkShelfCount !== null
+                                ? Math.min(50, parsedBulkShelfCount + 1)
+                                : 1;
+                            setBulkShelfCountInput(String(next));
+                          }}
+                          disabled={parsedBulkShelfCount !== null && parsedBulkShelfCount >= 50}
+                          className="px-3 py-2 text-content-muted hover:bg-surface-sunken hover:text-content disabled:opacity-40 disabled:cursor-not-allowed transition-colors rounded-r-[--radius-control]"
                         >
                           +
                         </button>
                       </div>
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        {[3, 5, 6, 8, 10].map((preset) => (
-                          <Chip
-                            key={preset}
-                            label={`${preset}`}
-                            selected={bulkShelfCount === preset}
-                            onClick={() => setBulkShelfCount(preset)}
-                            className="px-2.5 py-1 text-xs"
-                          />
-                        ))}
-                      </div>
                     </div>
-                  </div>
 
-                  {/* Shelf Width / Capacity */}
-                  <div>
-                    <div className="flex items-center justify-between mb-1.5">
-                      <label htmlFor="bulk-shelf-capacity" className="block text-sm font-medium text-content">
-                        Shelf Width (standard Blu-ray cases)
-                      </label>
-                      <span className="text-xs font-medium text-primary-600 dark:text-primary-400">
-                        {(formCapacity * STANDARD_UNIT_MM).toFixed(1)}mm ({((formCapacity * STANDARD_UNIT_MM) / 25.4).toFixed(1)}&Prime;) each
-                      </span>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-3">
-                      <input
-                        id="bulk-shelf-capacity"
-                        type="number"
-                        min={1}
-                        value={formCapacity}
-                        onChange={(e) => setFormCapacity(Math.max(1, parseInt(e.target.value) || 1))}
-                        className="w-24 rounded-[--radius-control] border border-subtle bg-surface px-3 py-2 font-semibold text-content focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
-                      />
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        {[10, 20, 30, 50].map((preset) => (
-                          <Chip
-                            key={preset}
-                            label={`${preset} cases`}
-                            selected={formCapacity === preset}
-                            onClick={() => setFormCapacity(preset)}
-                            className="px-2.5 py-1 text-xs"
-                          />
-                        ))}
-                      </div>
-                    </div>
-                  </div>
+                    {/* Shelf Width / Capacity */}
+                    {renderShelfWidthField('bulk-shelf-capacity', {
+                      isBulk: true,
+                      onEnter: handleBulkAddShelves,
+                    })}
 
-                  {/* Live Summary & Auto-naming Preview */}
-                  <div className="rounded-[--radius-control] border border-subtle bg-surface-sunken p-3.5 space-y-2">
-                    <div className="flex items-center justify-between text-xs font-medium text-content-muted uppercase tracking-wider">
-                      <span>Summary Preview</span>
-                      <span>
-                        {bulkShelfCount * formCapacity} total units ({(bulkShelfCount * formCapacity * STANDARD_UNIT_MM).toFixed(0)}mm)
-                      </span>
-                    </div>
-                    <div className="text-sm text-content">
-                      {bulkShelfCount === 1 ? (
+                    {/* Live Summary & Auto-naming Preview */}
+                    <div className="rounded-[--radius-control] border border-subtle bg-surface-sunken p-3.5 space-y-2">
+                      <div className="flex items-center justify-between text-xs font-medium text-content-muted uppercase tracking-wider">
+                        <span>Summary Preview</span>
                         <span>
-                          Will create <span className="font-semibold">&ldquo;{firstPreviewName}&rdquo;</span>
+                          {isBulkCountValid && resolvedShelfWidth.valid
+                            ? `${previewCount * resolvedShelfWidth.capacityUnits} total units (${(
+                                previewCount * resolvedShelfWidth.widthMm
+                              ).toFixed(0)}mm)`
+                            : 'Enter count & width'}
                         </span>
-                      ) : (
-                        <span>
-                          Will create <span className="font-semibold">{bulkShelfCount} shelves</span> named{' '}
-                          <span className="font-medium text-primary-600 dark:text-primary-400">
-                            &ldquo;{firstPreviewName}&rdquo;
-                          </span>{' '}
-                          through{' '}
-                          <span className="font-medium text-primary-600 dark:text-primary-400">
-                            &ldquo;{lastPreviewName}&rdquo;
+                      </div>
+                      <div className="text-sm text-content">
+                        {!isBulkCountValid || !resolvedShelfWidth.valid ? (
+                          <span className="text-content-muted">
+                            Enter the number of shelves and shelf width above to preview.
                           </span>
-                        </span>
-                      )}
+                        ) : previewCount === 1 ? (
+                          <span>
+                            Will create <span className="font-semibold">&ldquo;{firstPreviewName}&rdquo;</span>
+                          </span>
+                        ) : (
+                          <span>
+                            Will create <span className="font-semibold">{previewCount} shelves</span> named{' '}
+                            <span className="font-medium text-primary-600 dark:text-primary-400">
+                              &ldquo;{firstPreviewName}&rdquo;
+                            </span>{' '}
+                            through{' '}
+                            <span className="font-medium text-primary-600 dark:text-primary-400">
+                              &ldquo;{lastPreviewName}&rdquo;
+                            </span>
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-content-muted">
+                        Names are generated automatically so you can start organizing right away. You can rename any shelf later.
+                      </p>
                     </div>
-                    <p className="text-xs text-content-muted">
-                      Names are generated automatically so you can start organizing right away. You can rename any shelf later.
-                    </p>
                   </div>
-                </div>
-              )}
-            </div>
+                )}
+              </div>
 
-            <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
-              <Button variant="secondary" onClick={() => setShowAddShelf(null)} disabled={isSubmittingShelves}>
-                Cancel
-              </Button>
-              {addShelfMode === 'single' ? (
-                <Button
-                  onClick={handleAddShelf}
-                  disabled={!formDisplayName.trim() || isSubmittingShelves}
-                >
-                  Create Shelf
+              <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+                <Button variant="secondary" onClick={() => setShowAddShelf(null)} disabled={isSubmittingShelves}>
+                  Cancel
                 </Button>
-              ) : (
-                <Button
-                  onClick={handleBulkAddShelves}
-                  disabled={bulkShelfCount < 1 || formCapacity < 1 || isSubmittingShelves}
-                >
-                  {bulkShelfCount === 1 ? 'Create 1 Shelf' : `Create ${bulkShelfCount} Shelves`}
-                </Button>
-              )}
-            </div>
-          </Sheet>
+                {addShelfMode === 'single' ? (
+                  <Button
+                    onClick={handleAddShelf}
+                    disabled={!formDisplayName.trim() || !resolvedShelfWidth.valid || isSubmittingShelves}
+                  >
+                    Create Shelf
+                  </Button>
+                ) : (
+                  <Button
+                    onClick={handleBulkAddShelves}
+                    disabled={!isBulkCountValid || !resolvedShelfWidth.valid || isSubmittingShelves}
+                  >
+                    {previewCount === 1
+                      ? 'Create 1 Shelf'
+                      : previewCount > 1
+                        ? `Create ${previewCount} Shelves`
+                        : 'Create Shelves'}
+                  </Button>
+                )}
+              </div>
+            </Sheet>
+
+            {/* Edit Shelf Modal */}
+            <Sheet
+              isOpen={!!editingShelf}
+              onClose={() => setEditingShelf(null)}
+              title="Edit Shelf"
+              position="center"
+              size="md"
+            >
+              <div className="space-y-4">
+                <div>
+                  <label htmlFor="edit-shelf-display-name" className="block text-sm font-medium text-content-muted mb-1">
+                    Display Name
+                  </label>
+                  <input
+                    id="edit-shelf-display-name"
+                    type="text"
+                    value={formDisplayName}
+                    onChange={(e) => {
+                      setFormDisplayName(e.target.value);
+                      setFormName(e.target.value.toLowerCase().replace(/\s+/g, '_'));
+                    }}
+                    onKeyDown={(e) => e.key === 'Enter' && handleEditShelf()}
+                    className="w-full rounded-[--radius-control] border border-subtle bg-surface px-3 py-2 text-content focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+                    autoFocus
+                  />
+                </div>
+                {renderShelfWidthField('edit-shelf-capacity', {
+                  onEnter: handleEditShelf,
+                })}
+              </div>
+              <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+                <Button variant="secondary" onClick={() => setEditingShelf(null)}>Cancel</Button>
+                <Button onClick={handleEditShelf} disabled={!formDisplayName.trim() || !resolvedShelfWidth.valid}>Save</Button>
+              </div>
+            </Sheet>
+          </>
         );
       })()}
 
@@ -1162,48 +1552,6 @@ const PhysicalLibraryPage: React.FC<PhysicalLibraryPageProps> = ({
           <GroupDragOverlay group={activeDragData.group} />
         )}
       </DragOverlay>
-
-      {/* Edit Shelf Modal */}
-      <Sheet
-        isOpen={!!editingShelf}
-        onClose={() => setEditingShelf(null)}
-        title="Edit Shelf"
-        position="center"
-        size="md"
-      >
-        <div className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-content-muted">Display Name</label>
-            <input
-              type="text"
-              value={formDisplayName}
-              onChange={(e) => {
-                setFormDisplayName(e.target.value);
-                setFormName(e.target.value.toLowerCase().replace(/\s+/g, '_'));
-              }}
-              className="w-full rounded-[--radius-control] border border-subtle bg-surface px-3 py-2 text-content focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
-              autoFocus
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-content-muted">Capacity (standard Blu-ray cases)</label>
-            <div className="flex items-center gap-3">
-              <input
-                type="number"
-                value={formCapacity}
-                onChange={(e) => setFormCapacity(Math.max(1, parseInt(e.target.value) || 1))}
-                min={1}
-                className="w-24 rounded-[--radius-control] border border-subtle bg-surface px-3 py-2 text-content focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
-              />
-              <span className="text-sm text-content-muted">= {(formCapacity * STANDARD_UNIT_MM).toFixed(1)}mm</span>
-            </div>
-          </div>
-        </div>
-        <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
-          <Button variant="secondary" onClick={() => setEditingShelf(null)}>Cancel</Button>
-          <Button onClick={handleEditShelf} disabled={!formDisplayName.trim()}>Save</Button>
-        </div>
-      </Sheet>
 
       {/* Item Detail Modal */}
       <MediaDetailModal

@@ -1,10 +1,35 @@
 import { Router, Request, Response } from 'express';
+import fs from 'fs';
+import path from 'path';
 import { db } from '../database';
 import { authMiddleware } from '../middleware/auth.middleware';
+import { upload } from '../middleware/upload.middleware';
 import { STANDARD_UNIT_MM } from '../constants';
 import { parseCustomImagesFromRow } from '../utils/custom-images.util';
+import {
+  commitLayout,
+  commitShelvingPlan,
+  evaluateOrganization,
+  getOrganization,
+  loadBlocks,
+  loadEnginePlacements,
+  planShelving,
+  saveOrganization,
+} from '../services/shelf-organizer.service';
+import {
+  recordShelfGroupAddedEvent,
+  recordShelfPhotoAddedEvent,
+  recordShelfReorganizedEvent,
+  recordShelfResizedEvent,
+  recordShelvesAddedEvents,
+  removeEventsForShelf,
+  removeEventsForShelfGroup,
+  removeEventsForShelfPhoto,
+} from '../services/collection-events.service';
 
 const router = Router();
+
+const UPLOAD_DIR = process.env.UPLOAD_DIR || './uploads';
 
 // =============================================
 // Helper: Build a full library response with nested groups, shelves, placements
@@ -79,6 +104,7 @@ async function getFullLibrary() {
       shelf_id: p.shelf_id,
       physical_item_id: p.physical_item_id,
       position: p.position,
+      is_pinned: Boolean(p.is_pinned),
       created_at: p.created_at,
       updated_at: p.updated_at,
       physical_item: {
@@ -121,10 +147,24 @@ async function getFullLibrary() {
     });
   });
 
+  // Photo counts per group for gallery badges
+  const photoCounts = groupIds.length > 0
+    ? await db('shelf_photos')
+        .whereIn('group_id', groupIds)
+        .select('group_id')
+        .count('id as count')
+        .groupBy('group_id')
+    : [];
+  const photoCountMap = new Map<number, number>();
+  photoCounts.forEach((row: any) => {
+    photoCountMap.set(row.group_id, Number(row.count));
+  });
+
   return {
     ...library,
     groups: groups.map((g: any) => ({
       ...g,
+      photo_count: photoCountMap.get(g.id) || 0,
       shelves: shelvesByGroup.get(g.id) || [],
     })),
   };
@@ -220,10 +260,35 @@ router.post('/groups', authMiddleware, async (req: Request, res: Response) => {
     });
 
     const group = await db('shelf_groups').where('id', id).first();
+    await recordShelfGroupAddedEvent({
+      groupId: Number(id),
+      displayName: group.display_name,
+    });
     res.status(201).json({ ...group, shelves: [] });
   } catch (error) {
     console.error('Error creating shelf group:', error);
     res.status(500).json({ error: 'Failed to create shelf group' });
+  }
+});
+
+// PUT /api/library/groups/reorder (protected) — must be registered before /groups/:id
+router.put('/groups/reorder', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const { order } = req.body; // Array of { id, sort_order }
+    if (!Array.isArray(order)) {
+      return res.status(400).json({ error: 'order must be an array of { id, sort_order }' });
+    }
+
+    await db.transaction(async (trx) => {
+      for (const item of order) {
+        await trx('shelf_groups').where('id', item.id).update({ sort_order: item.sort_order });
+      }
+    });
+
+    res.json({ message: 'Groups reordered successfully' });
+  } catch (error) {
+    console.error('Error reordering groups:', error);
+    res.status(500).json({ error: 'Failed to reorder groups' });
   }
 });
 
@@ -263,33 +328,13 @@ router.delete('/groups/:id', authMiddleware, async (req: Request, res: Response)
       return res.status(404).json({ error: 'Shelf group not found' });
     }
 
+    await removeEventsForShelfGroup(Number(id));
     // CASCADE will delete shelves and their placements
     await db('shelf_groups').where('id', id).delete();
     res.json({ message: 'Shelf group deleted successfully' });
   } catch (error) {
     console.error('Error deleting shelf group:', error);
     res.status(500).json({ error: 'Failed to delete shelf group' });
-  }
-});
-
-// PUT /api/library/groups/reorder (protected)
-router.put('/groups/reorder', authMiddleware, async (req: Request, res: Response) => {
-  try {
-    const { order } = req.body; // Array of { id, sort_order }
-    if (!Array.isArray(order)) {
-      return res.status(400).json({ error: 'order must be an array of { id, sort_order }' });
-    }
-
-    await db.transaction(async (trx) => {
-      for (const item of order) {
-        await trx('shelf_groups').where('id', item.id).update({ sort_order: item.sort_order });
-      }
-    });
-
-    res.json({ message: 'Groups reordered successfully' });
-  } catch (error) {
-    console.error('Error reordering groups:', error);
-    res.status(500).json({ error: 'Failed to reorder groups' });
   }
 });
 
@@ -311,11 +356,16 @@ router.get('/groups/:groupId/shelves', async (req: Request, res: Response) => {
   }
 });
 
+function normalizeWidthSource(raw: unknown, hasCustomWidth: boolean): 'cases' | 'manual' {
+  if (raw === 'cases' || raw === 'manual') return raw;
+  return hasCustomWidth ? 'manual' : 'cases';
+}
+
 // POST /api/library/groups/:groupId/shelves (protected)
 router.post('/groups/:groupId/shelves', authMiddleware, async (req: Request, res: Response) => {
   try {
     const { groupId } = req.params;
-    const { name, display_name, capacity_units, width_mm, depth_mm } = req.body;
+    const { name, display_name, capacity_units, width_mm, width_source, depth_mm } = req.body;
 
     if (!name || !display_name) {
       return res.status(400).json({ error: 'name and display_name are required' });
@@ -326,7 +376,11 @@ router.post('/groups/:groupId/shelves', authMiddleware, async (req: Request, res
       return res.status(404).json({ error: 'Shelf group not found' });
     }
 
-    const capacityUnits = capacity_units || 10;
+    const capacityUnits = Math.max(1, parseInt(capacity_units) || 10);
+    const parsedWidthMm = width_mm !== undefined && width_mm !== null ? Number(width_mm) : undefined;
+    const hasCustomWidth =
+      parsedWidthMm !== undefined && Number.isFinite(parsedWidthMm) && parsedWidthMm > 0;
+    const computedWidthMm = hasCustomWidth ? parsedWidthMm! : capacityUnits * STANDARD_UNIT_MM;
 
     // Get next sort_order
     const maxOrder = await db('shelves')
@@ -340,12 +394,23 @@ router.post('/groups/:groupId/shelves', authMiddleware, async (req: Request, res
       name,
       display_name,
       capacity_units: capacityUnits,
-      width_mm: width_mm ?? capacityUnits * STANDARD_UNIT_MM,
+      width_mm: computedWidthMm,
+      width_source: normalizeWidthSource(width_source, hasCustomWidth),
       depth_mm: depth_mm || null,
       sort_order: nextOrder,
     });
 
     const shelf = await db('shelves').where('id', id).first();
+    await recordShelvesAddedEvents([
+      {
+        shelfId: Number(id),
+        groupId: parseInt(groupId, 10),
+        groupName: group.display_name,
+        shelfName: shelf.display_name,
+        capacityUnits,
+        widthMm: computedWidthMm,
+      },
+    ]);
     res.status(201).json({ ...shelf, placements: [], used_units: 0 });
   } catch (error) {
     console.error('Error creating shelf:', error);
@@ -357,7 +422,7 @@ router.post('/groups/:groupId/shelves', authMiddleware, async (req: Request, res
 router.post('/groups/:groupId/shelves/bulk', authMiddleware, async (req: Request, res: Response) => {
   try {
     const { groupId } = req.params;
-    const { count, capacity_units, width_mm, depth_mm } = req.body;
+    const { count, capacity_units, width_mm, width_source, depth_mm } = req.body;
 
     const shelfCount = parseInt(count);
     if (!Number.isInteger(shelfCount) || shelfCount < 1 || shelfCount > 50) {
@@ -370,7 +435,11 @@ router.post('/groups/:groupId/shelves/bulk', authMiddleware, async (req: Request
     }
 
     const capacityUnits = Math.max(1, parseInt(capacity_units) || 10);
-    const computedWidthMm = width_mm ?? capacityUnits * STANDARD_UNIT_MM;
+    const parsedWidthMm = width_mm !== undefined && width_mm !== null ? Number(width_mm) : undefined;
+    const hasCustomWidth =
+      parsedWidthMm !== undefined && Number.isFinite(parsedWidthMm) && parsedWidthMm > 0;
+    const computedWidthMm = hasCustomWidth ? parsedWidthMm! : capacityUnits * STANDARD_UNIT_MM;
+    const widthSource = normalizeWidthSource(width_source, hasCustomWidth);
 
     const existingShelves = await db('shelves')
       .where('group_id', groupId)
@@ -404,6 +473,7 @@ router.post('/groups/:groupId/shelves/bulk', authMiddleware, async (req: Request
           display_name: displayName,
           capacity_units: capacityUnits,
           width_mm: computedWidthMm,
+          width_source: widthSource,
           depth_mm: depth_mm || null,
           sort_order: nextSortOrder,
         });
@@ -417,6 +487,17 @@ router.post('/groups/:groupId/shelves/bulk', authMiddleware, async (req: Request
       return inserted;
     });
 
+    await recordShelvesAddedEvents(
+      createdShelves.map((s: any) => ({
+        shelfId: Number(s.id),
+        groupId: parseInt(groupId, 10),
+        groupName: group.display_name,
+        shelfName: s.display_name,
+        capacityUnits: s.capacity_units,
+        widthMm: s.width_mm ?? null,
+      }))
+    );
+
     res.status(201).json(createdShelves);
   } catch (error) {
     console.error('Error bulk creating shelves:', error);
@@ -424,61 +505,7 @@ router.post('/groups/:groupId/shelves/bulk', authMiddleware, async (req: Request
   }
 });
 
-// PUT /api/library/shelves/:id (protected)
-router.put('/shelves/:id', authMiddleware, async (req: Request, res: Response) => {
-  try {
-    const { id } = req.params;
-    const { name, display_name, capacity_units, width_mm, depth_mm, sort_order } = req.body;
-
-    const existing = await db('shelves').where('id', id).first();
-    if (!existing) {
-      return res.status(404).json({ error: 'Shelf not found' });
-    }
-
-    const updateData: any = {};
-    if (name !== undefined) updateData.name = name;
-    if (display_name !== undefined) updateData.display_name = display_name;
-    if (capacity_units !== undefined) {
-      updateData.capacity_units = capacity_units;
-      // Auto-update width_mm unless explicitly provided
-      if (width_mm === undefined) {
-        updateData.width_mm = capacity_units * STANDARD_UNIT_MM;
-      }
-    }
-    if (width_mm !== undefined) updateData.width_mm = width_mm;
-    if (depth_mm !== undefined) updateData.depth_mm = depth_mm;
-    if (sort_order !== undefined) updateData.sort_order = sort_order;
-
-    await db('shelves').where('id', id).update(updateData);
-
-    const updated = await db('shelves').where('id', id).first();
-    res.json(updated);
-  } catch (error) {
-    console.error('Error updating shelf:', error);
-    res.status(500).json({ error: 'Failed to update shelf' });
-  }
-});
-
-// DELETE /api/library/shelves/:id (protected)
-router.delete('/shelves/:id', authMiddleware, async (req: Request, res: Response) => {
-  try {
-    const { id } = req.params;
-
-    const existing = await db('shelves').where('id', id).first();
-    if (!existing) {
-      return res.status(404).json({ error: 'Shelf not found' });
-    }
-
-    // CASCADE will delete placements (items become unassigned)
-    await db('shelves').where('id', id).delete();
-    res.json({ message: 'Shelf deleted successfully' });
-  } catch (error) {
-    console.error('Error deleting shelf:', error);
-    res.status(500).json({ error: 'Failed to delete shelf' });
-  }
-});
-
-// PUT /api/library/shelves/reorder (protected)
+// PUT /api/library/shelves/reorder (protected) — must be registered before /shelves/:id
 router.put('/shelves/reorder', authMiddleware, async (req: Request, res: Response) => {
   try {
     const { order } = req.body; // Array of { id, sort_order, group_id? }
@@ -500,6 +527,79 @@ router.put('/shelves/reorder', authMiddleware, async (req: Request, res: Respons
   } catch (error) {
     console.error('Error reordering shelves:', error);
     res.status(500).json({ error: 'Failed to reorder shelves' });
+  }
+});
+
+// PUT /api/library/shelves/:id (protected)
+router.put('/shelves/:id', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { name, display_name, capacity_units, width_mm, width_source, depth_mm, sort_order } = req.body;
+
+    const existing = await db('shelves').where('id', id).first();
+    if (!existing) {
+      return res.status(404).json({ error: 'Shelf not found' });
+    }
+
+    const updateData: any = {};
+    if (name !== undefined) updateData.name = name;
+    if (display_name !== undefined) updateData.display_name = display_name;
+    if (capacity_units !== undefined) {
+      updateData.capacity_units = capacity_units;
+      // Auto-update width_mm unless explicitly provided
+      if (width_mm === undefined) {
+        updateData.width_mm = capacity_units * STANDARD_UNIT_MM;
+      }
+    }
+    if (width_mm !== undefined) updateData.width_mm = width_mm;
+    if (width_source === 'cases' || width_source === 'manual') {
+      updateData.width_source = width_source;
+    }
+    if (depth_mm !== undefined) updateData.depth_mm = depth_mm;
+    if (sort_order !== undefined) updateData.sort_order = sort_order;
+
+    await db('shelves').where('id', id).update(updateData);
+
+    const updated = await db('shelves').where('id', id).first();
+    if (
+      capacity_units !== undefined &&
+      Number(updated.capacity_units) !== Number(existing.capacity_units)
+    ) {
+      const parentGroup = await db('shelf_groups').where('id', updated.group_id).first();
+      await recordShelfResizedEvent({
+        shelfId: Number(id),
+        groupId: Number(updated.group_id),
+        groupName: parentGroup?.display_name || 'Shelf Group',
+        shelfName: updated.display_name,
+        previousCapacityUnits: Number(existing.capacity_units),
+        newCapacityUnits: Number(updated.capacity_units),
+        widthMm: updated.width_mm ?? null,
+      });
+    }
+    res.json(updated);
+  } catch (error) {
+    console.error('Error updating shelf:', error);
+    res.status(500).json({ error: 'Failed to update shelf' });
+  }
+});
+
+// DELETE /api/library/shelves/:id (protected)
+router.delete('/shelves/:id', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    const existing = await db('shelves').where('id', id).first();
+    if (!existing) {
+      return res.status(404).json({ error: 'Shelf not found' });
+    }
+
+    await removeEventsForShelf(Number(id));
+    // CASCADE will delete placements (items become unassigned)
+    await db('shelves').where('id', id).delete();
+    res.json({ message: 'Shelf deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting shelf:', error);
+    res.status(500).json({ error: 'Failed to delete shelf' });
   }
 });
 
@@ -800,11 +900,353 @@ router.post('/apply-sort/confirm', authMiddleware, async (req: Request, res: Res
       }
     });
 
+    const totalSortedItems = placements.reduce(
+      (sum: number, s: any) => sum + (Array.isArray(s.items) ? s.items.length : 0),
+      0
+    );
+    const activeShelfCount = placements.filter(
+      (s: any) => Array.isArray(s.items) && s.items.length > 0
+    ).length;
+    await recordShelfReorganizedEvent({
+      mode: 'auto_sort',
+      movedCount: totalSortedItems,
+      shelfCount: activeShelfCount,
+    });
+
     const library = await getFullLibrary();
     res.json(library);
   } catch (error) {
     console.error('Error applying sort:', error);
     res.status(500).json({ error: 'Failed to apply sort' });
+  }
+});
+
+// =============================================
+// Shelf Organization (Flow Blocks)
+// =============================================
+
+// GET /api/library/organization - saved blocks + library headroom
+router.get('/organization', async (_req: Request, res: Response) => {
+  try {
+    res.json(await getOrganization());
+  } catch (error) {
+    console.error('Error fetching organization:', error);
+    res.status(500).json({ error: 'Failed to fetch organization rules' });
+  }
+});
+
+// PUT /api/library/organization - replace all blocks + headroom (protected)
+router.put('/organization', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const { blocks, headroom_units } = req.body;
+    if (!Array.isArray(blocks)) {
+      return res.status(400).json({ error: 'blocks must be an array' });
+    }
+    await saveOrganization(blocks, headroom_units);
+    res.json(await getOrganization());
+  } catch (error) {
+    console.error('Error saving organization:', error);
+    res.status(500).json({ error: 'Failed to save organization rules' });
+  }
+});
+
+// POST /api/library/organization/preview - draft-block layout preview (protected)
+router.post('/organization/preview', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const { blocks, headroom_units } = req.body;
+    const result = await evaluateOrganization(blocks, headroom_units);
+    res.json(result);
+  } catch (error) {
+    console.error('Error previewing organization:', error);
+    res.status(500).json({ error: 'Failed to preview organization' });
+  }
+});
+
+// POST /api/library/organization/apply - save blocks and commit layout (protected)
+router.post('/organization/apply', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const { blocks, headroom_units } = req.body;
+    if (!Array.isArray(blocks)) {
+      return res.status(400).json({ error: 'blocks must be an array' });
+    }
+    await saveOrganization(blocks, headroom_units);
+    const savedBlocks = await loadBlocks();
+    const result = await evaluateOrganization(
+      savedBlocks.map((b) => ({ ...b, id: b.id })),
+      headroom_units
+    );
+    await commitLayout(result);
+
+    const organizedItemCount = result.shelves.reduce(
+      (sum, s) => sum + s.items.length,
+      0
+    );
+    const organizedShelfCount = result.shelves.filter((s) => s.items.length > 0).length;
+    await recordShelfReorganizedEvent({
+      mode: 'organization',
+      movedCount: organizedItemCount,
+      shelfCount: organizedShelfCount,
+    });
+
+    const library = await getFullLibrary();
+    res.json({ library, preview: result });
+  } catch (error) {
+    console.error('Error applying organization:', error);
+    res.status(500).json({ error: 'Failed to apply organization' });
+  }
+});
+
+// =============================================
+// Shelving Queue (Minimal-Ripple Assistant)
+// =============================================
+
+// POST /api/library/shelving-queue/plan (protected)
+router.post('/shelving-queue/plan', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const { item_ids, boundary_mode } = req.body;
+    if (!Array.isArray(item_ids)) {
+      return res.status(400).json({ error: 'item_ids must be an array' });
+    }
+    const ids = item_ids.map((id: unknown) => Number(id)).filter((id: number) => Number.isInteger(id) && id > 0);
+    const plan = await planShelving(
+      ids,
+      boundary_mode === 'share' || boundary_mode === 'shift' ? boundary_mode : undefined
+    );
+    res.json(plan);
+  } catch (error) {
+    console.error('Error planning shelving:', error);
+    res.status(500).json({ error: 'Failed to plan shelving' });
+  }
+});
+
+// POST /api/library/shelving-queue/apply (protected)
+// Recomputes the plan server-side from the submitted items, then commits.
+router.post('/shelving-queue/apply', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const { item_ids, boundary_mode } = req.body;
+    if (!Array.isArray(item_ids)) {
+      return res.status(400).json({ error: 'item_ids must be an array' });
+    }
+    const ids = item_ids.map((id: unknown) => Number(id)).filter((id: number) => Number.isInteger(id) && id > 0);
+    const plan = await planShelving(
+      ids,
+      boundary_mode === 'share' || boundary_mode === 'shift' ? boundary_mode : undefined
+    );
+    const placements = await loadEnginePlacements();
+    await commitShelvingPlan(plan, placements);
+
+    const touchedShelves = plan.shelf_diffs.filter((d) => d.touched).length;
+    if (ids.length > 0 && touchedShelves > 0) {
+      await recordShelfReorganizedEvent({
+        mode: 'shelving_queue',
+        movedCount: ids.length,
+        shelfCount: touchedShelves,
+      });
+    }
+
+    const library = await getFullLibrary();
+    res.json(library);
+  } catch (error) {
+    console.error('Error applying shelving plan:', error);
+    res.status(500).json({ error: 'Failed to apply shelving plan' });
+  }
+});
+
+// =============================================
+// Placement Pinning
+// =============================================
+
+// PUT /api/library/placements/:id/pin (protected)
+router.put('/placements/:id/pin', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { is_pinned } = req.body;
+
+    const existing = await db('shelf_placements').where('id', id).first();
+    if (!existing) {
+      return res.status(404).json({ error: 'Placement not found' });
+    }
+
+    await db('shelf_placements').where('id', id).update({ is_pinned: is_pinned ? 1 : 0 });
+    const updated = await db('shelf_placements').where('id', id).first();
+    res.json(updated);
+  } catch (error) {
+    console.error('Error updating pin:', error);
+    res.status(500).json({ error: 'Failed to update pin' });
+  }
+});
+
+// =============================================
+// Shelf Photos (Real-Shelf Gallery)
+// =============================================
+
+async function listShelfPhotos(groupId?: number) {
+  const library = await db('physical_library').first();
+  if (!library) return [];
+  let query = db('shelf_photos')
+    .leftJoin('shelf_groups', 'shelf_photos.group_id', 'shelf_groups.id')
+    .where('shelf_photos.library_id', library.id)
+    .select('shelf_photos.*', 'shelf_groups.display_name as group_display_name')
+    .orderBy('shelf_photos.sort_order', 'asc')
+    .orderBy('shelf_photos.id', 'asc');
+  if (groupId !== undefined) {
+    query = query.where('shelf_photos.group_id', groupId);
+  }
+  const rows = await query;
+  return rows.map((r: any) => ({
+    ...r,
+    frame: (() => {
+      try {
+        return r.frame ? JSON.parse(r.frame) : null;
+      } catch {
+        return null;
+      }
+    })(),
+  }));
+}
+
+// GET /api/library/photos
+router.get('/photos', async (req: Request, res: Response) => {
+  try {
+    const groupId = req.query.group_id !== undefined ? Number(req.query.group_id) : undefined;
+    res.json(await listShelfPhotos(groupId !== undefined && Number.isInteger(groupId) ? groupId : undefined));
+  } catch (error) {
+    console.error('Error fetching shelf photos:', error);
+    res.status(500).json({ error: 'Failed to fetch shelf photos' });
+  }
+});
+
+// POST /api/library/photos (protected, multipart image upload)
+router.post('/photos', authMiddleware, upload.single('image'), async (req: Request, res: Response) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No image uploaded' });
+    }
+    const library = await db('physical_library').first();
+    if (!library) {
+      return res.status(404).json({ error: 'Physical library not found' });
+    }
+
+    const { group_id, shelf_id, caption } = req.body;
+    const groupIdNum = group_id !== undefined && group_id !== '' && group_id !== 'null' ? Number(group_id) : null;
+    if (groupIdNum !== null) {
+      const group = await db('shelf_groups').where('id', groupIdNum).first();
+      if (!group) {
+        return res.status(400).json({ error: 'Shelf group not found' });
+      }
+    }
+    const shelfIdNum = shelf_id !== undefined && shelf_id !== '' && shelf_id !== 'null' ? Number(shelf_id) : null;
+
+    const maxOrder = await db('shelf_photos')
+      .where('library_id', library.id)
+      .max('sort_order as max')
+      .first();
+
+    const [id] = await db('shelf_photos').insert({
+      library_id: library.id,
+      group_id: groupIdNum,
+      shelf_id: shelfIdNum,
+      image_url: `/uploads/${req.file.filename}`,
+      caption: caption ? String(caption).slice(0, 500) : null,
+      sort_order: (maxOrder?.max ?? -1) + 1,
+    });
+
+    const photo = await db('shelf_photos').where('id', id).first();
+    const photoGroup = groupIdNum
+      ? await db('shelf_groups').where('id', groupIdNum).first()
+      : null;
+    const photoShelf = shelfIdNum
+      ? await db('shelves').where('id', shelfIdNum).first()
+      : null;
+    await recordShelfPhotoAddedEvent({
+      photoId: Number(id),
+      groupName: photoGroup?.display_name || null,
+      shelfName: photoShelf?.display_name || null,
+      caption: photo.caption || null,
+      imageUrl: photo.image_url,
+    });
+    res.status(201).json(photo);
+  } catch (error) {
+    console.error('Error uploading shelf photo:', error);
+    res.status(500).json({ error: 'Failed to upload shelf photo' });
+  }
+});
+
+// PUT /api/library/photos/reorder (protected) — must be registered before /photos/:id
+router.put('/photos/reorder', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const { order } = req.body; // Array of { id, sort_order }
+    if (!Array.isArray(order)) {
+      return res.status(400).json({ error: 'order must be an array of { id, sort_order }' });
+    }
+    await db.transaction(async (trx) => {
+      for (const item of order) {
+        await trx('shelf_photos').where('id', item.id).update({ sort_order: item.sort_order });
+      }
+    });
+    res.json({ message: 'Photos reordered successfully' });
+  } catch (error) {
+    console.error('Error reordering shelf photos:', error);
+    res.status(500).json({ error: 'Failed to reorder shelf photos' });
+  }
+});
+
+// PUT /api/library/photos/:id (protected)
+router.put('/photos/:id', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { caption, group_id, shelf_id, frame, sort_order } = req.body;
+
+    const existing = await db('shelf_photos').where('id', id).first();
+    if (!existing) {
+      return res.status(404).json({ error: 'Shelf photo not found' });
+    }
+
+    const updateData: any = {};
+    if (caption !== undefined) updateData.caption = caption === null ? null : String(caption).slice(0, 500);
+    if (group_id !== undefined) updateData.group_id = group_id === null ? null : Number(group_id);
+    if (shelf_id !== undefined) updateData.shelf_id = shelf_id === null ? null : Number(shelf_id);
+    if (frame !== undefined) updateData.frame = frame === null ? null : JSON.stringify(frame);
+    if (sort_order !== undefined) updateData.sort_order = Number(sort_order);
+
+    await db('shelf_photos').where('id', id).update(updateData);
+    const updated = await db('shelf_photos').where('id', id).first();
+    res.json(updated);
+  } catch (error) {
+    console.error('Error updating shelf photo:', error);
+    res.status(500).json({ error: 'Failed to update shelf photo' });
+  }
+});
+
+// DELETE /api/library/photos/:id (protected) — removes row + uploaded file
+router.delete('/photos/:id', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const existing = await db('shelf_photos').where('id', id).first();
+    if (!existing) {
+      return res.status(404).json({ error: 'Shelf photo not found' });
+    }
+
+    await removeEventsForShelfPhoto(Number(id));
+    await db('shelf_photos').where('id', id).delete();
+
+    // Delete the underlying file, contained inside UPLOAD_DIR.
+    if (existing.image_url && String(existing.image_url).startsWith('/uploads/')) {
+      const filename = path.basename(String(existing.image_url));
+      const filePath = path.join(path.resolve(UPLOAD_DIR), filename);
+      if (filePath.startsWith(path.resolve(UPLOAD_DIR) + path.sep) && fs.existsSync(filePath)) {
+        try {
+          fs.unlinkSync(filePath);
+        } catch (unlinkError) {
+          console.warn('Could not delete shelf photo file:', unlinkError);
+        }
+      }
+    }
+
+    res.json({ message: 'Shelf photo deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting shelf photo:', error);
+    res.status(500).json({ error: 'Failed to delete shelf photo' });
   }
 });
 

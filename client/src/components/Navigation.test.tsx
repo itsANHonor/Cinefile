@@ -20,6 +20,7 @@ describe('Navigation', () => {
     // Accessible names come from the label text, so these only resolve if the
     // labels are rendered rather than stripped by the collapse flag.
     expect(screen.getByRole('link', { name: 'Collection' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'History' })).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Shelf View' })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Media' })).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Statistics' })).toBeInTheDocument();

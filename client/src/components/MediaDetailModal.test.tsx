@@ -334,4 +334,24 @@ describe('MediaDetailModal', () => {
     expect(screen.getByRole('heading', { name: 'Cost' })).toBeInTheDocument();
     expect(screen.getByText('$34.99')).toBeInTheDocument();
   });
+
+  it('pre-selects initialMediaId in multi-movie items and renders a back button when onBack is provided', async () => {
+    const user = userEvent.setup();
+    const handleBack = vi.fn();
+
+    render(
+      <MediaDetailModal
+        physicalItem={multiMovieItem}
+        isOpen
+        initialMediaId={202}
+        backLabel="Before Sunset"
+        onBack={handleBack}
+        onClose={vi.fn()}
+      />
+    );
+
+    expect(screen.getByRole('heading', { name: 'Before Sunset' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Before Sunset' }));
+    expect(handleBack).toHaveBeenCalledTimes(1);
+  });
 });

@@ -33,6 +33,10 @@ describe('CollectionPage floating Add item button', () => {
       items: [],
       pagination: { page: 1, limit: 50, total: 0, totalPages: 0, hasNext: false, hasPrev: false },
     });
+    vi.spyOn(apiService, 'getCollectionMedia').mockResolvedValue({
+      items: [],
+      pagination: { page: 1, limit: 50, total: 0, totalPages: 0, hasNext: false, hasPrev: false },
+    });
     vi.spyOn(apiService, 'getStatistics').mockResolvedValue({
       totalPhysicalItems: 0,
       totalMovies: 0,
@@ -88,10 +92,26 @@ describe('CollectionPage floating Add item button', () => {
     expect(screen.queryByRole('button', { name: 'Add item' })).not.toBeInTheDocument();
   });
 
-  it('toggles between Grid and Shelf views and swaps toolbar sort controls for shelf actions', async () => {
+  it('toggles between Items, Movies, and Shelf views and swaps toolbar sort controls for shelf actions', async () => {
     const user = userEvent.setup();
     vi.spyOn(apiService, 'verifyAuth').mockResolvedValue(true);
     mockCollectionApis();
+    vi.spyOn(apiService, 'getCollectionMedia').mockResolvedValue({
+      items: [
+        {
+          id: 99,
+          title: 'Arrival',
+          release_date: '2016-11-11',
+          director: 'Denis Villeneuve',
+          owned_formats: ['4K UHD'],
+          owned_editions: [],
+          owned_versions: [],
+          physical_item_count: 1,
+          physical_items: [],
+        },
+      ],
+      pagination: { page: 1, limit: 50, total: 1, totalPages: 1, hasNext: false, hasPrev: false },
+    });
     vi.spyOn(apiService, 'getLibrary').mockResolvedValue({
       id: 1,
       name: 'default',
@@ -102,12 +122,25 @@ describe('CollectionPage floating Add item button', () => {
 
     renderWithProviders(<CollectionPage />);
 
-    const gridBtn = await screen.findByRole('button', { name: 'Grid' });
-    const shelfBtn = screen.getByRole('button', { name: 'Shelf' });
-    expect(gridBtn).toHaveAttribute('aria-pressed', 'true');
+    const viewGroup = await screen.findByRole('group', { name: 'Collection view mode' });
+    const itemsBtn = viewGroup.querySelector('button:nth-of-type(1)') as HTMLButtonElement;
+    const moviesBtn = viewGroup.querySelector('button:nth-of-type(2)') as HTMLButtonElement;
+    const shelfBtn = viewGroup.querySelector('button:nth-of-type(3)') as HTMLButtonElement;
+
+    expect(itemsBtn).toHaveTextContent('Items');
+    expect(moviesBtn).toHaveTextContent('Movies');
+    expect(shelfBtn).toHaveTextContent('Shelf');
+    expect(itemsBtn).toHaveAttribute('aria-pressed', 'true');
+    expect(moviesBtn).toHaveAttribute('aria-pressed', 'false');
     expect(shelfBtn).toHaveAttribute('aria-pressed', 'false');
 
-    // In Grid view, sort controls are visible
+    // In Items view, sort controls are visible
+    expect(screen.getByRole('button', { name: /Director/i })).toBeInTheDocument();
+
+    // Toggle to Movies view
+    await user.click(moviesBtn);
+    expect(moviesBtn).toHaveAttribute('aria-pressed', 'true');
+    expect(await screen.findByRole('heading', { name: 'Arrival' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Director/i })).toBeInTheDocument();
 
     // Toggle to Shelf view
@@ -118,7 +151,7 @@ describe('CollectionPage floating Add item button', () => {
 
     // Sort controls are replaced with Shelf actions in the toolbar
     expect(screen.queryByRole('button', { name: /Director/i })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Apply Sort' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Organize Rules' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Add Group' })).toBeInTheDocument();
   });
 });

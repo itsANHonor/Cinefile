@@ -16,6 +16,10 @@ import {
   normalizeCost,
 } from '../utils/identifiers.util';
 import { resolveCustomImagesForWrite } from '../utils/custom-images.util';
+import {
+  recordBulkItemsAddedEvents,
+  removeAllPhysicalItemEvents,
+} from '../services/collection-events.service';
 
 const router = Router();
 
@@ -673,6 +677,7 @@ router.post('/import', authMiddleware, async (req: Request, res: Response) => {
             trx('physical_items').select('id').whereRaw('physical_items.id = physical_item_media.physical_item_id')
           ).delete();
         });
+        await removeAllPhysicalItemEvents();
       } catch (error) {
         console.error('Error deleting existing items in replace mode:', error);
         throw error; // Re-throw to be caught by outer catch block
@@ -866,10 +871,25 @@ router.post('/import', authMiddleware, async (req: Request, res: Response) => {
 
     // Group rows by physical_item_name
     const grouped = groupBy(rows, 'physical_item_name');
+    const newlyImportedItems: Array<{
+      physicalItemId: number;
+      name: string;
+      purchaseDate?: string | null;
+      archived?: boolean;
+      archiveReason?: string | null;
+    }> = [];
 
     // Process each physical item group
     for (const [itemName, movies] of Object.entries(grouped)) {
       try {
+        let createdForHistory: {
+          physicalItemId: number;
+          name: string;
+          purchaseDate?: string | null;
+          archived?: boolean;
+          archiveReason?: string | null;
+        } | null = null;
+
         await db.transaction(async (trx: any) => {
           // Find or create physical item
           let physicalItem = await trx('physical_items').where('name', itemName).first();
@@ -919,6 +939,13 @@ router.post('/import', authMiddleware, async (req: Request, res: Response) => {
 
             const [physicalItemId] = await trx('physical_items').insert(physicalItemData);
             physicalItem = { id: physicalItemId, ...physicalItemData };
+            createdForHistory = {
+              physicalItemId: Number(physicalItemId),
+              name: itemName,
+              purchaseDate: physicalItemData.purchase_date || null,
+              archived: Boolean(physicalItemData.archived),
+              archiveReason: physicalItemData.archive_reason || null,
+            };
           }
 
           const allFormats = new Set<string>();
@@ -1076,6 +1103,9 @@ router.post('/import', authMiddleware, async (req: Request, res: Response) => {
           });
         });
 
+        if (createdForHistory) {
+          newlyImportedItems.push(createdForHistory);
+        }
         importResults.successful++;
 
       } catch (error) {
@@ -1086,6 +1116,10 @@ router.post('/import', authMiddleware, async (req: Request, res: Response) => {
           data: `Physical item: ${itemName}`,
         });
       }
+    }
+
+    if (newlyImportedItems.length > 0) {
+      await recordBulkItemsAddedEvents(newlyImportedItems);
     }
 
     // Reconcile any cached Letterboxd ratings/watch dates with newly imported movies

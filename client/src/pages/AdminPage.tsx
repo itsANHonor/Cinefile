@@ -17,6 +17,7 @@ import { apiService } from '../services/api.service';
 import MediaForm from '../components/MediaForm';
 import SeriesManager from '../components/SeriesManager';
 import BulkAddForm from '../components/BulkAddForm';
+import BarcodeScanModal from '../components/BarcodeScanModal';
 import MoviesPage from './MoviesPage';
 import {
   LetterboxdDotsIcon,
@@ -71,8 +72,10 @@ const AdminPage: React.FC = () => {
   // Settings state
   const [isLoading, setIsLoading] = useState(true);
   const [showAddForm, setShowAddForm] = useState(false);
+  const [showBarcodeScanner, setShowBarcodeScanner] = useState(false);
   const [isPublic, setIsPublic] = useState(false);
   const [isCostPublic, setIsCostPublic] = useState(false);
+  const [isHistoryPublic, setIsHistoryPublic] = useState(false);
   const [defaultTheme, setDefaultTheme] = useState<'light' | 'dark' | 'system'>('light');
   const [defaultSortBy, setDefaultSortBy] = useState<SortField>('created_at');
   const [defaultSortOrder, setDefaultSortOrder] = useState<SortOrder>('desc');
@@ -84,6 +87,11 @@ const AdminPage: React.FC = () => {
   const [tmdbKeySource, setTmdbKeySource] = useState<'database' | 'env' | 'none'>('none');
   const [tmdbKeyMasked, setTmdbKeyMasked] = useState('');
   const [isSavingTmdbKey, setIsSavingTmdbKey] = useState(false);
+  const [upcKeyInput, setUpcKeyInput] = useState('');
+  const [showUpcKey, setShowUpcKey] = useState(false);
+  const [upcKeySource, setUpcKeySource] = useState<'database' | 'env' | 'none'>('none');
+  const [upcKeyMasked, setUpcKeyMasked] = useState('');
+  const [isSavingUpcKey, setIsSavingUpcKey] = useState(false);
   const [isSavingSettings, setIsSavingSettings] = useState(false);
 
   // Letterboxd Integration state
@@ -121,6 +129,7 @@ const AdminPage: React.FC = () => {
       const settings = await apiService.getSettings();
       setIsPublic(settings.collection_public === 'true');
       setIsCostPublic(settings.cost_public === 'true');
+      setIsHistoryPublic(settings.history_public === 'true');
       setDefaultTheme((settings.default_theme as 'light' | 'dark' | 'system') || 'light');
       setDefaultSortBy((settings.default_sort_by as SortField) || 'created_at');
       setDefaultSortOrder((settings.default_sort_order as SortOrder) || 'desc');
@@ -130,6 +139,8 @@ const AdminPage: React.FC = () => {
       setTmdbConfigured(settings.tmdb_configured !== 'false');
       setTmdbKeySource((settings.tmdb_key_source as 'database' | 'env' | 'none') || 'none');
       setTmdbKeyMasked(settings.tmdb_api_key_masked || '');
+      setUpcKeySource((settings.upcitemdb_key_source as 'database' | 'env' | 'none') || 'none');
+      setUpcKeyMasked(settings.upcitemdb_user_key_masked || '');
       if (settings.letterboxd_username !== undefined) {
         setLetterboxdUsernameInput(settings.letterboxd_username || '');
       }
@@ -203,6 +214,31 @@ const AdminPage: React.FC = () => {
     } catch (error) {
       console.error('Failed to update cost visibility:', error);
       toast({ message: 'Failed to update cost visibility. Please try again.', type: 'error' });
+    } finally {
+      setIsSavingSettings(false);
+    }
+  };
+
+  const handleToggleHistoryPublic = async () => {
+    const nextHistoryPublic = !isHistoryPublic;
+    setIsSavingSettings(true);
+    try {
+      await apiService.updateSetting('history_public', nextHistoryPublic.toString());
+      setIsHistoryPublic(nextHistoryPublic);
+      window.dispatchEvent(
+        new CustomEvent('cinefile:history-visibility-changed', {
+          detail: { historyPublic: nextHistoryPublic },
+        })
+      );
+      toast({
+        message: nextHistoryPublic
+          ? 'Collection history timeline is now visible publicly.'
+          : 'Collection history timeline is now hidden from public visitors.',
+        type: 'success',
+      });
+    } catch (error) {
+      console.error('Failed to update history visibility:', error);
+      toast({ message: 'Failed to update history visibility. Please try again.', type: 'error' });
     } finally {
       setIsSavingSettings(false);
     }
@@ -297,6 +333,44 @@ const AdminPage: React.FC = () => {
       toast({ message: 'Failed to clear TMDb API key. Please try again.', type: 'error' });
     } finally {
       setIsSavingTmdbKey(false);
+    }
+  };
+
+  const handleSaveUpcKey = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const trimmed = upcKeyInput.trim();
+    if (!trimmed) return;
+
+    setIsSavingUpcKey(true);
+    try {
+      await apiService.updateSetting('upcitemdb_user_key', trimmed);
+      setUpcKeyInput('');
+      const refreshed = await apiService.getSettings();
+      setUpcKeySource((refreshed.upcitemdb_key_source as 'database' | 'env' | 'none') || 'database');
+      setUpcKeyMasked(refreshed.upcitemdb_user_key_masked || '');
+      toast({ message: 'UPCitemdb API key saved.', type: 'success' });
+    } catch (error) {
+      console.error('Failed to save UPCitemdb API key:', error);
+      toast({ message: 'Failed to save UPCitemdb API key. Please try again.', type: 'error' });
+    } finally {
+      setIsSavingUpcKey(false);
+    }
+  };
+
+  const handleClearUpcKey = async () => {
+    setIsSavingUpcKey(true);
+    try {
+      await apiService.updateSetting('upcitemdb_user_key', '');
+      setUpcKeyInput('');
+      const refreshed = await apiService.getSettings();
+      setUpcKeySource((refreshed.upcitemdb_key_source as 'database' | 'env' | 'none') || 'none');
+      setUpcKeyMasked(refreshed.upcitemdb_user_key_masked || '');
+      toast({ message: 'Stored UPCitemdb API key cleared (using free tier).', type: 'success' });
+    } catch (error) {
+      console.error('Failed to clear UPCitemdb API key:', error);
+      toast({ message: 'Failed to clear UPCitemdb API key. Please try again.', type: 'error' });
+    } finally {
+      setIsSavingUpcKey(false);
     }
   };
 
@@ -862,6 +936,48 @@ const AdminPage: React.FC = () => {
                 </button>
               </div>
             )}
+
+            {/* Public Collection History Visibility */}
+            {!isDesktop && (
+              <div className="border-t border-subtle pt-5 flex items-center justify-between gap-4">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium text-content">
+                      Show collection history publicly
+                    </span>
+                    <span
+                      className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${
+                        isHistoryPublic
+                          ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300'
+                          : 'bg-surface-sunken border border-subtle text-content-muted'
+                      }`}
+                    >
+                      {isHistoryPublic ? 'Visible' : 'Admin Only'}
+                    </span>
+                  </div>
+                  <p className="text-xs sm:text-sm text-content-muted">
+                    When disabled, the History timeline is only accessible when signed in as Admin.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={isHistoryPublic}
+                  aria-label="Show collection history publicly"
+                  onClick={handleToggleHistoryPublic}
+                  disabled={isSavingSettings}
+                  className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface ${
+                    isHistoryPublic ? 'bg-primary-600' : 'bg-gray-300 dark:bg-gray-600'
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                      isHistoryPublic ? 'translate-x-6' : 'translate-x-1'
+                    }`}
+                  />
+                </button>
+              </div>
+            )}
           </section>
 
           {/* TMDb API Integration */}
@@ -953,6 +1069,92 @@ const AdminPage: React.FC = () => {
                   themoviedb.org/settings/api
                 </a>
                 . Saving a key here overrides the <code className="font-mono">TMDB_API_KEY</code> environment variable.
+              </p>
+            </form>
+          </section>
+
+          {/* Barcode Lookup (UPCitemdb - Optional Paid Key) */}
+          <section className="card space-y-4" aria-labelledby="barcode-lookup-heading">
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 id="barcode-lookup-heading" className="text-lg font-semibold text-content">
+                  Barcode Lookup (UPCitemdb)
+                </h2>
+                <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300">
+                  {upcKeyMasked ? 'Paid Key Active' : 'Free Tier Active'}
+                </span>
+              </div>
+              <p className="text-sm text-content-muted mt-0.5">
+                Barcode scanning works out of the box using UPCitemdb&rsquo;s free Explorer tier (up to 200 barcodes/day, cached locally). Optionally add a paid <code className="font-mono">user_key</code> for faster bulk batching.
+              </p>
+            </div>
+
+            {upcKeyMasked && (
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-[--radius-control] bg-surface-sunken border border-subtle px-3.5 py-2 text-xs text-content-muted">
+                <span>
+                  Active key: <code className="font-mono text-content">{upcKeyMasked}</code>{' '}
+                  ({upcKeySource === 'database' ? 'stored in app settings' : 'from UPCITEMDB_USER_KEY environment variable'})
+                </span>
+                {upcKeySource === 'database' && (
+                  <button
+                    type="button"
+                    onClick={handleClearUpcKey}
+                    disabled={isSavingUpcKey}
+                    className="text-xs font-medium text-red-600 dark:text-red-400 hover:underline"
+                  >
+                    Clear stored key
+                  </button>
+                )}
+              </div>
+            )}
+
+            <form onSubmit={handleSaveUpcKey} className="space-y-2">
+              <label
+                htmlFor="upcitemdb-key-input"
+                className="block text-sm font-medium text-content"
+              >
+                UPCitemdb Paid User Key (Optional)
+              </label>
+              <div className="flex flex-col sm:flex-row gap-2.5">
+                <div className="relative flex-1">
+                  <input
+                    id="upcitemdb-key-input"
+                    type={showUpcKey ? 'text' : 'password'}
+                    value={upcKeyInput}
+                    onChange={(e) => setUpcKeyInput(e.target.value)}
+                    disabled={isSavingUpcKey}
+                    placeholder="Leave blank to use free tier"
+                    className="w-full px-3.5 py-2 pr-16 border border-subtle rounded-[--radius-control] text-sm bg-surface text-content focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowUpcKey((prev) => !prev)}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 px-2 py-1 text-xs font-medium text-content-muted hover:text-content rounded"
+                    aria-label={showUpcKey ? 'Hide UPCitemdb API key' : 'Show UPCitemdb API key'}
+                  >
+                    {showUpcKey ? 'Hide' : 'Show'}
+                  </button>
+                </div>
+                <Button
+                  type="submit"
+                  variant="secondary"
+                  disabled={!upcKeyInput.trim() || isSavingUpcKey}
+                  isLoading={isSavingUpcKey}
+                >
+                  Save Key
+                </Button>
+              </div>
+              <p className="text-xs text-content-muted">
+                Learn more at{' '}
+                <a
+                  href="https://www.upcitemdb.com/api"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-primary-600 dark:text-primary-400 hover:underline"
+                >
+                  upcitemdb.com/api
+                </a>
+                .
               </p>
             </form>
           </section>
@@ -1739,6 +1941,23 @@ const AdminPage: React.FC = () => {
             )}
           </section>
 
+          {/* Scan Barcodes (Photos / Camera / USB Scanner) */}
+          <section className="card flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <h2 className="text-lg font-semibold text-content">Scan Barcodes</h2>
+              <p className="text-sm text-content-muted mt-0.5">
+                Upload 1 or many barcode photos, scan live with a camera, or use a USB barcode scanner to resolve titles, formats, box sets, and TMDb metadata in batch.
+              </p>
+            </div>
+            <Button
+              type="button"
+              onClick={() => setShowBarcodeScanner(true)}
+              className="flex-shrink-0"
+            >
+              Open Barcode Scanner
+            </Button>
+          </section>
+
           {/* Bulk Add Movies by Title */}
           <BulkAddForm onSuccess={loadData} />
         </div>
@@ -1753,6 +1972,13 @@ const AdminPage: React.FC = () => {
           loadData();
         }}
         editItem={null}
+      />
+
+      {/* Unified Barcode Scanner Modal */}
+      <BarcodeScanModal
+        isOpen={showBarcodeScanner}
+        onClose={() => setShowBarcodeScanner(false)}
+        onSuccess={loadData}
       />
     </div>
   );

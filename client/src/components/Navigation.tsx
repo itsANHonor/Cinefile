@@ -7,8 +7,9 @@ import { useServerMode } from '../context/ServerModeContext';
 
 const Navigation: React.FC = () => {
   const { isCollapsed, toggleSidebar, isMobileOpen, closeMobile, toggleMobile } = useSidebar();
-  const { isReadOnly } = useServerMode();
+  const { isReadOnly, isHistoryPublic } = useServerMode();
   const location = useLocation();
+  const showHistory = !isReadOnly || isHistoryPublic;
 
   const isActive = (path: string) =>
     path === '/statistics'
@@ -148,6 +149,29 @@ const Navigation: React.FC = () => {
               <span className={isCollapsed ? 'lg:hidden' : undefined}>Collection</span>
             </Link>
 
+            {showHistory && (
+              <Link
+                to="/history"
+                onClick={closeMobile}
+                className={`flex items-center gap-3 px-2 py-2 rounded-lg transition-colors ${
+                  isActive('/history')
+                    ? 'bg-primary-100 dark:bg-primary-900 text-primary-700 dark:text-primary-300 font-semibold'
+                    : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
+                } ${isCollapsed ? 'lg:justify-center' : ''}`}
+                title={isCollapsed ? 'History' : undefined}
+              >
+                <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                  />
+                </svg>
+                <span className={isCollapsed ? 'lg:hidden' : undefined}>History</span>
+              </Link>
+            )}
+
             <Link
               to="/statistics"
               onClick={closeMobile}
@@ -225,6 +249,7 @@ const Navigation: React.FC = () => {
             {/* Page Title - could be dynamic based on route */}
             <h1 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
               {location.pathname === '/' && 'Collection'}
+              {location.pathname === '/history' && 'History'}
               {location.pathname === '/statistics' && 'Statistics'}
               {location.pathname === '/statistics/directors' && 'Directors Explorer'}
               {location.pathname === '/statistics/actors' && 'Actors Explorer'}

@@ -16,9 +16,11 @@ import searchRoutes from './routes/search.routes';
 import seriesRoutes from './routes/series.routes';
 import importExportRoutes from './routes/import-export.routes';
 import statisticsRoutes from './routes/statistics.routes';
+import historyRoutes from './routes/history.routes';
 import libraryRoutes from './routes/library.routes';
 import mcpRoutes from './routes/mcp.routes';
 import letterboxdRoutes from './routes/letterboxd.routes';
+import barcodeRoutes from './routes/barcode.routes';
 import { letterboxdService } from './services/letterboxd.service';
 
 if (!isDesktopMode() && !process.env.SESSION_SECRET?.trim()) {
@@ -106,11 +108,13 @@ app.get('/api/health', (req, res) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/search', searchRoutes);
+app.use('/api/barcodes', barcodeRoutes);
 app.use('/api/import-export', importExportRoutes);
 app.use('/api/media', requirePublicCollectionOrAuth, mediaRoutes);
 app.use('/api/physical-items', requirePublicCollectionOrAuth, physicalItemsRoutes);
 app.use('/api/series', requirePublicCollectionOrAuth, seriesRoutes);
 app.use('/api/statistics', requirePublicCollectionOrAuth, statisticsRoutes);
+app.use('/api/history', requirePublicCollectionOrAuth, historyRoutes);
 app.use('/api/library', requirePublicCollectionOrAuth, libraryRoutes);
 app.use('/api/letterboxd', requirePublicCollectionOrAuth, letterboxdRoutes);
 
