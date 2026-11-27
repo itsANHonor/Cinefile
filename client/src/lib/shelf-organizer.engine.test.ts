@@ -131,6 +131,18 @@ describe('compareItems', () => {
     expect(desc(a, b)).toBeGreaterThan(0);
   });
 
+  it('orders number-leading titles lexically like the collection title sort', () => {
+    const yuma = makeItem(1, '3:10 to Yuma');
+    const angryMen = makeItem(2, '12 Angry Men');
+    const cmp = compareItems(makeBlock(1, { sort_by: 'title' }));
+
+    expect(cmp(angryMen, yuma)).toBeLessThan(0);
+    expect([yuma, angryMen].sort(cmp).map((item) => item.name)).toEqual([
+      '12 Angry Men',
+      '3:10 to Yuma',
+    ]);
+  });
+
   it('series_sort groups by series name and orders chronologically inside a series', () => {
     const s1e2 = makeItem(1, 'The Dark Knight', {
       has_series: true,

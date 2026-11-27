@@ -186,7 +186,7 @@ export function winningBlockFor(item: EngineItem, blocks: EngineBlock[]): Engine
 // Sorting
 // ─────────────────────────────────────────────────────────────────────────────
 
-const collator = new Intl.Collator(undefined, { sensitivity: 'base', numeric: true });
+const collator = new Intl.Collator(undefined, { sensitivity: 'base' });
 
 function titleKey(item: EngineItem): string {
   return (item.sort_name || item.name || '').trim();
