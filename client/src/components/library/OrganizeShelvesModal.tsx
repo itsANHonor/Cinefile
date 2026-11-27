@@ -54,6 +54,8 @@ const SORT_OPTIONS: { value: ShelfBlockSortBy; label: string }[] = [
   { value: 'physical_format', label: 'Format' },
 ];
 
+const COLLAPSE_SHELF_THRESHOLD = 12;
+
 let nextDraftId = -1;
 function makeDraftBlock(partial: Partial<ShelfOrganizationBlock> = {}): ShelfOrganizationBlock {
   return {
@@ -519,6 +521,7 @@ const OrganizeShelvesModal: React.FC<OrganizeShelvesModalProps> = ({
   const [isSaving, setIsSaving] = useState(false);
   const [isApplying, setIsApplying] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
+  const [collapseOverrides, setCollapseOverrides] = useState<Map<number, boolean>>(new Map());
   const previewTimer = useRef<number | null>(null);
 
   const sensors = useSensors(
@@ -626,6 +629,9 @@ const OrganizeShelvesModal: React.FC<OrganizeShelvesModalProps> = ({
     return map;
   }, [preview]);
 
+  const blockColor = (blockId: number | null | undefined) =>
+    blocks.find((b) => b.id === blockId)?.color ?? '#9ca3af';
+
   const previewByGroup = useMemo(() => {
     if (!preview) return [];
     const grouped = new Map<number, { groupName: string; shelves: OrganizationPreview['shelves'] }>();
@@ -635,11 +641,56 @@ const OrganizeShelvesModal: React.FC<OrganizeShelvesModalProps> = ({
       }
       grouped.get(s.group_id)!.shelves.push(s);
     });
-    return Array.from(grouped.entries()).map(([gid, v]) => ({ groupId: gid, ...v }));
-  }, [preview]);
+    return Array.from(grouped.entries()).map(([gid, v]) => {
+      const totalCapacity = v.shelves.reduce((sum, s) => sum + s.effective_capacity_units, 0);
+      const totalUsed = v.shelves.reduce((sum, s) => sum + s.used_units, 0);
+      const hasOverflow = v.shelves.some((s) => s.overflow);
+      // Compress items into contiguous same-color runs so the collapsed
+      // mini-map bar stays cheap to render even for very large collections.
+      const runs: { color: string; units: number }[] = [];
+      v.shelves.forEach((shelf) => {
+        shelf.items.forEach((item) => {
+          const color = item.is_pinned ? '#64748b' : blockColor(item.block_id);
+          const last = runs[runs.length - 1];
+          if (last && last.color === color) {
+            last.units += item.thickness_units;
+          } else {
+            runs.push({ color, units: item.thickness_units });
+          }
+        });
+      });
+      return { groupId: gid, ...v, totalCapacity, totalUsed, hasOverflow, runs };
+    });
+  }, [preview, blocks]);
 
-  const blockColor = (blockId: number | null | undefined) =>
-    blocks.find((b) => b.id === blockId)?.color ?? '#9ca3af';
+  // Groups start collapsed when the collection is large enough that scrolling
+  // the full shelf list becomes unwieldy; explicit user toggles always win.
+  const totalPreviewShelves = preview?.shelves.length ?? 0;
+  const isGroupCollapsed = (groupId: number) =>
+    collapseOverrides.get(groupId) ?? totalPreviewShelves > COLLAPSE_SHELF_THRESHOLD;
+  const toggleGroupCollapsed = (groupId: number) =>
+    setCollapseOverrides((prev) => new Map(prev).set(groupId, !isGroupCollapsed(groupId)));
+  const setAllGroupsCollapsed = (collapsed: boolean) =>
+    setCollapseOverrides(new Map(previewByGroup.map((g) => [g.groupId, collapsed])));
+
+  const footerActions = (
+    <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+      <Button variant="secondary" onClick={onClose} disabled={isApplying || isSaving}>
+        Cancel
+      </Button>
+      <Button
+        variant="secondary"
+        onClick={handleSaveOnly}
+        isLoading={isSaving}
+        disabled={isApplying || isLoadingRules}
+      >
+        Save Rules Only
+      </Button>
+      <Button onClick={handleApply} isLoading={isApplying} disabled={isSaving || isLoadingRules}>
+        Save &amp; Organize All Shelves
+      </Button>
+    </div>
+  );
 
   return (
     <Sheet
@@ -649,16 +700,18 @@ const OrganizeShelvesModal: React.FC<OrganizeShelvesModalProps> = ({
       description="Define ordered rule blocks — first match wins — then watch the live preview of how items flow onto your shelves."
       position="center"
       size="lg"
-      className="max-w-5xl"
+      className="h-[85dvh] max-w-7xl overflow-hidden"
+      bodyClassName="lg:overflow-y-hidden"
+      footer={footerActions}
     >
       {isLoadingRules ? (
         <div className="flex items-center justify-center py-16">
           <Spinner />
         </div>
       ) : (
-        <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+        <div className="grid grid-cols-1 gap-5 lg:h-full lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
           {/* ── Left: rule blocks ── */}
-          <div className="min-w-0 space-y-4">
+          <div className="min-w-0 space-y-4 lg:min-h-0 lg:overflow-y-auto lg:pr-2">
             {/* Headroom stepper */}
             <div className="rounded-[--radius-card] border border-subtle bg-surface-raised p-3">
               <div className="flex items-center justify-between gap-3">
@@ -747,11 +800,35 @@ const OrganizeShelvesModal: React.FC<OrganizeShelvesModalProps> = ({
           </div>
 
           {/* ── Right: live shelf-map preview ── */}
-          <div className="min-w-0">
-            <div className="sticky top-0 space-y-3">
-              <div className="flex items-center justify-between">
+          <aside
+            aria-label="Shelf map preview"
+            className="min-w-0 rounded-[--radius-card] border border-subtle bg-surface-sunken/40 p-3 lg:min-h-0 lg:overflow-y-auto"
+          >
+            <div className="space-y-3">
+              <div className="z-10 -mx-3 -mt-3 flex items-center justify-between border-b border-subtle bg-surface-raised/95 px-3 py-2 backdrop-blur lg:sticky lg:top-0">
                 <h3 className="text-sm font-semibold text-content">Shelf Map Preview</h3>
-                {isLoadingPreview && <Spinner size="sm" />}
+                <div className="flex items-center gap-2">
+                  {previewByGroup.length > 0 && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => setAllGroupsCollapsed(false)}
+                        className="text-[11px] font-medium text-primary-600 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:text-primary-400"
+                      >
+                        Expand all
+                      </button>
+                      <span className="text-content-muted" aria-hidden="true">·</span>
+                      <button
+                        type="button"
+                        onClick={() => setAllGroupsCollapsed(true)}
+                        className="text-[11px] font-medium text-primary-600 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:text-primary-400"
+                      >
+                        Collapse all
+                      </button>
+                    </>
+                  )}
+                  {isLoadingPreview && <Spinner size="sm" />}
+                </div>
               </div>
 
               {previewError && (
@@ -776,81 +853,112 @@ const OrganizeShelvesModal: React.FC<OrganizeShelvesModalProps> = ({
                 </div>
               )}
 
-              <div className="max-h-[55dvh] space-y-4 overflow-y-auto pr-1">
-                {previewByGroup.map(({ groupId, groupName, shelves }) => (
-                  <div key={groupId}>
-                    <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-content-muted">
-                      {groupName}
-                    </p>
-                    <div className="space-y-2">
-                      {shelves.map((shelf) => {
-                        const firstItem = shelf.items[0];
-                        const lastItem = shelf.items[shelf.items.length - 1];
-                        return (
-                          <div key={shelf.shelf_id} className="rounded-[--radius-control] border border-subtle bg-surface-raised p-2">
-                            <div className="mb-1 flex items-center justify-between gap-2">
-                              <p className="truncate text-xs font-medium text-content">{shelf.shelf_display_name}</p>
-                              <p className={`flex-shrink-0 text-[11px] ${shelf.overflow ? 'font-semibold text-red-600' : 'text-content-muted'}`}>
-                                {shelf.used_units}/{shelf.effective_capacity_units}u
-                                {shelf.used_units < shelf.effective_capacity_units &&
-                                  ` · ${shelf.effective_capacity_units - shelf.used_units} spare`}
-                              </p>
-                            </div>
-                            {/* Segmented fill bar */}
-                            <div className="flex h-3 w-full overflow-hidden rounded-full bg-surface-sunken" role="img"
-                              aria-label={`${shelf.shelf_display_name} fill preview`}>
-                              {shelf.items.map((item, itemIdx) => (
-                                <div
-                                  key={`${item.physical_item_id}-${itemIdx}`}
-                                  className="h-full"
-                                  style={{
-                                    width: `${(item.thickness_units / Math.max(1, shelf.effective_capacity_units)) * 100}%`,
-                                    backgroundColor: item.is_pinned ? '#64748b' : blockColor(item.block_id),
-                                  }}
-                                  title={item.name}
-                                />
-                              ))}
-                            </div>
-                            {firstItem && (
-                              <p className="mt-1 truncate text-[11px] text-content-muted">
-                                {firstItem.name}
-                                {lastItem && lastItem.physical_item_id !== firstItem.physical_item_id
-                                  ? ` — ${lastItem.name}`
-                                  : ''}
-                              </p>
-                            )}
-                          </div>
-                        );
-                      })}
+              <div className="space-y-4">
+                {previewByGroup.map(({ groupId, groupName, shelves, totalCapacity, totalUsed, hasOverflow, runs }) => {
+                  const collapsed = isGroupCollapsed(groupId);
+                  return (
+                    <div key={groupId}>
+                      <button
+                        type="button"
+                        aria-expanded={!collapsed}
+                        aria-controls={`preview-group-${groupId}`}
+                        onClick={() => toggleGroupCollapsed(groupId)}
+                        className="z-[5] w-full rounded-[--radius-control] border border-subtle bg-surface-raised px-2.5 py-2 text-left hover:border-primary-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring lg:sticky lg:top-[38px] dark:hover:border-primary-700"
+                      >
+                        <span className="flex items-center gap-2">
+                          <svg
+                            className={`h-3.5 w-3.5 flex-shrink-0 text-content-muted transition-transform ${collapsed ? '' : 'rotate-90'}`}
+                            viewBox="0 0 20 20"
+                            fill="currentColor"
+                            aria-hidden="true"
+                          >
+                            <path
+                              fillRule="evenodd"
+                              d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z"
+                              clipRule="evenodd"
+                            />
+                          </svg>
+                          <span className="min-w-0 flex-1 truncate text-xs font-semibold uppercase tracking-wide text-content">
+                            {groupName}
+                          </span>
+                          <span className={`flex-shrink-0 text-[11px] ${hasOverflow ? 'font-semibold text-red-600' : 'text-content-muted'}`}>
+                            {shelves.length} shelf{shelves.length !== 1 ? 'ves' : ''} · {totalUsed}/{totalCapacity}u
+                            {hasOverflow && ' · overflow'}
+                          </span>
+                        </span>
+                        {collapsed && totalCapacity > 0 && (
+                          <span
+                            className="mt-1.5 flex h-2 w-full overflow-hidden rounded-full bg-surface-sunken"
+                            role="img"
+                            aria-label={`${groupName} fill overview`}
+                          >
+                            {runs.map((run, runIdx) => (
+                              <span
+                                key={runIdx}
+                                className="h-full"
+                                style={{
+                                  width: `${(run.units / totalCapacity) * 100}%`,
+                                  backgroundColor: run.color,
+                                }}
+                              />
+                            ))}
+                          </span>
+                        )}
+                      </button>
+                      {!collapsed && (
+                        <div id={`preview-group-${groupId}`} className="mt-2 space-y-2">
+                          {shelves.map((shelf) => {
+                            const firstItem = shelf.items[0];
+                            const lastItem = shelf.items[shelf.items.length - 1];
+                            return (
+                              <div key={shelf.shelf_id} className="rounded-[--radius-control] border border-subtle bg-surface-raised p-2">
+                                <div className="mb-1 flex items-center justify-between gap-2">
+                                  <p className="truncate text-xs font-medium text-content">{shelf.shelf_display_name}</p>
+                                  <p className={`flex-shrink-0 text-[11px] ${shelf.overflow ? 'font-semibold text-red-600' : 'text-content-muted'}`}>
+                                    {shelf.used_units}/{shelf.effective_capacity_units}u
+                                    {shelf.used_units < shelf.effective_capacity_units &&
+                                      ` · ${shelf.effective_capacity_units - shelf.used_units} spare`}
+                                  </p>
+                                </div>
+                                {/* Segmented fill bar */}
+                                <div className="flex h-3 w-full overflow-hidden rounded-full bg-surface-sunken" role="img"
+                                  aria-label={`${shelf.shelf_display_name} fill preview`}>
+                                  {shelf.items.map((item, itemIdx) => (
+                                    <div
+                                      key={`${item.physical_item_id}-${itemIdx}`}
+                                      className="h-full"
+                                      style={{
+                                        width: `${(item.thickness_units / Math.max(1, shelf.effective_capacity_units)) * 100}%`,
+                                        backgroundColor: item.is_pinned ? '#64748b' : blockColor(item.block_id),
+                                      }}
+                                      title={item.name}
+                                    />
+                                  ))}
+                                </div>
+                                {firstItem && (
+                                  <p className="mt-1 truncate text-[11px] text-content-muted">
+                                    {firstItem.name}
+                                    {lastItem && lastItem.physical_item_id !== firstItem.physical_item_id
+                                      ? ` — ${lastItem.name}`
+                                      : ''}
+                                  </p>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
                 {preview && preview.shelves.length === 0 && (
                   <p className="text-xs text-content-muted">No shelves yet — add shelves to see the layout.</p>
                 )}
               </div>
             </div>
-          </div>
+          </aside>
         </div>
       )}
-
-      {/* Footer */}
-      <div className="mt-5 flex flex-col-reverse gap-3 border-t border-subtle pt-4 sm:flex-row sm:justify-end">
-        <Button variant="secondary" onClick={onClose} disabled={isApplying || isSaving}>
-          Cancel
-        </Button>
-        <Button
-          variant="secondary"
-          onClick={handleSaveOnly}
-          isLoading={isSaving}
-          disabled={isApplying || isLoadingRules}
-        >
-          Save Rules Only
-        </Button>
-        <Button onClick={handleApply} isLoading={isApplying} disabled={isSaving || isLoadingRules}>
-          Save &amp; Organize All Shelves
-        </Button>
-      </div>
     </Sheet>
   );
 };

@@ -63,6 +63,25 @@ describe('Sheet', () => {
     expect(handleClose).toHaveBeenCalledTimes(1);
   });
 
+  it('renders footer actions outside the scrollable body', () => {
+    render(
+      <Sheet
+        isOpen
+        onClose={vi.fn()}
+        title="Settings"
+        bodyClassName="custom-body-class"
+        footer={<button type="button">Save changes</button>}
+      >
+        <div>Content</div>
+      </Sheet>
+    );
+
+    expect(screen.getByText('Content').parentElement).toHaveClass('custom-body-class');
+    const footerButton = screen.getByRole('button', { name: 'Save changes' });
+    expect(footerButton.parentElement).toHaveClass('border-t');
+    expect(footerButton.parentElement).not.toHaveClass('custom-body-class');
+  });
+
   it('compensates body paddingRight when locking scroll removes a visible scrollbar', () => {
     let currentClientWidth = 1009;
     const clientWidthSpy = vi

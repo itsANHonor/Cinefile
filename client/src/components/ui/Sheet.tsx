@@ -12,7 +12,9 @@ export interface SheetProps {
   size?: 'sm' | 'md' | 'lg' | 'full';
   showClose?: boolean;
   headerActions?: React.ReactNode;
+  footer?: React.ReactNode;
   className?: string;
+  bodyClassName?: string;
 }
 
 const focusableSelector = [
@@ -73,7 +75,9 @@ export const Sheet: React.FC<SheetProps> = ({
   size = 'md',
   showClose = true,
   headerActions,
+  footer,
   className = '',
+  bodyClassName = '',
 }) => {
   const panelRef = useRef<HTMLDivElement>(null);
   const previouslyFocused = useRef<Element | null>(null);
@@ -191,7 +195,12 @@ export const Sheet: React.FC<SheetProps> = ({
             </div>
           )}
         </div>
-        <div className="overflow-y-auto p-4">{children}</div>
+        <div className={`min-h-0 flex-1 overflow-y-auto p-4 ${bodyClassName}`}>{children}</div>
+        {footer && (
+          <div className="shrink-0 border-t border-subtle bg-surface-raised px-4 py-3">
+            {footer}
+          </div>
+        )}
       </div>
     </div>,
     document.body

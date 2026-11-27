@@ -71,6 +71,29 @@ const emptyPreview: OrganizationPreview = {
   unplaceable_items: [],
 };
 
+const makePreviewShelf = (
+  shelfId: number,
+  groupId: number,
+  groupName: string,
+  items: { id: number; name: string; blockId?: number | null; pinned?: boolean }[]
+): OrganizationPreview['shelves'][number] => ({
+  shelf_id: shelfId,
+  shelf_display_name: `${groupName} - Shelf ${shelfId}`,
+  group_id: groupId,
+  group_display_name: groupName,
+  capacity_units: 20,
+  effective_capacity_units: 18,
+  used_units: items.length,
+  items: items.map((i) => ({
+    physical_item_id: i.id,
+    name: i.name,
+    thickness_units: 1,
+    block_id: i.blockId ?? null,
+    is_pinned: i.pinned ?? false,
+  })),
+  overflow: false,
+});
+
 const samplePlan: ShelvingQueuePlan = {
   has_blocks: true,
   assignments: [
@@ -321,6 +344,119 @@ describe('OrganizeShelvesModal', () => {
     expect(screen.getByText('TV Shows → Movies by Series')).toBeInTheDocument();
     expect(screen.getByText('All Alphabetical')).toBeInTheDocument();
     expect(screen.getByText(/Breathing room per shelf/i)).toBeInTheDocument();
+  });
+
+  it('uses a split preview pane without nested preview scrolling and keeps actions in a fixed footer', async () => {
+    vi.spyOn(apiService, 'getOrganization').mockResolvedValue({
+      headroom_units: 2,
+      blocks: [],
+    });
+    vi.spyOn(apiService, 'previewOrganization').mockResolvedValue(emptyPreview);
+
+    renderWithProviders(
+      <OrganizeShelvesModal
+        isOpen
+        groups={sampleLibrary.groups}
+        onClose={vi.fn()}
+        onApplied={vi.fn()}
+      />
+    );
+
+    expect(await screen.findByText(/Start from a template/i)).toBeInTheDocument();
+    const dialog = screen.getByRole('dialog', { name: /Organize Shelves/i });
+    expect(dialog).toHaveClass('h-[85dvh]');
+
+    const previewPane = screen.getByRole('complementary', { name: /shelf map preview/i });
+    expect(previewPane).toHaveClass('lg:overflow-y-auto');
+    const hasNestedPreviewScroll = Array.from(previewPane.querySelectorAll('*')).some((element) =>
+      element.classList.contains('max-h-[55dvh]')
+    );
+    expect(hasNestedPreviewScroll).toBe(false);
+
+    const applyButton = screen.getByRole('button', { name: /Save & Organize All Shelves/i });
+    expect(applyButton.parentElement?.parentElement).toHaveClass('border-t');
+  });
+
+  it('collapses and expands preview groups, showing a minimap fill bar when collapsed', async () => {
+    const user = userEvent.setup();
+    vi.spyOn(apiService, 'getOrganization').mockResolvedValue({
+      headroom_units: 2,
+      blocks: [],
+    });
+    vi.spyOn(apiService, 'previewOrganization').mockResolvedValue({
+      shelves: [
+        makePreviewShelf(100, 10, 'Living Room', [
+          { id: 1, name: 'Alien' },
+          { id: 2, name: 'Dune' },
+        ]),
+      ],
+      blocks: [],
+      unmatched_items: [],
+      unplaceable_items: [],
+    });
+
+    renderWithProviders(
+      <OrganizeShelvesModal
+        isOpen
+        groups={sampleLibrary.groups}
+        onClose={vi.fn()}
+        onApplied={vi.fn()}
+      />
+    );
+
+    // Small collections start expanded: shelf rows are visible
+    expect(await screen.findByText('Living Room - Shelf 100')).toBeInTheDocument();
+    const accordion = screen.getByRole('button', { name: /Living Room/i });
+    expect(accordion).toHaveAttribute('aria-expanded', 'true');
+
+    // Collapse: shelf rows disappear, minimap overview appears
+    await user.click(accordion);
+    expect(accordion).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByText('Living Room - Shelf 100')).not.toBeInTheDocument();
+    expect(screen.getByRole('img', { name: /Living Room fill overview/i })).toBeInTheDocument();
+
+    // Expand again
+    await user.click(accordion);
+    expect(screen.getByText('Living Room - Shelf 100')).toBeInTheDocument();
+  });
+
+  it('defaults to collapsed groups for large collections and supports expand/collapse all', async () => {
+    const user = userEvent.setup();
+    vi.spyOn(apiService, 'getOrganization').mockResolvedValue({
+      headroom_units: 2,
+      blocks: [],
+    });
+    const shelves = Array.from({ length: 13 }, (_, i) =>
+      makePreviewShelf(200 + i, 10, 'Living Room', [{ id: i + 1, name: `Movie ${i}` }])
+    );
+    vi.spyOn(apiService, 'previewOrganization').mockResolvedValue({
+      shelves,
+      blocks: [],
+      unmatched_items: [],
+      unplaceable_items: [],
+    });
+
+    renderWithProviders(
+      <OrganizeShelvesModal
+        isOpen
+        groups={sampleLibrary.groups}
+        onClose={vi.fn()}
+        onApplied={vi.fn()}
+      />
+    );
+
+    // 13 shelves exceeds the threshold: group starts collapsed
+    const accordion = await screen.findByRole('button', { name: /Living Room/i });
+    expect(accordion).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByText('Living Room - Shelf 200')).not.toBeInTheDocument();
+    expect(screen.getByRole('img', { name: /Living Room fill overview/i })).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /Expand all/i }));
+    expect(screen.getByText('Living Room - Shelf 200')).toBeInTheDocument();
+    expect(screen.getByText('Living Room - Shelf 212')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /Collapse all/i }));
+    expect(screen.queryByText('Living Room - Shelf 200')).not.toBeInTheDocument();
   });
 
   it('loads saved blocks and headroom, and applies organization', async () => {
