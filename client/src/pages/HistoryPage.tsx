@@ -136,9 +136,9 @@ const HistoryItemRow: React.FC<HistoryItemRowProps> = ({
 }) => {
   const itemHref = item.archived
     ? canEdit
-      ? `/?archived=true&search=${encodeURIComponent(item.name)}`
+      ? `/?archived=true&q=${encodeURIComponent(item.name)}`
       : null
-    : `/?search=${encodeURIComponent(item.name)}`;
+    : `/?q=${encodeURIComponent(item.name)}`;
 
   const showIncludedTitles =
     item.mediaTitles.length > 1 ||

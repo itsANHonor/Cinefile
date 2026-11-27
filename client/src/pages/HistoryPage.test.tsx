@@ -181,7 +181,10 @@ describe('HistoryPage', () => {
     // Expand bulk list to view individual item rows
     await user.click(bulkToggle);
     expect(bulkToggle).toHaveAttribute('aria-expanded', 'true');
-    expect(screen.getByRole('link', { name: 'Seven Samurai Criterion' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Seven Samurai Criterion' })).toHaveAttribute(
+      'href',
+      '/?q=Seven%20Samurai%20Criterion'
+    );
     expect(screen.getByRole('link', { name: 'High and Low Criterion' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Ikiru Criterion' })).toBeInTheDocument();
   });
@@ -232,6 +235,10 @@ describe('HistoryPage', () => {
     const deleteBtn = await screen.findByRole('button', {
       name: 'Remove "Dune: Part Two Steelbook" from history',
     });
+    expect(screen.getByRole('link', { name: 'Dune: Part Two Blu-ray' })).toHaveAttribute(
+      'href',
+      '/?archived=true&q=Dune%3A%20Part%20Two%20Blu-ray'
+    );
     await user.click(deleteBtn);
 
     // Confirm modal
