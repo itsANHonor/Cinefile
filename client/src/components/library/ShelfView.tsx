@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useCallback, useLayoutEffect, useRef, useState } from 'react';
 import { useDroppable, useDndContext } from '@dnd-kit/core';
 import { SortableContext, horizontalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
@@ -10,6 +10,8 @@ import FramedImage from '../FramedImage';
 const DEFAULT_SPINE_BG = 'rgba(30, 64, 175, 0.65)';
 const DEFAULT_SPINE_SOLID = '#1e40af';
 const PX_PER_UNIT = 40;
+const HOVER_OVERLAY_WIDTH = 180;
+const HOVER_OVERLAY_MARGIN = 4;
 
 /** Convert a hex color to an rgba string with given alpha */
 function hexToRgba(hex: string, alpha: number): string {
@@ -59,6 +61,8 @@ const SortableShelfItem: React.FC<{
   onTogglePin?: (placementId: number, isPinned: boolean) => void;
 }> = ({ placement, isEditMode, isDimmed = false, isHighlighted = false, onRemove, onClick, onSpineColorEdit, onTogglePin }) => {
   const [isHovered, setIsHovered] = useState(false);
+  const [overlayShiftX, setOverlayShiftX] = useState(0);
+  const itemRef = useRef<HTMLDivElement | null>(null);
 
   const {
     attributes,
@@ -74,6 +78,53 @@ const SortableShelfItem: React.FC<{
       placement,
     },
   });
+
+  const setItemRefs = useCallback((node: HTMLDivElement | null) => {
+    itemRef.current = node;
+    setNodeRef(node);
+  }, [setNodeRef]);
+
+  useLayoutEffect(() => {
+    if (!isHovered) return;
+
+    const node = itemRef.current;
+    if (!node) return;
+
+    const scrollContainer = node.closest<HTMLElement>('[data-shelf-scroll-container]');
+
+    const updateOverlayPosition = () => {
+      if (!scrollContainer) {
+        setOverlayShiftX(0);
+        return;
+      }
+
+      const itemRect = node.getBoundingClientRect();
+      const containerRect = scrollContainer.getBoundingClientRect();
+      const itemCenterX = itemRect.left + itemRect.width / 2;
+      const overlayLeft = itemCenterX - HOVER_OVERLAY_WIDTH / 2;
+      const overlayRight = itemCenterX + HOVER_OVERLAY_WIDTH / 2;
+      const minX = containerRect.left + HOVER_OVERLAY_MARGIN;
+      const maxX = containerRect.right - HOVER_OVERLAY_MARGIN;
+
+      let shift = 0;
+      if (overlayLeft < minX) {
+        shift = minX - overlayLeft;
+      } else if (overlayRight > maxX) {
+        shift = maxX - overlayRight;
+      }
+
+      setOverlayShiftX(shift);
+    };
+
+    updateOverlayPosition();
+    window.addEventListener('resize', updateOverlayPosition);
+    scrollContainer?.addEventListener('scroll', updateOverlayPosition, { passive: true });
+
+    return () => {
+      window.removeEventListener('resize', updateOverlayPosition);
+      scrollContainer?.removeEventListener('scroll', updateOverlayPosition);
+    };
+  }, [isHovered]);
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -92,6 +143,14 @@ const SortableShelfItem: React.FC<{
   const spineColor = customSpineColor || DEFAULT_SPINE_SOLID;
   const spineAccent = (item as any).spine_color_accent || (customSpineColor ? getContrastColor(customSpineColor) : '#f0f0f0');
   const overlayBg = customSpineColor ? hexToRgba(customSpineColor, 0.65) : DEFAULT_SPINE_BG;
+  const overlayOffsetDirection = overlayShiftX < 0 ? '-' : '+';
+  const hoverOverlayStyle: React.CSSProperties = {
+    width: `${HOVER_OVERLAY_WIDTH}px`,
+    height: '270px',
+    zIndex: 30,
+    bottom: '-4px',
+    left: `calc(50% ${overlayOffsetDirection} ${Math.abs(overlayShiftX)}px)`,
+  };
 
   const handleContextMenu = (e: React.MouseEvent) => {
     if (isEditMode && onSpineColorEdit) {
@@ -102,7 +161,7 @@ const SortableShelfItem: React.FC<{
 
   return (
     <div
-      ref={setNodeRef}
+      ref={setItemRefs}
       style={{ ...style, width: `${spineWidth}px`, height: '260px', zIndex: isHovered ? 20 : isHighlighted ? 10 : 1 }}
       className={`relative flex-shrink-0 transition-opacity duration-200 ${isEditMode ? 'cursor-grab active:cursor-grabbing touch-none' : ''} ${isDragging ? 'z-50' : ''} ${isDimmed && !isDragging ? 'opacity-20 saturate-0' : ''}`}
       data-filter-state={isDimmed ? 'dimmed' : isHighlighted ? 'matched' : undefined}
@@ -169,12 +228,7 @@ const SortableShelfItem: React.FC<{
       {isHovered && coverUrl && !isDragging && (
         <div
           className="absolute bottom-0 left-1/2 -translate-x-1/2 pointer-events-none"
-          style={{
-            width: '180px',
-            height: '270px',
-            zIndex: 30,
-            bottom: '-4px',
-          }}
+          style={hoverOverlayStyle}
         >
           <div className="relative w-full h-full rounded-md shadow-2xl overflow-hidden border-2 border-white/80 dark:border-gray-600 bg-neutral-900">
             <FramedImage
@@ -198,12 +252,7 @@ const SortableShelfItem: React.FC<{
       {isHovered && !coverUrl && !isDragging && (
         <div
           className="absolute bottom-0 left-1/2 -translate-x-1/2 pointer-events-none"
-          style={{
-            width: '180px',
-            height: '270px',
-            zIndex: 30,
-            bottom: '-4px',
-          }}
+          style={hoverOverlayStyle}
         >
           <div
             className="w-full h-full rounded-md shadow-2xl overflow-hidden border-2 border-white/80 dark:border-gray-600 flex flex-col items-center justify-center"
@@ -438,7 +487,7 @@ const ShelfView: React.FC<ShelfViewProps> = ({
       </div>
 
       {/* Shelf visual - scrollable container for wide shelves */}
-      <div className="overflow-x-auto">
+      <div className="overflow-x-auto" data-shelf-scroll-container>
         <div
           ref={setDropRef}
           className={`relative rounded-t-md overflow-visible transition-all ${

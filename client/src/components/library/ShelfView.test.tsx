@@ -38,6 +38,21 @@ function renderShelf(onItemClick: (id: number) => void, isEditMode = false) {
   );
 }
 
+function mockBoundingRect(element: Element, rect: Partial<DOMRect>) {
+  vi.spyOn(element, 'getBoundingClientRect').mockReturnValue({
+    x: rect.left ?? 0,
+    y: rect.top ?? 0,
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    width: 0,
+    height: 0,
+    ...rect,
+    toJSON: () => ({}),
+  } as DOMRect);
+}
+
 /**
  * Regression coverage for ITS-28 (bug B4).
  *
@@ -113,5 +128,41 @@ describe('ShelfView spine interaction', () => {
 
     expect(screen.getByText('1 match')).toBeInTheDocument();
     expect(container.querySelector('[data-filter-state="matched"]')).not.toBeNull();
+  });
+
+  it('shifts the hover overlay inward at the left edge of the scrollable shelf area', async () => {
+    const user = userEvent.setup();
+    const { container } = renderShelf(vi.fn());
+    const spine = screen.getByRole('button', { name: /open details for blade runner/i });
+    const itemElement = spine.parentElement as HTMLElement;
+    const scrollContainer = container.querySelector('[data-shelf-scroll-container]') as HTMLElement;
+
+    expect(scrollContainer).not.toBeNull();
+    mockBoundingRect(itemElement, { left: 0, width: 40 });
+    mockBoundingRect(scrollContainer, { left: 0, right: 800, width: 800 });
+
+    await user.hover(spine);
+
+    const overlay = itemElement.querySelector('.pointer-events-none') as HTMLElement;
+    expect(overlay).not.toBeNull();
+    expect(overlay.style.left).toBe('calc(50% + 74px)');
+  });
+
+  it('shifts the hover overlay inward at the right edge of the scrollable shelf area', async () => {
+    const user = userEvent.setup();
+    const { container } = renderShelf(vi.fn());
+    const spine = screen.getByRole('button', { name: /open details for blade runner/i });
+    const itemElement = spine.parentElement as HTMLElement;
+    const scrollContainer = container.querySelector('[data-shelf-scroll-container]') as HTMLElement;
+
+    expect(scrollContainer).not.toBeNull();
+    mockBoundingRect(itemElement, { left: 760, width: 40 });
+    mockBoundingRect(scrollContainer, { left: 0, right: 800, width: 800 });
+
+    await user.hover(spine);
+
+    const overlay = itemElement.querySelector('.pointer-events-none') as HTMLElement;
+    expect(overlay).not.toBeNull();
+    expect(overlay.style.left).toBe('calc(50% - 74px)');
   });
 });
