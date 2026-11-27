@@ -48,7 +48,7 @@ const PHOTO_LABEL_PRESETS = ['Front', 'Back', 'Spine', 'Inside', 'Disc', 'Slipco
 
 const FORM_TABS = [
   { id: 'details', label: 'Details' },
-  { id: 'notes', label: 'Notes & Links' },
+  { id: 'metadata', label: 'Additional Metadata' },
 ] as const;
 type FormTabId = (typeof FORM_TABS)[number]['id'];
 
@@ -139,6 +139,7 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
     sort_series_id: undefined as number | undefined, // Used for sorting
   });
   const [showDimensions, setShowDimensions] = useState(false);
+  const [showSortName, setShowSortName] = useState(false);
   const [availableSeries, setAvailableSeries] = useState<Series[]>([]);
   const hasSavedMediaChangesRef = useRef(false);
 
@@ -202,6 +203,7 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
         sort_series_id: editItem.sort_series_id || editItem.primary_series_id, // Fallback to legacy
       });
       
+      setShowSortName(false);
       // Auto-expand dimensions if any are set
       if (editItem.width_mm || editItem.height_mm || editItem.depth_mm) {
         setShowDimensions(true);
@@ -288,6 +290,7 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
         sort_series_id: undefined,
       });
       setShowDimensions(false);
+      setShowSortName(false);
       setCustomImages([]);
       setPreviewPhotoIndex(0);
       setSelectedMovies([]);
@@ -1713,24 +1716,49 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
                     </p>
                   </div>
 
-                  {/* Sort Name */}
+                  {/* Sort Name (progressive disclosure) */}
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    <button
+                      type="button"
+                      onClick={() => setShowSortName(!showSortName)}
+                      aria-expanded={showSortName}
+                      aria-controls="media-form-sort-name-panel"
+                      className="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 transition-colors"
+                    >
+                      <svg
+                        className={`w-4 h-4 transition-transform ${showSortName ? 'rotate-90' : ''}`}
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                      </svg>
                       Sort Name
-                    </label>
-                    <input
-                      type="text"
-                      value={formData.sort_name || ''}
-                      onChange={(e) => setFormData({ ...formData, sort_name: e.target.value })}
-                      placeholder="Auto-calculated from name (e.g., 'The Batman' → 'Batman')"
-                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
-                    />
-                    <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                      Used for sorting. Automatically calculated from name if left empty. Override if needed.
-                    </p>
+                      {formData.sort_name.trim() !== '' && (
+                        <span className="text-xs text-primary-600 dark:text-primary-400">(custom)</span>
+                      )}
+                    </button>
+                    {showSortName && (
+                      <div id="media-form-sort-name-panel" className="mt-2">
+                        <label htmlFor="media-form-sort-name" className="sr-only">
+                          Sort Name
+                        </label>
+                        <input
+                          id="media-form-sort-name"
+                          type="text"
+                          value={formData.sort_name || ''}
+                          onChange={(e) => setFormData({ ...formData, sort_name: e.target.value })}
+                          placeholder="Auto-calculated from name (e.g., 'The Batman' → 'Batman')"
+                          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+                        />
+                        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                          Used for sorting. Automatically calculated from name if left empty. Override if needed.
+                        </p>
+                      </div>
+                    )}
                   </div>
 
-                  {/* Purchase Date & Cost */}
+                  {/* Purchase Date */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <label htmlFor="media-form-purchase-date" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
@@ -1744,7 +1772,127 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
                         className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
                       />
                     </div>
+                  </div>
 
+                  {/* Personal Notes */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      Personal Notes
+                    </label>
+                    <textarea
+                      placeholder="e.g., This is my favorite version for its audio quality..."
+                      value={formData.notes}
+                      onChange={(e) => {
+                        if (e.target.value.length <= 2000) {
+                          setFormData({ ...formData, notes: e.target.value });
+                        }
+                      }}
+                      rows={3}
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface resize-none"
+                    />
+                    <div className="flex justify-between items-center mt-1">
+                      <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
+                        <input
+                          type="checkbox"
+                          checked={formData.notes_public}
+                          onChange={(e) => setFormData({ ...formData, notes_public: e.target.checked })}
+                          className="rounded border-gray-300 dark:border-gray-600 text-primary-600 focus:ring-primary-500"
+                        />
+                        Make notes public
+                      </label>
+                      <span className={`text-xs ${formData.notes.length > 1900 ? 'text-amber-500' : 'text-gray-400 dark:text-gray-500'}`}>
+                        {formData.notes.length}/2000
+                      </span>
+                    </div>
+                    <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                      {formData.notes_public 
+                        ? 'Notes will be visible to anyone viewing your collection.' 
+                        : 'Notes are private and only visible when logged in.'}
+                    </p>
+                  </div>
+
+                  {/* Primary Series - adds movies to series */}
+                  {availableSeries.length > 0 && (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                        Primary Series
+                      </label>
+                      <select
+                        value={formData.media_primary_series_id || ''}
+                        onChange={(e) => setFormData({ ...formData, media_primary_series_id: e.target.value ? parseInt(e.target.value) : undefined })}
+                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+                      >
+                        <option value="">None</option>
+                        {availableSeries.map(series => (
+                          <option key={series.id} value={series.id}>
+                            {series.name}
+                          </option>
+                        ))}
+                      </select>
+                      <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                        Setting this will add all movies in this item to the selected series and set it as their primary series.
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Sort Series - for sorting preference */}
+                  {availableSeries.length > 0 && (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                        Sort Series
+                        <span className="text-xs text-gray-500 dark:text-gray-400 ml-2">
+                          (Optional)
+                        </span>
+                      </label>
+                      <select
+                        value={formData.sort_series_id || ''}
+                        onChange={(e) => setFormData({ ...formData, sort_series_id: e.target.value ? parseInt(e.target.value) : undefined })}
+                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+                      >
+                        <option value="">None</option>
+                        {availableSeries.map(series => (
+                          <option key={series.id} value={series.id}>
+                            {series.name}
+                          </option>
+                        ))}
+                      </select>
+                      <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                        Used for sorting when you sort your collection by series. Useful for multi-movie items.
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Item Tags */}
+                  <div>
+                    <label
+                      htmlFor="media-form-edition-notes"
+                      className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
+                    >
+                      Item Tags
+                    </label>
+                    <EditionTagInput
+                      id="media-form-edition-notes"
+                      placeholder="e.g., Steelbook, Collector's Edition, Criterion"
+                      value={formData.edition_notes}
+                      onChange={(edition_notes) => setFormData({ ...formData, edition_notes })}
+                      availableTags={facets?.editions ?? []}
+                    />
+                    <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                      Press Enter, Tab, or comma to add a tag. Start typing to match existing tags.
+                    </p>
+                  </div>
+
+                  </div>
+                  )}
+                  {activeFormTab === 'metadata' && (
+                  <div
+                    role="tabpanel"
+                    id="media-form-panel-metadata"
+                    aria-labelledby="media-form-tab-metadata"
+                    className="space-y-4"
+                  >
+                  {/* Purchase Cost */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <label htmlFor="media-form-cost" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                         Purchase Cost ($)
@@ -1761,7 +1909,7 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
                           value={formData.cost}
                           onChange={(e) => setFormData({ ...formData, cost: e.target.value })}
                           placeholder="0.00"
-                          className="w-full pl-7 pr-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+                          className="h-[42px] w-full pl-7 pr-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
                         />
                       </div>
                     </div>
@@ -1865,123 +2013,6 @@ const MediaForm: React.FC<MediaFormProps> = ({ isOpen, onClose, onSuccess, editI
                         </p>
                       </div>
                     )}
-                  </div>
-
-                  {/* Primary Series - adds movies to series */}
-                  {availableSeries.length > 0 && (
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                        Primary Series
-                      </label>
-                      <select
-                        value={formData.media_primary_series_id || ''}
-                        onChange={(e) => setFormData({ ...formData, media_primary_series_id: e.target.value ? parseInt(e.target.value) : undefined })}
-                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
-                      >
-                        <option value="">None</option>
-                        {availableSeries.map(series => (
-                          <option key={series.id} value={series.id}>
-                            {series.name}
-                          </option>
-                        ))}
-                      </select>
-                      <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                        Setting this will add all movies in this item to the selected series and set it as their primary series.
-                      </p>
-                    </div>
-                  )}
-
-                  {/* Sort Series - for sorting preference */}
-                  {availableSeries.length > 0 && (
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                        Sort Series
-                        <span className="text-xs text-gray-500 dark:text-gray-400 ml-2">
-                          (Optional)
-                        </span>
-                      </label>
-                      <select
-                        value={formData.sort_series_id || ''}
-                        onChange={(e) => setFormData({ ...formData, sort_series_id: e.target.value ? parseInt(e.target.value) : undefined })}
-                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
-                      >
-                        <option value="">None</option>
-                        {availableSeries.map(series => (
-                          <option key={series.id} value={series.id}>
-                            {series.name}
-                          </option>
-                        ))}
-                      </select>
-                      <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                        Used for sorting when you sort your collection by series. Useful for multi-movie items.
-                      </p>
-                    </div>
-                  )}
-
-                  {/* Edition Notes */}
-                  <div>
-                    <label
-                      htmlFor="media-form-edition-notes"
-                      className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-                    >
-                      Edition Notes
-                    </label>
-                    <EditionTagInput
-                      id="media-form-edition-notes"
-                      placeholder="e.g., Steelbook, Collector's Edition, Criterion"
-                      value={formData.edition_notes}
-                      onChange={(edition_notes) => setFormData({ ...formData, edition_notes })}
-                      availableTags={facets?.editions ?? []}
-                    />
-                    <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                      Press Enter, Tab, or comma to add a tag. Start typing to match existing tags.
-                    </p>
-                  </div>
-
-                  </div>
-                  )}
-                  {activeFormTab === 'notes' && (
-                  <div
-                    role="tabpanel"
-                    id="media-form-panel-notes"
-                    aria-labelledby="media-form-tab-notes"
-                    className="space-y-4"
-                  >
-                  {/* Personal Notes */}
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      Personal Notes
-                    </label>
-                    <textarea
-                      placeholder="e.g., This is my favorite version for its audio quality..."
-                      value={formData.notes}
-                      onChange={(e) => {
-                        if (e.target.value.length <= 2000) {
-                          setFormData({ ...formData, notes: e.target.value });
-                        }
-                      }}
-                      rows={3}
-                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface resize-none"
-                    />
-                    <div className="flex justify-between items-center mt-1">
-                      <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
-                        <input
-                          type="checkbox"
-                          checked={formData.notes_public}
-                          onChange={(e) => setFormData({ ...formData, notes_public: e.target.checked })}
-                          className="rounded border-gray-300 dark:border-gray-600 text-primary-600 focus:ring-primary-500"
-                        />
-                        Make notes public
-                      </label>
-                      <span className={`text-xs ${formData.notes.length > 1900 ? 'text-amber-500' : 'text-gray-400 dark:text-gray-500'}`}>
-                        {formData.notes.length}/2000
-                      </span>
-                    </div>
-                    <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                      {formData.notes_public 
-                        ? 'Notes will be visible to anyone viewing your collection.' 
-                        : 'Notes are private and only visible when logged in.'}
-                    </p>
                   </div>
 
                   {/* Product Identifiers: Barcode (UPC / EAN) & ASIN */}
