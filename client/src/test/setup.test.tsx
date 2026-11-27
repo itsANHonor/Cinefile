@@ -92,7 +92,7 @@ describe('CollectionPage floating Add item button', () => {
     expect(screen.queryByRole('button', { name: 'Add item' })).not.toBeInTheDocument();
   });
 
-  it('toggles between Items, Movies, and Shelf views and swaps toolbar sort controls for shelf actions', async () => {
+  it('toggles between Items, Titles, and Shelf views and swaps toolbar sort controls for shelf actions', async () => {
     const user = userEvent.setup();
     vi.spyOn(apiService, 'verifyAuth').mockResolvedValue(true);
     mockCollectionApis();
@@ -128,7 +128,7 @@ describe('CollectionPage floating Add item button', () => {
     const shelfBtn = viewGroup.querySelector('button:nth-of-type(3)') as HTMLButtonElement;
 
     expect(itemsBtn).toHaveTextContent('Items');
-    expect(moviesBtn).toHaveTextContent('Movies');
+    expect(moviesBtn).toHaveTextContent('Titles');
     expect(shelfBtn).toHaveTextContent('Shelf');
     expect(itemsBtn).toHaveAttribute('aria-pressed', 'true');
     expect(moviesBtn).toHaveAttribute('aria-pressed', 'false');
@@ -137,7 +137,7 @@ describe('CollectionPage floating Add item button', () => {
     // In Items view, sort controls are visible
     expect(screen.getByRole('button', { name: /Director/i })).toBeInTheDocument();
 
-    // Toggle to Movies view
+    // Toggle to Titles view
     await user.click(moviesBtn);
     expect(moviesBtn).toHaveAttribute('aria-pressed', 'true');
     expect(await screen.findByRole('heading', { name: 'Arrival' })).toBeInTheDocument();

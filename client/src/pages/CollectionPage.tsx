@@ -958,7 +958,7 @@ const CollectionPage: React.FC = () => {
               type="button"
               aria-pressed={params.view === 'movies'}
               onClick={() => setParams({ view: 'movies' })}
-              title="Browse individual movies and titles"
+              title="Browse individual movie and TV titles"
               className={segmentedItemClasses(params.view === 'movies')}
             >
               <svg
@@ -972,7 +972,7 @@ const CollectionPage: React.FC = () => {
                 <rect x="3" y="4" width="18" height="16" rx="2" />
                 <path strokeLinecap="round" d="M7 4v16M17 4v16M3 8h4M17 8h4M3 12h18M3 16h4M17 16h4" />
               </svg>
-              <span>Movies</span>
+              <span>Titles</span>
             </button>
             <button
               type="button"
@@ -1090,10 +1090,10 @@ const CollectionPage: React.FC = () => {
         </section>
       ) : params.view === 'movies' ? (
         /* Movies Grid or Empty State */
-        <section aria-label="Movies results" className="relative min-h-[12rem]">
+        <section aria-label="Title results" className="relative min-h-[12rem]">
           {moviesLoadError && (
             <EmptyState
-              title="Couldn’t load movies"
+              title="Couldn’t load titles"
               description={moviesLoadError}
               action={
                 <Button onClick={() => loadInitialMovies()} variant="secondary">
@@ -1110,7 +1110,7 @@ const CollectionPage: React.FC = () => {
 
           {!moviesLoadError && isEmptyMoviesCollection && (
             <EmptyState
-              title="No movies found"
+              title="No titles found"
               description="Start building your collection by adding your first movie or TV show."
               action={
                 canEdit ? (

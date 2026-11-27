@@ -105,7 +105,7 @@ const CollectionToolbar: React.FC<CollectionToolbarProps> = ({
             enterKeyHint="search"
             value={searchInput}
             onChange={(e) => onSearchChange(e.target.value)}
-            placeholder={viewMode === 'movies' ? 'Search movies & shows...' : 'Search collection...'}
+            placeholder={viewMode === 'movies' ? 'Search titles...' : 'Search collection...'}
             className="w-full min-h-11 pl-10 pr-10 py-2 text-sm border border-subtle rounded-[--radius-control] bg-surface-raised text-content placeholder:text-content-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
           />
           <svg
