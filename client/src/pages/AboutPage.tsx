@@ -20,9 +20,22 @@ const AboutPage: React.FC = () => {
           <p className="text-lg text-gray-500 dark:text-gray-400 mb-6">
             Organize your Blu-rays, 4K UHDs, and DVDs with metadata from The Movie Database
           </p>
-          <p className="text-sm text-gray-400 dark:text-gray-500 mb-6">
-            Version {APP_VERSION}
-          </p>
+          <a
+            href="https://github.com/itsANHonor/Cinefile/releases"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 rounded-full border border-primary-200 bg-primary-50 px-3 py-1 mb-6 font-mono text-xs font-medium text-primary-700 transition-colors hover:bg-primary-100 dark:border-primary-800 dark:bg-primary-900/30 dark:text-primary-300 dark:hover:bg-primary-900/50"
+          >
+            <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"
+              />
+            </svg>
+            v{APP_VERSION}
+          </a>
           <a
             href="https://github.com/itsANHonor/Cinefile"
             target="_blank"
