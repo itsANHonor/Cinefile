@@ -4,6 +4,7 @@ import 'dotenv/config';
 import path from 'path';
 import rateLimit from 'express-rate-limit';
 import { setupDatabase } from './database';
+import { APP_VERSION } from './version';
 import { requirePublicCollectionOrAuth } from './middleware/auth.middleware';
 
 // Import read-only routes
@@ -94,7 +95,7 @@ app.get('/api/health', (req, res) => {
     status: 'healthy',
     mode: 'readonly',
     timestamp: new Date().toISOString(),
-    version: '2.1.0-rc.1',
+    version: APP_VERSION,
   });
 });
 

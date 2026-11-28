@@ -1,5 +1,6 @@
 import React from 'react';
 import Logo from '../components/Logo';
+import { APP_VERSION } from '../lib/version';
 
 const AboutPage: React.FC = () => {
   return (
@@ -18,6 +19,9 @@ const AboutPage: React.FC = () => {
           </p>
           <p className="text-lg text-gray-500 dark:text-gray-400 mb-6">
             Organize your Blu-rays, 4K UHDs, and DVDs with metadata from The Movie Database
+          </p>
+          <p className="text-sm text-gray-400 dark:text-gray-500 mb-6">
+            Version {APP_VERSION}
           </p>
           <a
             href="https://github.com/itsANHonor/Cinefile"

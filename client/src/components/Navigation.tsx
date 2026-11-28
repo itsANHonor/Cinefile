@@ -4,6 +4,7 @@ import ThemeToggle from './ThemeToggle';
 import Logo from './Logo';
 import { useSidebar } from '../context/SidebarContext';
 import { useServerMode } from '../context/ServerModeContext';
+import { APP_VERSION } from '../lib/version';
 
 const Navigation: React.FC = () => {
   const { isCollapsed, toggleSidebar, isMobileOpen, closeMobile, toggleMobile } = useSidebar();
@@ -236,6 +237,16 @@ const Navigation: React.FC = () => {
                 <ThemeToggle />
               </div>
             )}
+          </div>
+
+          {/* Version Footer */}
+          <div
+            className="px-3 pb-2 text-xs text-gray-400 dark:text-gray-500"
+            title={`Cinefile v${APP_VERSION}`}
+          >
+            <span className={`block ${isCollapsed ? 'lg:truncate lg:text-center' : ''}`}>
+              v{APP_VERSION}
+            </span>
           </div>
         </div>
       </div>

@@ -5,6 +5,7 @@ import fs from 'fs';
 import http from 'http';
 import path from 'path';
 import { setupDatabase } from './database';
+import { APP_VERSION } from './version';
 import { isDesktopMode, requirePublicCollectionOrAuth } from './middleware/auth.middleware';
 
 // Import routes
@@ -101,7 +102,7 @@ app.get('/api/health', (req, res) => {
     mode: 'full',
     desktop: isDesktopMode(),
     timestamp: new Date().toISOString(),
-    version: '2.1.0-rc.1',
+    version: APP_VERSION,
   });
 });
 

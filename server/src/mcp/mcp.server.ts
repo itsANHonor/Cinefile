@@ -1,5 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
+import { APP_VERSION } from '../version';
 import {
   addPhysicalItem,
   CANONICAL_FORMATS,
@@ -48,7 +49,7 @@ export function createCinefileMcpServer(): McpServer {
   const server = new McpServer(
     {
       name: 'cinefile-mcp',
-      version: '2.1.0-rc.1',
+      version: APP_VERSION,
     },
     {
       instructions:
