@@ -1,6 +1,6 @@
 {
   "name": "cinefile",
-  "version": "2.1.0-rc.1",
+  "version": "2.1.0-rc.2",
   "description": "A self-hosted web application for cataloging and displaying physical video media collections",
   "main": "electron/dist/main.js",
   "scripts": {
@@ -13,7 +13,8 @@
     "desktop:start": "npm run build:all && npm run desktop:rebuild && npx electron .",
     "desktop:pack": "npm run build:all && npm run desktop:rebuild && npx electron-builder --dir",
     "desktop:dist": "npm run build:all && npm run desktop:rebuild && npx electron-builder --publish never",
-    "install:all": "npm install && cd server && npm install && cd ../client && npm install"
+    "install:all": "npm install && cd server && npm install && cd ../client && npm install",
+    "release": "sh scripts/release.sh"
   },
   "keywords": [
     "media",
